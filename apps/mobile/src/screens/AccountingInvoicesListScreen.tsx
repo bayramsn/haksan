@@ -1,163 +1,67 @@
-import { useState, useCallback } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  RefreshControl,
-} from 'react-native';
-import { router } from 'expo-router';
+import { useState, useCallback, useRef } from 'react';
+import { ActivityIndicator, StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { financeService } from '@/src/api/services';
 
 const PRIMARY = '#000c69';
-
-type InvoiceType = 'all' | 'satis' | 'alis';
-
-const MOCK_INVOICES = [
-  { id: 'inv1', no: 'FAT-2026-001', company: 'Omega Endüstri', type: 'satis', date: '26.05.2026', dueDate: '26.06.2026', amount: 28500, kdv: 5130, currency: 'EUR', status: 'odendi', relatedOffer: 'TKL-2026-003' },
-  { id: 'inv2', no: 'FAT-2026-002', company: 'Kartal Endüstri A.Ş.', type: 'satis', date: '29.05.2026', dueDate: '29.06.2026', amount: 19800, kdv: 3564, currency: 'EUR', status: 'odendi', relatedOffer: 'TKL-2026-004' },
-  { id: 'inv3', no: 'FAT-2026-003', company: 'Kaya Metal A.Ş.', type: 'satis', date: '02.06.2026', dueDate: '02.07.2026', amount: 33700, kdv: 6066, currency: 'EUR', status: 'bekliyor', relatedOffer: 'TKL-2026-002' },
-  { id: 'inv4', no: 'FAT-2026-004', company: 'Kontrol Elektronik Ltd.', type: 'alis', date: '10.06.2026', dueDate: '10.07.2026', amount: 3200, kdv: 576, currency: 'EUR', status: 'odendi', relatedOffer: 'PO-2026-001' },
-  { id: 'inv5', no: 'FAT-2026-005', company: 'Haksan Makine A.Ş.', type: 'satis', date: '15.06.2026', dueDate: '15.07.2026', amount: 24500, kdv: 4410, currency: 'EUR', status: 'bekliyor', relatedOffer: 'TKL-2026-001' },
-  { id: 'inv6', no: 'FAT-2026-006', company: 'Endüstriyel Parça A.Ş.', type: 'alis', date: '20.06.2026', dueDate: '20.07.2026', amount: 8700, kdv: 1566, currency: 'EUR', status: 'odendi', relatedOffer: 'PO-2026-002' },
-];
-
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
-  odendi: { label: 'Ödendi', bg: '#ECFDF5', text: '#059669' },
-  bekliyor: { label: 'Bekliyor', bg: '#EEF2FF', text: PRIMARY },
-  gecikti: { label: 'Gecikti', bg: '#FEF2F2', text: '#cf060c' },
-};
-
-const TYPE_TABS: { key: InvoiceType; label: string }[] = [
-  { key: 'all', label: 'Tümü' },
-  { key: 'satis', label: 'Satış' },
-  { key: 'alis', label: 'Alış' },
-];
+type InvoiceType = 'all' | 'sales' | 'purchase';
+const TYPE_TABS: { key: InvoiceType; label: string }[] = [{ key: 'all', label: 'Tümü' }, { key: 'sales', label: 'Satış' }, { key: 'purchase', label: 'Alış' }];
+const searchText = (value: unknown) => String(value ?? '').toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ı/g, 'i');
+const date = (value: unknown) => { const parsed = new Date(String(value ?? '')); return Number.isNaN(parsed.getTime()) ? 'Belirtilmemiş' : parsed.toLocaleDateString('tr-TR'); };
+const money = (value: unknown, currency?: string) => `${Number(value ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${currency ?? ''}`.trim();
 
 export function AccountingInvoicesListScreen() {
   const [search, setSearch] = useState('');
   const [typeTab, setTypeTab] = useState<InvoiceType>('all');
-  const [refreshing, setRefreshing] = useState(false);
-
-  const filtered = MOCK_INVOICES.filter(inv => {
-    const matchSearch = `${inv.no} ${inv.company}`.toLowerCase().includes(search.toLowerCase());
-    const matchType = typeTab === 'all' || inv.type === typeTab;
-    return matchSearch && matchType;
-  });
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await new Promise(res => setTimeout(res, 600));
-    setRefreshing(false);
-  }, []);
-
-  const totalAmount = filtered.reduce((s, i) => s + i.amount, 0);
-
-  const renderHeader = () => (
-    <View style={styles.headerBar}>
-      <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-        <Ionicons name="arrow-back" size={24} color="#111827" />
-      </TouchableOpacity>
-      <Text style={styles.headerTitle}>Faturalar</Text>
-      <View style={{ width: 40 }} />
-    </View>
-  );
-
-  return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-      {renderHeader()}
-
-      <View style={styles.tabsContainer}>
-        {TYPE_TABS.map(tab => (
-          <TouchableOpacity
-            key={tab.key}
-            onPress={() => setTypeTab(tab.key)}
-            style={[styles.tabBtn, typeTab === tab.key && styles.tabBtnActive]}
-          >
-            <Text style={[styles.tabText, typeTab === tab.key && styles.tabTextActive]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <View style={styles.toolbarContainer}>
-        <View style={styles.searchInputWrapper}>
-          <Ionicons name="search" size={14} color="#9ca3af" />
-          <TextInput
-            style={styles.searchInput}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Fatura no veya firma..."
-            placeholderTextColor="#9ca3af"
-          />
-        </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={onRefresh}>
-          <Ionicons name="refresh" size={16} color="#717182" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.statsBar}>
-        <Text style={styles.statsText}>
-          {filtered.length} fatura · Toplam €{totalAmount.toLocaleString('tr-TR')}
-        </Text>
-      </View>
-
-      <ScrollView
-        style={styles.listScroll}
-        contentContainerStyle={styles.listContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {filtered.map(inv => {
-          const cfg = STATUS_CONFIG[inv.status];
-          return (
-            <TouchableOpacity
-              key={inv.id}
-              activeOpacity={0.8}
-              onPress={() => router.push(`/modules/accounting-invoices/${inv.id}`)}
-              style={styles.card}
-            >
-              <View
-                style={[
-                  styles.typeIcon,
-                  { backgroundColor: inv.type === 'satis' ? PRIMARY : '#F97316' }
-                ]}
-              >
-                <Text style={styles.typeIconText}>{inv.type === 'satis' ? 'SAT' : 'ALI'}</Text>
-              </View>
-
-              <View style={styles.infoCol}>
-                <Text style={styles.companyText} numberOfLines={1}>{inv.company}</Text>
-                <Text style={styles.noText}>{inv.no}</Text>
-                <View style={styles.dateRow}>
-                  <Text style={styles.dateText}>{inv.date}</Text>
-                  <Text style={styles.dateDot}>·</Text>
-                  <Text style={styles.dateText}>Vade: {inv.dueDate}</Text>
-                </View>
-              </View>
-
-              <View style={styles.amountCol}>
-                <Text style={styles.amountText}>€{inv.amount.toLocaleString('tr-TR')}</Text>
-                <Text style={styles.kdvText}>+KDV €{inv.kdv.toLocaleString('tr-TR')}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-                  <Text style={[styles.statusBadgeText, { color: cfg.text }]}>{cfg.label}</Text>
-                </View>
-              </View>
-
-              <Ionicons name="chevron-forward" size={16} color="#d1d5db" style={{ marginLeft: 8 }} />
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      <TouchableOpacity style={styles.fab} activeOpacity={0.8}>
-        <Ionicons name="add" size={24} color="#ffffff" />
-      </TouchableOpacity>
-    </SafeAreaView>
-  );
+  const [records, setRecords] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const requestId = useRef(0);
+  const load = useCallback(async () => {
+    const request = ++requestId.current;
+    setLoading(true); setError(''); setRecords([]); setTotal(0);
+    try {
+      // Bu endpoint search kabul etmez. Arama yalnız tüm sunucu sayfaları
+      // tamamlandıktan sonra uygulanır; ilk sayfa ile sınırlanmaz.
+      const byId = new Map<string, any>();
+      let page = 1;
+      let expectedTotal = 0;
+      do {
+        const response = await financeService.accountingInvoices({ page, pageSize: 200, type: typeTab === 'all' ? undefined : typeTab });
+        if (request !== requestId.current) return;
+        if (!Array.isArray(response.data) || !Number.isFinite(Number(response.total))) throw new Error('Fatura listesi beklenen biçimde alınamadı.');
+        expectedTotal = Number(response.total);
+        const previousCount = byId.size;
+        for (const invoice of response.data) byId.set(invoice.id, invoice);
+        if (byId.size < expectedTotal && byId.size === previousCount) throw new Error('Fatura listesi tamamlanamadı. Tekrar deneyin.');
+        page += 1;
+      } while (byId.size < expectedTotal);
+      if (request === requestId.current) { setRecords([...byId.values()]); setTotal(expectedTotal); }
+    } catch (err) { if (request === requestId.current) setError(err instanceof Error ? err.message : 'Faturalar yüklenemedi.'); }
+    finally { if (request === requestId.current) setLoading(false); }
+  }, [typeTab]);
+  useFocusEffect(useCallback(() => { void load(); return () => { requestId.current += 1; }; }, [load]));
+  const filtered = records.filter(invoice => searchText(`${invoice.invoiceNo} ${invoice.company?.shortName ?? ''} ${invoice.company?.legalTitle ?? ''}`).includes(searchText(search.trim())));
+  return <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+    <View style={styles.headerBar}><TouchableOpacity accessibilityLabel="Geri" onPress={() => router.back()} style={styles.backBtn}><Ionicons name="arrow-back" size={24} color="#111827" /></TouchableOpacity><Text style={styles.headerTitle}>Faturalar</Text><View style={{ width: 40 }} /></View>
+    <View style={styles.tabsContainer}>{TYPE_TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => { setRecords([]); setTotal(0); setTypeTab(tab.key); }} style={[styles.tabBtn, typeTab === tab.key && styles.tabBtnActive]}><Text style={[styles.tabText, typeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text></TouchableOpacity>)}</View>
+    <View style={styles.toolbarContainer}><View style={styles.searchInputWrapper}><Ionicons name="search" size={14} color="#9ca3af" /><TextInput style={styles.searchInput} value={search} onChangeText={setSearch} placeholder="Fatura no veya firma..." placeholderTextColor="#9ca3af" autoCorrect={false} /></View><TouchableOpacity accessibilityLabel="Faturaları yenile" disabled={loading} style={styles.refreshBtn} onPress={() => void load()}><Ionicons name="refresh" size={16} color="#717182" /></TouchableOpacity></View>
+    <View style={styles.statsBar}><Text style={styles.statsText}>{loading ? 'CRM faturaları yükleniyor…' : error ? 'Fatura listesi yüklenemedi' : `${filtered.length} fatura${search.trim() ? ` / ${total} kayıt` : ''}`}</Text></View>
+    <ScrollView style={styles.listScroll} contentContainerStyle={styles.listContent} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
+      {loading && <ActivityIndicator color={PRIMARY} />}
+      {error ? <View><Text style={{ color: '#cf060c' }}>{error}</Text><TouchableOpacity style={styles.refreshBtn} onPress={() => void load()}><Text>Tekrar Dene</Text></TouchableOpacity></View> : null}
+      {!loading && !error && !filtered.length && <Text style={styles.statsText}>Fatura bulunamadı.</Text>}
+      {filtered.map(invoice => <TouchableOpacity key={invoice.id} activeOpacity={0.8} onPress={() => router.push(`/modules/accounting-invoices/${invoice.id}`)} style={styles.card}>
+        <View style={[styles.typeIcon, { backgroundColor: invoice.type === 'sales' ? PRIMARY : '#F97316' }]}><Text style={styles.typeIconText}>{invoice.type === 'sales' ? 'SAT' : 'ALI'}</Text></View>
+        <View style={styles.infoCol}><Text style={styles.companyText} numberOfLines={2}>{invoice.company?.shortName || invoice.company?.legalTitle || 'Firma belirtilmemiş'}</Text><Text style={styles.noText}>{invoice.invoiceNo}</Text><View style={styles.dateRow}><Text style={styles.dateText}>{date(invoice.invoiceDate)}</Text></View><Text style={styles.dateText}>Vade: {date(invoice.firstDueDate ?? invoice.lastDueDate)}</Text></View>
+        <View style={styles.amountCol}><Text style={styles.amountText}>{money(invoice.grandTotal, invoice.currency?.code)}</Text><Text style={styles.kdvText}>KDV: {money(invoice.vatAmount, invoice.currency?.code)}</Text><View style={[styles.statusBadge, { backgroundColor: '#f3f4f6' }]}><Text style={[styles.statusBadgeText, { color: '#717182' }]}>{invoice.invoiceCategory === 'administrative' ? 'İdari' : 'Ticari'}</Text></View></View>
+        <Ionicons name="chevron-forward" size={16} color="#d1d5db" style={{ marginLeft: 8 }} />
+      </TouchableOpacity>)}
+    </ScrollView>
+  </SafeAreaView>;
 }
 
 const styles = StyleSheet.create({

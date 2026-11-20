@@ -1,0 +1,224 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Haksan production GitHub OIDC deploy role and EC2 ECR pull access.
+
+Parameters:
+  GitHubRepository:
+    Type: String
+    Default: bayramsn/haksan
+    AllowedPattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    Description: GitHub owner/repository allowed to assume the deploy role.
+  GitHubEnvironment:
+    Type: String
+    Default: production
+    AllowedPattern: "^[A-Za-z0-9_.-]+$"
+    Description: Protected GitHub environment allowed to assume the deploy role.
+  ExistingGitHubOidcProviderArn:
+    Type: String
+    Default: ""
+    Description: Leave empty to create the GitHub OIDC provider, or pass its ARN if it already exists.
+  ArtifactBucket:
+    Type: String
+    Default: haksan-prod-deploy-artifacts-866490183348-eu-central-1
+  ProductionInstanceId:
+    Type: AWS::EC2::Instance::Id
+    Default: i-0fac9a4d4eca0cf13
+  ProductionEc2RoleName:
+    Type: String
+    Default: HaksanEC2SSMRole
+  ApiRepositoryName:
+    Type: String
+    Default: haksan/api
+  WebRepositoryName:
+    Type: String
+    Default: haksan/web
+
+Conditions:
+  CreateGitHubOidcProvider: !Equals [!Ref ExistingGitHubOidcProviderArn, ""]
+
+Resources:
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateGitHubOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: App
+          Value: haksan-crm
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  GitHubProductionDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: HaksanGitHubProductionDeploy
+      Description: Short-lived GitHub Actions role for immutable Haksan production releases.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: GitHubProductionEnvironmentOnly
+            Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateGitHubOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Ref ExistingGitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepository}:environment:${GitHubEnvironment}
+      Policies:
+        - PolicyName: HaksanProductionDeploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: EcrLogin
+                Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: BuildPushAndVerifyReleaseImages
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeImages
+                  - ecr:DescribeImageScanFindings
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:PutImage
+                  - ecr:StartImageScan
+                  - ecr:UploadLayerPart
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ApiRepositoryName}
+                  - !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${WebRepositoryName}
+              - Sid: LocateArtifactBucket
+                Effect: Allow
+                Action: s3:GetBucketLocation
+                Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucket}
+              - Sid: PublishVerifiedDeployRunner
+                Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${ArtifactBucket}/releases/ci/*
+              - Sid: RunFixedSsmDocumentOnProductionInstance
+                Effect: Allow
+                Action: ssm:SendCommand
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:document/${ProductionDeployDocument}
+                  - !Sub arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${ProductionInstanceId}
+              - Sid: ReadDeployCommandResult
+                Effect: Allow
+                Action: ssm:GetCommandInvocation
+                Resource: "*"
+      Tags:
+        - Key: App
+          Value: haksan-crm
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  ProductionDeployDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      Name: HaksanDeployEcrRelease
+      DocumentType: Command
+      DocumentFormat: YAML
+      TargetType: /AWS::EC2::Instance
+      UpdateMethod: NewVersion
+      Content:
+        schemaVersion: "2.2"
+        description: Deploy a verified immutable Haksan ECR release with health checks and rollback.
+        parameters:
+          ReleaseId:
+            type: String
+            description: Immutable GitHub production release id.
+            allowedPattern: "^github-[0-9]+-[0-9a-f]{12}$"
+            interpolationType: ENV_VAR
+          ApiImageUri:
+            type: String
+            description: Haksan API ECR image pinned by digest.
+            allowedPattern: !Sub "^${AWS::AccountId}\\.dkr\\.ecr\\.${AWS::Region}\\.amazonaws\\.com/haksan/api@sha256:[0-9a-f]{64}$"
+            interpolationType: ENV_VAR
+          WebImageUri:
+            type: String
+            description: Haksan web ECR image pinned by digest.
+            allowedPattern: !Sub "^${AWS::AccountId}\\.dkr\\.ecr\\.${AWS::Region}\\.amazonaws\\.com/haksan/web@sha256:[0-9a-f]{64}$"
+            interpolationType: ENV_VAR
+          RunnerUri:
+            type: String
+            description: Verified deployment runner stored in the production artifact bucket.
+            allowedPattern: !Sub "^s3://${ArtifactBucket}/releases/ci/github-[0-9]+-[0-9a-f]{12}/deploy-ecr-release\\.sh$"
+            interpolationType: ENV_VAR
+          RunnerSha256:
+            type: String
+            description: SHA-256 checksum of the deployment runner.
+            allowedPattern: "^[0-9a-f]{64}$"
+            interpolationType: ENV_VAR
+        mainSteps:
+          - name: DeployVerifiedRelease
+            action: aws:runShellScript
+            precondition:
+              StringEquals:
+                - platformType
+                - Linux
+            inputs:
+              timeoutSeconds: "1800"
+              runCommand:
+                - |
+                  bash -Eeuo pipefail -c '
+                    runner_path=/tmp/haksan-ecr-deploy.sh
+                    aws s3 cp "$SSM_RunnerUri" "$runner_path" --region eu-central-1 --only-show-errors
+                    printf "%s  %s\n" "$SSM_RunnerSha256" "$runner_path" | sha256sum -c -
+                    env RELEASE_ID="$SSM_ReleaseId" API_IMAGE_URI="$SSM_ApiImageUri" WEB_IMAGE_URI="$SSM_WebImageUri" AWS_REGION=eu-central-1 bash "$runner_path"
+                  '
+      Tags:
+        - Key: App
+          Value: haksan-crm
+        - Key: Environment
+          Value: production
+        - Key: ManagedBy
+          Value: cloudformation
+
+  ProductionEc2EcrPullPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: HaksanProductionEcrPull
+      Roles:
+        - !Ref ProductionEc2RoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EcrLogin
+            Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: "*"
+          - Sid: PullImmutableReleaseImages
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:GetDownloadUrlForLayer
+            Resource:
+              - !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ApiRepositoryName}
+              - !Sub arn:${AWS::Partition}:ecr:${AWS::Region}:${AWS::AccountId}:repository/${WebRepositoryName}
+
+Outputs:
+  GitHubProductionDeployRoleArn:
+    Value: !GetAtt GitHubProductionDeployRole.Arn
+  GitHubOidcProviderArn:
+    Value: !If
+      - CreateGitHubOidcProvider
+      - !Ref GitHubOidcProvider
+      - !Ref ExistingGitHubOidcProviderArn
+  ProductionEc2EcrPullPolicyName:
+    Value: HaksanProductionEcrPull
+  ProductionDeployDocumentName:
+    Value: !Ref ProductionDeployDocument

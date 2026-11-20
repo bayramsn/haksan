@@ -1,4 +1,6 @@
+import { tradeFairsService } from '@/src/api/tradeFairs';
 import type { NavKey } from '@/src/navigation/modules';
+import { ApiError } from '@/src/api/apiClient';
 import {
   adminService,
   calendarService,
@@ -85,6 +87,13 @@ function toQueryParams(p?: Record<string, string | number | undefined>): Record<
 }
 
 export const MODULE_REGISTRY: Partial<Record<NavKey, ModuleConfig>> = {
+  'trade-fairs': {
+    kind: 'list',
+    fetchList: (p) => tradeFairsService.list(p),
+    titleField: 'companyName',
+    subtitleField: 'contactName',
+    searchParam: 'q',
+  },
   customers: {
     kind: 'list',
     fetchList: (p) => companyService.list(p),
@@ -122,7 +131,7 @@ export const MODULE_REGISTRY: Partial<Record<NavKey, ModuleConfig>> = {
   proformas: {
     kind: 'list',
     fetchList: (p) => documentService.proformas(p),
-    fetchOne: (id) => apiGetProforma(id),
+    fetchOne: (id) => documentService.proforma(id).then((row) => ({ ...row, documentKind: 'proforma' })),
     titleField: 'documentNo',
     subtitleField: 'company.legalTitle',
     icon: 'document-text-outline',
@@ -134,7 +143,7 @@ export const MODULE_REGISTRY: Partial<Record<NavKey, ModuleConfig>> = {
   contracts: {
     kind: 'list',
     fetchList: (p) => documentService.contracts(p),
-    fetchOne: (id) => apiGetProforma(id),
+    fetchOne: (id) => documentService.contract(id).then((row) => ({ ...row, documentKind: 'contract' })),
     titleField: 'contractNo',
     subtitleField: 'company.legalTitle',
     icon: 'ribbon-outline',
@@ -147,8 +156,8 @@ export const MODULE_REGISTRY: Partial<Record<NavKey, ModuleConfig>> = {
     kind: 'list',
     fetchList: async (p) => {
       const [pro, con] = await Promise.all([documentService.proformas(p), documentService.contracts(p)]);
-      const contracts = normalizeList(con).map((c) => ({ ...c, documentNo: c.documentNo ?? c.contractNo }));
-      return [...normalizeList(pro), ...contracts];
+      const contracts = normalizeList(con).map((c) => ({ ...c, documentNo: c.documentNo ?? c.contractNo, documentKind: 'contract' }));
+      return [...normalizeList(pro).map((p) => ({ ...p, documentKind: 'proforma' })), ...contracts];
     },
     fetchOne: (id) => apiGetProforma(id),
     titleField: 'documentNo',
@@ -186,6 +195,7 @@ export const MODULE_REGISTRY: Partial<Record<NavKey, ModuleConfig>> = {
   payments: {
     kind: 'list',
     fetchList: (p) => financeService.payments(p),
+    fetchOne: (id) => financeService.payment(id),
     titleField: 'description',
     subtitleField: 'amount',
     badgeField: 'status',
@@ -222,6 +232,7 @@ export const MODULE_REGISTRY: Partial<Record<NavKey, ModuleConfig>> = {
   machines: {
     kind: 'list',
     fetchList: (p) => inventoryService.customerDevices(p),
+    fetchOne: (id) => inventoryService.customerDevice(id),
     titleField: 'serialNumber',
     subtitleField: 'modelName',
   },
@@ -266,11 +277,13 @@ export const MODULE_REGISTRY: Partial<Record<NavKey, ModuleConfig>> = {
 };
 
 async function apiGetProforma(id: string) {
-  const res = await documentService.proformas({ page: 1, pageSize: 200 });
-  const row = normalizeList(res).find((r) => String(r.id) === id);
-  if (row) return row;
-  const contracts = await documentService.contracts({ page: 1, pageSize: 200 });
-  return normalizeList(contracts).find((r) => String(r.id) === id) ?? { id };
+  try {
+    return { ...await documentService.proforma(id), documentKind: 'proforma' };
+  } catch (error) {
+    // Only a missing record warrants trying the other document type.
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
+    return { ...await documentService.contract(id), documentKind: 'contract' };
+  }
 }
 
 function normalizeAccounting(res: unknown): Record<string, unknown>[] {

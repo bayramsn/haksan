@@ -32,6 +32,8 @@ npm install
 | iOS simülatör | `http://localhost:3000/api/v1` |
 | Fiziksel cihaz | `EXPO_PUBLIC_API_HOST=192.168.x.x` (Mac LAN IP) |
 
+Canlı CRM için `apps/mobile/.env` dosyasında `EXPO_PUBLIC_API_BASE_URL=https://crm.52-28-67-148.sslip.io/api/v1` ayarlıdır. Expo'yu yeniden başlatınca bu adres yüklenir. Preview ve production EAS build'leri aynı genel API adresini `eas.json` üzerinden alır. Giriş ekranındaki **Sunucu adresini değiştir** bağlantısı, daha önce cihazda kaydedilmiş adresi düzeltmek içindir.
+
 İsteğe bağlı tam URL:
 
 ```bash

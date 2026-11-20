@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Alert, StyleSheet, Text } from 'react-native';
-import { router } from 'expo-router';
-import { getApiBaseUrl, persistApiBaseUrl } from '@/src/api/config';
+import { router, useLocalSearchParams } from 'expo-router';
+import { assertAllowedBaseUrl, getApiBaseUrl, persistApiBaseUrl } from '@/src/api/config';
 import { Button } from '@/src/ui/Button';
 import { FormPageLayout } from '@/src/ui/FormPageLayout';
 import { Input } from '@/src/ui/Input';
@@ -9,17 +9,28 @@ import { colors, typography } from '@/src/theme/tokens';
 
 /** Onboarding O6 API URL kurulumu */
 export default function OnboardingApiSetup() {
+  const { from } = useLocalSearchParams<{ from?: string }>();
+  const fromLogin = from === 'login';
   const [apiUrl, setApiUrl] = useState(getApiBaseUrl());
   const [testing, setTesting] = useState(false);
+  const continueAfterSave = () => {
+    router.replace(fromLogin ? '/login' : '/onboarding/permissions');
+  };
 
   const testAndSave = async () => {
+    const base = apiUrl.trim().replace(/\/$/, '');
+    try {
+      assertAllowedBaseUrl(base);
+    } catch (error) {
+      Alert.alert('Geçersiz adres', error instanceof Error ? error.message : 'API adresi geçersiz.');
+      return;
+    }
     setTesting(true);
     try {
-      const base = apiUrl.trim().replace(/\/$/, '');
-      await persistApiBaseUrl(base);
-      const res = await fetch(`${base}/companies?pageSize=1`, { headers: { Accept: 'application/json' } });
+      const res = await fetch(`${base}/auth/me`, { headers: { Accept: 'application/json' } });
       if (res.status !== 401 && !res.ok) throw new Error('bad status');
-      router.push('/onboarding/permissions');
+      await persistApiBaseUrl(base);
+      continueAfterSave();
     } catch {
       Alert.alert(
         'Bağlantı testi',
@@ -29,8 +40,9 @@ export default function OnboardingApiSetup() {
           {
             text: 'Kaydet ve devam',
             onPress: () => {
-              void persistApiBaseUrl(apiUrl.trim());
-              router.push('/onboarding/permissions');
+              void persistApiBaseUrl(base)
+                .then(continueAfterSave)
+                .catch(() => Alert.alert('Hata', 'API adresi kaydedilemedi.'));
             },
           },
         ]
@@ -41,11 +53,11 @@ export default function OnboardingApiSetup() {
   };
 
   return (
-    <FormPageLayout title="API Sunucusu" subtitle="CRM backend adresinizi girin." showBack={false}>
-      <Text style={styles.hint}>Android: http://10.0.2.2:3000/api/v1{'\n'}iOS: http://localhost:3000/api/v1</Text>
+    <FormPageLayout title="API Sunucusu" subtitle="CRM backend adresinizi girin." showBack={fromLogin}>
+      <Text style={styles.hint}>Canlı CRM için HTTPS API adresini girin (ör. https://crm.example.com/api/v1).</Text>
       <Input label="API Base URL" value={apiUrl} onChangeText={setApiUrl} autoCapitalize="none" autoCorrect={false} />
       <Button title="Test Et ve Devam" onPress={() => void testAndSave()} loading={testing} />
-      <Button title="Atla" variant="ghost" onPress={() => router.push('/onboarding/permissions')} />
+      <Button title={fromLogin ? 'Giriş ekranına dön' : 'Atla'} variant="ghost" onPress={() => fromLogin ? router.replace('/login') : router.push('/onboarding/permissions')} />
     </FormPageLayout>
   );
 }

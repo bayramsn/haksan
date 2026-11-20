@@ -13,6 +13,7 @@ import { Screen } from '@/src/ui/Screen';
 import { TabStrip } from '@/src/ui/TabStrip';
 import { colors, layout, spacing, typography, fonts } from '@/src/theme/tokens';
 import { useDetailRecord } from './useDetailRecord';
+import { openStoredFile } from '@/src/api/download';
 
 const TABS = ['Genel', 'Kalemler', 'Notlar'] as const;
 type Tab = (typeof TABS)[number];
@@ -27,11 +28,11 @@ export function AccountingInvoiceDetailScreen({ id }: Props) {
   const invoiceNo = String(data?.invoiceNo ?? data?.documentNo ?? data?.id ?? 'Fatura Detayı');
   
   const type = String(data?.type ?? data?.invoiceType ?? 'Fatura');
-  const totalAmount = data?.totalAmount ? `${data.totalAmount} ${data.currency ?? '₺'}` : '';
+  const totalAmount = data?.totalAmount != null ? `${Number(data.totalAmount).toLocaleString('tr-TR')} ${data.currency?.code ?? ''}` : '';
   const date = String(data?.date ?? data?.invoiceDate ?? data?.createdAt ?? '');
   const dueDate = String(data?.dueDate ?? '');
   
-  const companyName = String(data?.company?.name ?? data?.companyName ?? data?.customerName ?? 'Firma Bağlantısı Yok');
+  const companyName = String(data?.company?.legalTitle ?? data?.company?.name ?? data?.companyName ?? data?.customerName ?? 'Firma Bağlantısı Yok');
   const companyId = String(data?.companyId ?? data?.customerId ?? '');
   
   const status = String(data?.status ?? data?.statusCode ?? 'Açık');
@@ -103,7 +104,11 @@ export function AccountingInvoiceDetailScreen({ id }: Props) {
           <CompanyQuickActionFlat 
             label="PDF Görüntüle" 
             icon="document-attach-outline" 
-            onPress={() => Alert.alert('Bilgi', 'PDF indirme yakında eklenecek')} 
+            onPress={() => {
+              const fileId = data.fileId ?? data.pdfFileId ?? data.documentFileId;
+              if (!fileId) { Alert.alert('Fatura belgesi', 'CRM’de bu faturaya eklenmiş dosya bulunmuyor.'); return; }
+              void openStoredFile(String(fileId)).catch((e) => Alert.alert('Dosya açılamadı', e instanceof Error ? e.message : 'Tekrar deneyin.'));
+            }}
           />
         </CompanyQuickActionFlatRow>
 
@@ -123,7 +128,11 @@ export function AccountingInvoiceDetailScreen({ id }: Props) {
 
         {tab === 'Kalemler' ? (
           <View style={styles.tabBody}>
-            <Text style={styles.muted}>Fatura kalemleri yakında eklenecek.</Text>
+            {Array.isArray(data.lineItems) && data.lineItems.length ? data.lineItems.map((line: any) => <View key={String(line.id)} style={{ gap: spacing.sm }}>
+              <Text style={typography.bodyMd}>{String(line.description ?? 'Fatura kalemi')}</Text>
+              <Text style={styles.muted}>{Number(line.quantity ?? 0).toLocaleString('tr-TR')} adet · Birim: {Number(line.unitPrice ?? 0).toLocaleString('tr-TR')} {data.currency?.code ?? ''} · KDV %{Number(line.vatRate ?? 0)}</Text>
+              {line.lineTotal != null ? <Text style={typography.bodyMd}>{Number(line.lineTotal).toLocaleString('tr-TR')} {data.currency?.code ?? ''}</Text> : null}
+            </View>) : <Text style={styles.muted}>CRM’de bu faturaya ait kalem kaydı bulunmuyor.</Text>}
           </View>
         ) : null}
 

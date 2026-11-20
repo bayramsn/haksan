@@ -1,276 +1,158 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, RefreshControl, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import type { PipelineStageCode } from '@haksan/shared';
+import { opportunityService, quoteService, fileService, financeService } from '@/src/api/services';
+import { ApiError } from '@/src/api/apiClient';
+import { openStoredFile } from '@/src/api/download';
+import { useAuth } from '@/src/auth/AuthProvider';
 
 const PRIMARY = '#000c69';
 const RED = '#cf060c';
 const INK = '#1a1c1d';
 const MUTED = '#717182';
-
-const STAGES = [
-  { key: 'lead', label: 'Lead', color: '#9CA3AF' },
-  { key: 'arama', label: 'Arama', color: PRIMARY },
-  { key: 'ziyaret', label: 'Ziyaret', color: '#4F46E5' },
-  { key: 'teklif', label: 'Teklif', color: '#F59E0B' },
-  { key: 'satis', label: 'Satış', color: '#137333' },
-];
-
 const TABS = ['Zaman Çizelgesi', 'Teklifler', 'Dokümanlar', 'Ödemeler'];
-
-// MOCK DATA
-const companies = [
-  { id: '1', name: 'Haksan Makina', avatarColor: '#000c69' },
-  { id: '2', name: 'Asil Çelik', avatarColor: '#10B981' },
+const STAGES: { key: PipelineStageCode; label: string; color: string }[] = [
+  { key: 'lead', label: 'Lead', color: MUTED }, { key: 'call', label: 'Arama', color: PRIMARY },
+  { key: 'visit', label: 'Ziyaret', color: '#4f46e5' }, { key: 'quote', label: 'Teklif', color: '#d97706' },
+  { key: 'sales', label: 'Satış', color: PRIMARY }, { key: 'proforma', label: 'Proforma', color: PRIMARY },
+  { key: 'contract', label: 'Sözleşme', color: PRIMARY }, { key: 'payment_plan', label: 'Ödeme Planı', color: PRIMARY },
+  { key: 'commercial_invoice', label: 'Ticari Fatura', color: PRIMARY }, { key: 'customs_approved', label: 'Gümrük Onayı', color: PRIMARY },
+  { key: 'stock_picking', label: 'Stok Hazırlama', color: PRIMARY }, { key: 'shipping', label: 'Sevkiyat', color: PRIMARY },
+  { key: 'installation', label: 'Kurulum', color: PRIMARY }, { key: 'delivered', label: 'Teslim Edildi', color: '#137333' },
 ];
-
-const salesCards = [
-  { id: '1', companyId: '1', notes: 'Yeni CNC Tezgahı Alımı', stage: 'teklif', createdAt: '20.06.2026', value: 24500, companyName: 'Haksan Makina' },
-];
-
-const MOCK_TIMELINE = [
-  { id: 't1', type: 'stage', text: 'Satış kartı oluşturuldu — Lead aşamasında', time: '01.06.2026 09:00', user: 'Satış' },
-  { id: 't2', type: 'call', text: 'Arama yapıldı — müşteri bilgilendirildi', time: '03.06.2026 10:30', user: 'Ahmet K.' },
-  { id: 't3', type: 'stage', text: 'Aşama güncellendi: Lead → Arama', time: '05.06.2026 09:15', user: 'Sistem' },
-  { id: 't4', type: 'visit', text: 'Saha ziyareti tamamlandı', time: '08.06.2026 14:00', user: 'Serkan T.' },
-  { id: 't5', type: 'offer', text: 'Teklif oluşturuldu: TKL-2026-001 — €24.500', time: '10.06.2026 11:30', user: 'Satış' },
-  { id: 't6', type: 'stage', text: 'Aşama güncellendi: Arama → Teklif', time: '10.06.2026 11:31', user: 'Sistem' },
-];
-
-const MOCK_QUOTES = [
-  { id: 'q1', no: 'TKL-2026-001', amount: 24500, status: 'gonderilen', date: '10.06.2026', revision: 1 },
-];
-
-const MOCK_DOCS = [
-  { id: 'd1', name: 'Teknik_Şartname.pdf', type: 'PDF', size: '2.4 MB', date: '05.06.2026' },
-];
-
-const TIMELINE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  stage: 'refresh-outline', call: 'call-outline', visit: 'car-outline', offer: 'document-text-outline', note: 'create-outline', payment: 'cash-outline',
+const stageName = (code: string) => STAGES.find(s => s.key === code)?.label ?? code;
+const date = (value: unknown) => {
+  const parsed = new Date(String(value ?? ''));
+  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleString('tr-TR');
 };
-
-const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
-  taslak: { label: 'Taslak', bg: '#f3f4f6', text: '#4b5563' },
-  gonderilen: { label: 'Gönderildi', bg: '#eef2ff', text: PRIMARY },
-  onaylanan: { label: 'Onaylandı', bg: '#e6f4ea', text: '#137333' },
-  reddedilen: { label: 'Reddedildi', bg: '#fef2f2', text: RED },
-};
+const money = (value: unknown, currency?: string) => `${Number(value ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${currency ?? ''}`.trim();
+function failure(error: unknown) { return error instanceof Error ? error.message : 'İşlem tamamlanamadı. Tekrar deneyin.'; }
+function blockerMessages(value: unknown): string[] {
+  if (!value || typeof value !== 'object') return [];
+  const details = value as { blockerLabels?: unknown[]; blockers?: unknown[] };
+  const source = details.blockerLabels ?? details.blockers ?? [];
+  return source.flatMap(item => typeof item === 'string' ? [item] : item && typeof item === 'object' && 'label' in item ? [String(item.label)] : []);
+}
 
 type Props = { id: string };
-
 export function SalesCaseDetailScreen({ id }: Props) {
+  const { user } = useAuth();
+  const can = (permission: string) => Boolean(user?.permissions.includes(permission) || user?.roles.includes('super_admin'));
+  const [card, setCard] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState(0);
+  const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [sectionLoading, setSectionLoading] = useState(false);
+  const [sectionError, setSectionError] = useState('');
+  const [revision, setRevision] = useState(0);
   const [stageModalOpen, setStageModalOpen] = useState(false);
-
-  const card = salesCards.find(c => c.id === id) ?? salesCards[0];
-  const company = companies.find(c => c.id === card.companyId);
-  const stageIndex = STAGES.findIndex(s => s.key === card.stage);
-  
-  // Fake days
-  const daysInStage = 12;
-
-  const renderTimeline = () => (
-    <View style={styles.tabPanel}>
-      {MOCK_TIMELINE.map((event, i) => (
-        <View key={event.id} style={styles.timelineRow}>
-          <View style={styles.timelineLeft}>
-            <View style={styles.timelineIconBox}>
-              <Ionicons name={TIMELINE_ICONS[event.type] || 'ellipse'} size={14} color={INK} />
-            </View>
-            {i < MOCK_TIMELINE.length - 1 && <View style={styles.timelineLine} />}
-          </View>
-          <View style={styles.timelineContent}>
-            <Text style={styles.timelineText}>{event.text}</Text>
-            <Text style={styles.timelineMeta}>{event.time} · {event.user}</Text>
-          </View>
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [blockers, setBlockers] = useState<string[] | null>(null);
+  const epoch = useRef(0);
+  const load = useCallback(async () => {
+    const request = ++epoch.current;
+    setLoading(true); setError('');
+    try {
+      const result = await opportunityService.get(id);
+      if (request === epoch.current) { setCard(result); setPage(1); setRevision(v => v + 1); }
+    } catch (err) { if (request === epoch.current) { setCard(null); setError(failure(err)); } }
+    finally { if (request === epoch.current) setLoading(false); }
+  }, [id]);
+  useFocusEffect(useCallback(() => {
+    setCard(null); setRows([]); void load();
+    return () => { epoch.current += 1; };
+  }, [load]));
+  useEffect(() => {
+    let current = true;
+    if (page === 1) { setRows([]); setTotal(0); } setSectionError('');
+    if (!card || activeTab === 0) { setSectionLoading(false); return; }
+    const permission = activeTab === 1 ? 'quotes.read' : activeTab === 2 ? 'files.read' : 'payments.read';
+    if (!can(permission)) { setSectionError('Bu kayıtları görüntüleme yetkiniz yok.'); setSectionLoading(false); return; }
+    if (activeTab === 3 && !card.companyId) { setSectionLoading(false); return; }
+    setSectionLoading(true);
+    const request = activeTab === 1
+      ? quoteService.list({ opportunityId: id, page, pageSize: 100 })
+      : activeTab === 2 ? fileService.links({ entityType: 'opportunity', entityId: id, page, pageSize: 100 })
+      : financeService.payments({ companyId: card.companyId, page, pageSize: 100 });
+    void request.then(result => {
+      if (current) { setRows(previous => page === 1 ? result.data : [...previous, ...result.data]); setTotal(result.meta.total ?? result.data?.length ?? 0); }
+    }).catch(err => { if (current) setSectionError(failure(err)); })
+      .finally(() => { if (current) setSectionLoading(false); });
+    return () => { current = false; };
+  }, [id, activeTab, card?.id, card?.companyId, revision, user, page]);
+  const run = async (action: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(true);
+    try { await action(); }
+    catch (err) {
+      const missing = err instanceof ApiError ? blockerMessages(err.details) : [];
+      if (missing.length) { setStageModalOpen(false); setBlockers(missing); } else Alert.alert('İşlem tamamlanamadı', failure(err));
+    } finally { setBusy(false); }
+  };
+  const changeStage = (key: PipelineStageCode) => {
+    const target = card.processReadiness?.targets?.find((t: any) => t.axis === 'operation' && t.code === key);
+    const missing = blockerMessages(target);
+    if (missing.length) { setStageModalOpen(false); setBlockers(missing); return; }
+    if (target?.requiresReason && !reason.trim()) { Alert.alert('Gerekçe gerekli', 'Önceki aşamaya dönmek için gerekçe yazın.'); return; }
+    void run(async () => {
+      await opportunityService.changeStage(id, { toStage: key, changeReason: reason.trim() || undefined });
+      setStageModalOpen(false); setReason(''); await load();
+    });
+  };
+  const editOpportunity = () => { setBlockers(null); router.push({ pathname: '/forms/opportunity', params: { id } }); };
+  const newQuote = () => router.push({ pathname: '/forms/offer', params: { opportunityId: id, companyId: card.companyId ?? '' } });
+  const companyName = card?.company?.shortName || card?.company?.legalTitle || card?.leadCompanyName || 'Firma bağlantısı yok';
+  const qualificationLabels: Record<string, string> = { lead: 'Lead', c: 'C', b: 'B', a: 'A', a_plus: 'A+', win: 'Kazanıldı', lost: 'Kaybedildi' };
+  const qualificationName = (code: string) => qualificationLabels[code] ?? code;
+  const timeline = card ? [
+    ...(card.qualificationHistory ?? []).map((event: any) => ({ id: `qualification-${event.id}`, text: `Satış derecesi: ${qualificationName(event.fromStage ?? event.fromStageCode ?? '')} → ${qualificationName(event.toStage ?? event.toStageCode ?? '')}`, at: event.createdAt })),
+    ...(card.history ?? []).map((event: any) => ({ id: `stage-${event.id}`, text: `${event.fromStage?.name ?? 'Başlangıç'} → ${event.toStage?.name ?? 'Aşama'}${event.changeReason ? ` · ${event.changeReason}` : ''}`, at: event.createdAt })),
+    ...(card.contactEvents ?? []).map((event: any) => ({ id: `contact-${event.id}`, text: event.subject || event.note || 'Müşteri teması', at: event.occurredAt, user: event.actor?.fullName })),
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()) : [];
+  const header = <View style={styles.headerBar}><TouchableOpacity accessibilityLabel="Geri" onPress={() => router.back()} style={{ padding: 8 }}><Ionicons name="arrow-back" size={24} color={INK} /></TouchableOpacity><Text style={styles.heroTitle}>Fırsat Detayı</Text></View>;
+  if (loading && !card) return <SafeAreaView style={styles.root}>{header}<ActivityIndicator style={{ margin: 32 }} color={PRIMARY} /></SafeAreaView>;
+  if (!card) return <SafeAreaView style={styles.root}>{header}<View style={styles.tabPanel}><Text>{error || 'Fırsat bulunamadı.'}</Text><TouchableOpacity onPress={() => void load()} style={styles.actionBtnPrimary}><Text>Tekrar Dene</Text></TouchableOpacity></View></SafeAreaView>;
+  return <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+    {header}
+    <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
+      <View style={styles.hero}>
+        <Text style={styles.heroTitle}>{card.title || 'Fırsat'}</Text>
+        <TouchableOpacity disabled={!card.companyId} onPress={() => router.push(`/modules/customers/${card.companyId}`)}><Text style={styles.heroDesc}>{companyName}</Text></TouchableOpacity>
+        <Text style={styles.heroValue}>{money(card.estimatedValue, card.currency?.code)}</Text>
+        <Text style={styles.heroMetaText}>{card.stage?.name ?? stageName(card.stage?.code ?? '')} · {card.primaryContact?.fullName || card.leadContactName || 'Yetkili belirtilmemiş'}</Text>
+        {card.description ? <Text style={styles.timelineText}>{card.description}</Text> : null}
+        <View style={styles.qaList}>
+          {can('opportunities.update') && <TouchableOpacity style={styles.qaBtn} onPress={() => router.push({ pathname: '/forms/opportunity', params: { id } })}><Text style={styles.qaText}>Düzenle</Text></TouchableOpacity>}
+          {can('opportunities.update') && !card.processReadiness?.closed && <TouchableOpacity style={styles.qaBtn} onPress={() => setStageModalOpen(true)}><Text style={styles.qaText}>Aşamayı Değiştir</Text></TouchableOpacity>}
+          {can('quotes.create') && <TouchableOpacity style={styles.qaBtn} onPress={newQuote}><Text style={styles.qaText}>Teklif Oluştur</Text></TouchableOpacity>}
         </View>
-      ))}
-    </View>
-  );
-
-  const renderTeklifler = () => (
-    <View style={styles.tabPanel}>
-      {MOCK_QUOTES.map(q => {
-        const cfg = STATUS_CONFIG[q.status] || STATUS_CONFIG.taslak;
-        return (
-          <View key={q.id} style={styles.quoteCard}>
-            <View style={styles.quoteHeader}>
-              <View>
-                <Text style={styles.quoteNo}>{q.no}</Text>
-                <Text style={styles.quoteMeta}>Rev. {q.revision} · {q.date}</Text>
-              </View>
-              <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                <Text style={styles.quoteAmount}>€{q.amount.toLocaleString('tr-TR')}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
-                  <Text style={[styles.statusBadgeText, { color: cfg.text }]}>{cfg.label}</Text>
-                </View>
-              </View>
-            </View>
-            <View style={styles.quoteActions}>
-              <TouchableOpacity style={[styles.quoteBtn, { backgroundColor: '#eef2ff' }]}>
-                <Text style={[styles.quoteBtnText, { color: PRIMARY }]}>PDF Önizle</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.quoteBtn, { backgroundColor: '#e6f4ea' }]}>
-                <Text style={[styles.quoteBtnText, { color: '#137333' }]}>Onayla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.quoteBtn, { backgroundColor: '#fef2f2' }]}>
-                <Text style={[styles.quoteBtnText, { color: RED }]}>Reddet</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        );
-      })}
-      <TouchableOpacity style={styles.actionBtnPrimary}>
-        <Ionicons name="add" size={16} color={PRIMARY} />
-        <Text style={styles.actionBtnPrimaryText}>Yeni Teklif Oluştur</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderDokumanlar = () => (
-    <View style={styles.tabPanel}>
-      {MOCK_DOCS.map(doc => (
-        <View key={doc.id} style={styles.docCard}>
-          <View style={styles.docIconBox}>
-            <Ionicons name="document-text" size={18} color={RED} />
-          </View>
-          <View style={styles.docContent}>
-            <Text style={styles.docName} numberOfLines={1}>{doc.name}</Text>
-            <Text style={styles.docMeta}>{doc.type} · {doc.size} · {doc.date}</Text>
-          </View>
-          <TouchableOpacity style={{ padding: 8 }}>
-            <Ionicons name="trash-outline" size={16} color={RED} />
-          </TouchableOpacity>
-        </View>
-      ))}
-      <TouchableOpacity style={[styles.actionBtnPrimary, { backgroundColor: '#fef7e0' }]}>
-        <Ionicons name="cloud-upload-outline" size={16} color="#854d0e" />
-        <Text style={[styles.actionBtnPrimaryText, { color: '#854d0e' }]}>Doküman Yükle</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderOdemeler = () => (
-    <View style={styles.tabPanel}>
-      <View style={styles.emptyState}>
-        <Ionicons name="card-outline" size={32} color="#d1d5db" />
-        <Text style={styles.emptyTitle}>Ödeme planı yok</Text>
-        <TouchableOpacity style={styles.actionBtnOutline}>
-          <Ionicons name="add" size={16} color="#0f766e" />
-          <Text style={styles.actionBtnOutlineText}>Ödeme Planı Oluştur</Text>
-        </TouchableOpacity>
       </View>
-    </View>
-  );
-
-  return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-      <View style={styles.headerBar}>
-        <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
-          <Ionicons name="arrow-back" size={24} color={INK} />
-        </TouchableOpacity>
+      <ScrollView horizontal style={styles.tabsWrapper} contentContainerStyle={styles.tabsScroll}>{TABS.map((tab, index) => <TouchableOpacity key={tab} onPress={() => { setRows([]); setPage(1); setSectionError(''); setActiveTab(index); }} style={[styles.tabBtn, activeTab === index && styles.tabBtnActive]}><Text style={[styles.tabText, activeTab === index && styles.tabTextActive]}>{tab}</Text></TouchableOpacity>)}</ScrollView>
+      <View style={styles.tabPanel}>
+        {activeTab === 0 && (timeline.length ? timeline.map(event => <View key={event.id} style={styles.quoteCard}><Text style={styles.timelineText}>{event.text}</Text><Text style={styles.timelineMeta}>{date(event.at)}{event.user ? ` · ${event.user}` : ''}</Text></View>) : <Text style={styles.emptyTitle}>Henüz zaman çizelgesi kaydı yok.</Text>)}
+        {sectionLoading && <ActivityIndicator color={PRIMARY} />}
+        {sectionError ? <View><Text style={{ color: RED }}>{sectionError}</Text><TouchableOpacity style={styles.actionBtnPrimary} onPress={() => setRevision(value => value + 1)}><Text style={styles.actionBtnPrimaryText}>Tekrar Dene</Text></TouchableOpacity></View> : null}
+        {activeTab === 3 && <Text style={styles.quoteMeta}>Firmanın tüm tahsilat ve ödemeleri gösterilir.</Text>}
+        {activeTab > 0 && !sectionLoading && !sectionError && !rows.length && <Text style={styles.emptyTitle}>Kayıt bulunamadı.</Text>}
+        {activeTab === 1 && rows.map(quote => <View key={quote.id} style={styles.quoteCard}>
+          <TouchableOpacity onPress={() => router.push(`/modules/offers/${quote.id}`)}><Text style={styles.quoteNo}>{quote.documentNo || quote.subject || 'Teklif'}</Text><Text style={styles.quoteMeta}>Rev. {quote.revisionNo ?? 1} · {date(quote.createdAt)}</Text><Text style={styles.quoteAmount}>{money(quote.totalAmount ?? quote.grandTotal, quote.currency?.code)}</Text><Text style={styles.quoteMeta}>{quote.status?.name ?? quote.statusCode ?? ''}</Text></TouchableOpacity>
+          <TouchableOpacity disabled={busy} style={styles.actionBtnPrimary} onPress={() => void run(() => quoteService.openPdf(quote.id))}><Text style={styles.actionBtnPrimaryText}>CRM PDF'ini Aç / Paylaş</Text></TouchableOpacity>
+        </View>)}
+        {activeTab === 2 && rows.map(link => <TouchableOpacity key={link.id} disabled={busy || !link.file?.id} style={styles.docCard} onPress={() => void run(() => openStoredFile(link.file.id))}><Ionicons name="document-text-outline" size={24} color={PRIMARY} /><View style={styles.docContent}><Text style={styles.docName}>{link.file?.originalFilename || 'Dosya'}</Text><Text style={styles.docMeta}>{link.documentType?.name ?? ''} · {date(link.file?.createdAt)}</Text></View><Ionicons name="download-outline" size={20} color={PRIMARY} /></TouchableOpacity>)}
+        {activeTab === 3 && rows.map(payment => <TouchableOpacity key={payment.id} style={styles.quoteCard} onPress={() => router.push(`/modules/payments/${payment.id}`)}><Text style={styles.quoteAmount}>{money(payment.amount, payment.currency?.code)}</Text><Text style={styles.quoteMeta}>{date(payment.paymentDate)} · {payment.status?.name ?? ''}</Text><Text style={styles.timelineText}>{payment.description ?? payment.notes ?? ''}</Text></TouchableOpacity>)}
+        {activeTab > 0 && total > rows.length && !sectionLoading && <TouchableOpacity style={styles.actionBtnPrimary} onPress={() => setPage(value => value + 1)}><Text style={styles.actionBtnPrimaryText}>Daha Fazla Göster ({rows.length}/{total})</Text></TouchableOpacity>}
       </View>
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Hero */}
-        <View style={styles.hero}>
-          <View style={styles.heroTop}>
-            <View style={[styles.avatar, { backgroundColor: company?.avatarColor ?? PRIMARY }]}>
-              <Text style={styles.avatarText}>{company?.name.charAt(0) ?? 'K'}</Text>
-            </View>
-            <View style={styles.heroInfo}>
-              <Text style={styles.heroTitle}>{company?.name ?? card.companyName}</Text>
-              <Text style={styles.heroDesc}>{card.notes}</Text>
-            </View>
-            <View style={styles.heroRight}>
-              <Text style={styles.heroValue}>€{card.value.toLocaleString('tr-TR')}</Text>
-              <View style={styles.heroMetaRow}>
-                <Ionicons name="time-outline" size={10} color={MUTED} />
-                <Text style={styles.heroMetaText}>{daysInStage}g aşamada</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Stage Timeline */}
-          <TouchableOpacity style={styles.stageTimeline} onPress={() => setStageModalOpen(true)}>
-            <View style={styles.stageTrack}>
-              {STAGES.slice(0, 5).map((s, i) => {
-                const isPast = i < stageIndex;
-                const isCurrent = i === stageIndex;
-                return (
-                  <View key={s.key} style={styles.stageCol}>
-                    <View style={[styles.stageBar, { backgroundColor: isCurrent ? s.color : isPast ? `${s.color}60` : '#e5e7eb' }]} />
-                    {isCurrent && <Text style={[styles.stageLabel, { color: s.color }]}>{s.label}</Text>}
-                  </View>
-                );
-              })}
-            </View>
-          </TouchableOpacity>
-
-          {/* Action Row */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.qaList}>
-            {[
-              { label: 'Teklif Oluştur', icon: 'document-text', color: '#137333', bg: '#e6f4ea' },
-              { label: 'Aktivite', icon: 'calendar', color: PRIMARY, bg: '#eef2ff' },
-              { label: 'Doküman', icon: 'cloud-upload', color: '#854d0e', bg: '#fef7e0' },
-              { label: 'Ödeme Planı', icon: 'card', color: '#0f766e', bg: '#ecfdf5' },
-            ].map(a => (
-              <TouchableOpacity key={a.label} style={[styles.qaBtn, { backgroundColor: a.bg }]}>
-                <Ionicons name={a.icon as any} size={15} color={a.color} />
-                <Text style={[styles.qaText, { color: a.color }]}>{a.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Tabs */}
-        <View style={styles.tabsWrapper}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
-            {TABS.map((t, i) => (
-              <TouchableOpacity key={t} style={[styles.tabBtn, activeTab === i && styles.tabBtnActive]} onPress={() => setActiveTab(i)}>
-                <Text style={[styles.tabText, activeTab === i && styles.tabTextActive]}>{t}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Content */}
-        <View style={styles.contentArea}>
-          {activeTab === 0 && renderTimeline()}
-          {activeTab === 1 && renderTeklifler()}
-          {activeTab === 2 && renderDokumanlar()}
-          {activeTab === 3 && renderOdemeler()}
-          <View style={{ height: 100 }} />
-        </View>
-      </ScrollView>
-
-      {/* Stage Modal */}
-      <Modal visible={stageModalOpen} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Aşamayı Değiştir</Text>
-            <View style={{ gap: 6 }}>
-              {STAGES.map(s => (
-                <TouchableOpacity
-                  key={s.key}
-                  onPress={() => setStageModalOpen(false)}
-                  style={[styles.modalOption, card.stage === s.key && { backgroundColor: '#eef2ff' }]}
-                >
-                  <View style={[styles.modalOptionDot, { backgroundColor: s.color }]} />
-                  <Text style={[styles.modalOptionText, card.stage === s.key && { color: PRIMARY }]}>{s.label}</Text>
-                  {card.stage === s.key && <Text style={styles.modalOptionCurrent}>Mevcut</Text>}
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TouchableOpacity onPress={() => setStageModalOpen(false)} style={styles.modalCancel}>
-              <Text style={styles.modalCancelText}>İptal</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </SafeAreaView>
-  );
+    </ScrollView>
+    <Modal visible={stageModalOpen} transparent animationType="slide" onRequestClose={() => setStageModalOpen(false)}><View style={styles.modalOverlay}><View style={[styles.modalContent, { maxHeight: '85%' }]}><Text style={styles.modalTitle}>Aşamayı Değiştir</Text><TextInput placeholder="Geri geçiş gerekçesi" value={reason} onChangeText={setReason} maxLength={1000} style={styles.modalOption} /><ScrollView>{STAGES.map(stage => <TouchableOpacity key={stage.key} disabled={busy || card.stage?.code === stage.key} onPress={() => changeStage(stage.key)} style={styles.modalOption}><View style={[styles.modalOptionDot, { backgroundColor: stage.color }]} /><Text style={styles.modalOptionText}>{stage.label}</Text>{card.stage?.code === stage.key && <Text style={styles.modalOptionCurrent}>Mevcut</Text>}</TouchableOpacity>)}</ScrollView><TouchableOpacity disabled={busy} style={styles.modalCancel} onPress={() => setStageModalOpen(false)}><Text>Kapat</Text></TouchableOpacity></View></View></Modal>
+    <Modal visible={blockers !== null} transparent animationType="fade" onRequestClose={() => setBlockers(null)}><View style={styles.modalOverlay}><View style={[styles.modalContent, { maxHeight: '80%' }]}><Text style={styles.modalTitle}>Önce eksik bilgileri tamamlayın</Text><ScrollView>{blockers?.map((label, index) => <Text key={`${index}-${label}`} style={styles.timelineText}>• {label}</Text>)}</ScrollView><TouchableOpacity style={styles.actionBtnPrimary} onPress={editOpportunity}><Text style={styles.actionBtnPrimaryText}>Fırsat Bilgilerini Düzenle</Text></TouchableOpacity>{card.companyId && <TouchableOpacity style={styles.actionBtnPrimary} onPress={() => { setBlockers(null); router.push(`/modules/customers/${card.companyId}`); }}><Text style={styles.actionBtnPrimaryText}>Firma / Yetkili Bilgileri</Text></TouchableOpacity>}<Text style={styles.quoteMeta}>Aktivite ve operasyon belgelerine ilişkin eksikler ilgili CRM ekranından tamamlanmalıdır.</Text><TouchableOpacity style={styles.modalCancel} onPress={() => setBlockers(null)}><Text>Kapat</Text></TouchableOpacity></View></View></Modal>
+  </SafeAreaView>;
 }
 
 const styles = StyleSheet.create({

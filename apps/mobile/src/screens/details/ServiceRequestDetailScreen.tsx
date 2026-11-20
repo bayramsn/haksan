@@ -1,8 +1,13 @@
-import { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { useState, useRef, useCallback } from 'react';
+import { ActivityIndicator, Alert, View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { api } from '@/src/api/apiClient';
+import { serviceService } from '@/src/api/services';
+import { openFileUrl } from '@/src/api/download';
+import { useAuth } from '@/src/auth/AuthProvider';
+import { Button } from '@/src/ui/Button';
 
 const PRIMARY = '#000c69';
 const RED = '#cf060c';
@@ -10,314 +15,142 @@ const INK = '#1a1c1d';
 const MUTED = '#717182';
 const SERVICE_GREEN = '#0f766e';
 
-const STAGE_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  servis_talep: { label: 'Talep Açıldı', bg: '#f3f4f6', text: '#4b5563', border: '#d1d5db' },
-  musteri_iletisim: { label: 'Müşteri İletişim', bg: '#eef2ff', text: PRIMARY, border: '#c7d2fe' },
-  servis_teklifi: { label: 'Servis Teklifi', bg: '#fef7e0', text: '#b06000', border: '#f7d98c' },
-  bakim_onarim: { label: 'Bakım/Onarım', bg: '#fff7ed', text: '#f97316', border: '#fed7aa' },
-  servis_devam: { label: 'Devam Ediyor', bg: '#ecfdf5', text: SERVICE_GREEN, border: '#a7f3d0' },
+type Row = Record<string, unknown>;
+const record = (value: unknown): Row => value && typeof value === 'object' && !Array.isArray(value) ? value as Row : {};
+const text = (value: unknown): string => typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+const rows = (value: unknown): Row[] => Array.isArray(value) ? value.filter(item => item && typeof item === 'object' && !Array.isArray(item)) as Row[] : [];
+const STAGES: Record<string, string> = {
+  'Request Opened': 'Talep Açıldı', Diagnosis: 'Teşhis', 'Quote Needed': 'Teklif Gerekli',
+  'Quote Sent': 'Teklif Gönderildi', Approval: 'Onay', Scheduled: 'Planlandı',
+  'Service In Progress': 'Servis Devam Ediyor', 'Service Completed': 'Servis Tamamlandı',
+  'Signed Form': 'İmzalı Form', Closed: 'Kapalı',
 };
+const PRIORITIES: Record<string, string> = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', critical: 'Kritik' };
+const STATUS_LABELS: Record<string, string> = { open: 'Açık', in_progress: 'Devam Ediyor', waiting_customer: 'Müşteri Bekleniyor', resolved: 'Çözüldü', closed: 'Kapalı' };
+const TABS = ['Özet', 'Servis Teklifi', 'Garanti/RMA', 'Tamamlama', 'Notlar'];
 
-const PRIORITY_CONFIG: Record<string, { label: string; color: string }> = {
-  dusuk: { label: 'Düşük', color: '#9CA3AF' },
-  orta: { label: 'Orta', color: '#F59E0B' },
-  yuksek: { label: 'Yüksek', color: '#F97316' },
-  kritik: { label: 'Kritik', color: RED },
-};
-
-const TABS = [
-  { label: 'Özet', icon: 'settings-outline' },
-  { label: 'Servis Teklifi', icon: 'document-text-outline' },
-  { label: 'Garanti/RMA', icon: 'shield-checkmark-outline' },
-  { label: 'Tamamlama', icon: 'checkbox-outline' },
-  { label: 'Notlar', icon: 'chatbox-outline' },
-];
-
-const CHECKLIST_ITEMS = [
-  { id: 'c1', label: 'Makine genel kontrolü yapıldı', status: 'done' },
-  { id: 'c2', label: 'Elektrik sistemi test edildi', status: 'done' },
-  { id: 'c3', label: 'Yağlama sistemi kontrol edildi', status: 'na' },
-  { id: 'c4', label: 'CNC parametreleri yedeklendi', status: 'pending' },
-  { id: 'c5', label: 'İlk çalıştırma yapıldı', status: 'pending' },
-  { id: 'c6', label: 'Müşteri eğitimi verildi', status: 'pending' },
-];
-
-const CHECKLIST_STATUS = {
-  done: { label: 'Tamam', bg: '#e6f4ea', text: '#137333' },
-  pending: { label: 'Bekliyor', bg: '#f3f4f6', text: '#6b7280' },
-  na: { label: 'Geçerli Değil', bg: '#f5f3ff', text: '#6d28d9' },
-};
-
-// MOCK DATA
-const serviceRequests = [
-  { 
-    id: 'sr123', 
-    companyName: 'Haksan Makina', 
-    machineName: 'HS-2000 CNC Torna', 
-    stage: 'servis_devam', 
-    priority: 'yuksek',
-    tags: ['Mekanik', 'Garantili'],
-    description: 'Makine Z ekseni hata veriyor. Eksen motorundan ses geliyor.',
-    assignedTo: 'Serkan Teknisyen'
-  },
-];
-
-function TimerDisplay({ seconds }: { seconds: number }) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  return (
-    <Text style={styles.timerText}>
-      {String(h).padStart(2, '0')}:{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
-    </Text>
-  );
-}
-
-type Props = { id: string };
-
-export function ServiceRequestDetailScreen({ id }: Props) {
+export function ServiceRequestDetailScreen({ id }: { id: string }) {
+  const { user, hasRole } = useAuth();
+  const canUpdate = hasRole('super_admin') || Boolean(user?.permissions.includes('service_tickets.update'));
+  const [request, setRequest] = useState<Row | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState(0);
-  const [timerRunning, setTimerRunning] = useState(false);
-  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [stagePicker, setStagePicker] = useState(false);
+  const [note, setNote] = useState('');
+  const generation = useRef(0);
+  const load = useCallback(async () => {
+    const sequence = ++generation.current;
+    setLoading(true);
+    setError(null);
+    try {
+      // Tekil endpoint sayfalama veya örnek kayda düşmeden CRM kaydını getirir.
+      const data = await api.get<Row>(`/service-tickets/${encodeURIComponent(id)}`);
+      if (sequence === generation.current) setRequest(data);
+    } catch (cause) {
+      if (sequence === generation.current) {
+        setRequest(null);
+        setError(cause instanceof Error ? cause.message : 'Servis kaydı yüklenemedi.');
+      }
+    } finally {
+      if (sequence === generation.current) setLoading(false);
+    }
+  }, [id]);
+  useFocusEffect(useCallback(() => {
+    setRequest(null);
+    setNote('');
+    void load();
+    return () => { generation.current += 1; };
+  }, [load]));
 
-  const request = serviceRequests.find(r => r.id === id) ?? serviceRequests[0];
-  const stageCfg = STAGE_CONFIG[request.stage] ?? STAGE_CONFIG.servis_talep;
-  const priCfg = PRIORITY_CONFIG[request.priority] ?? PRIORITY_CONFIG.orta;
-
-  useEffect(() => {
-    if (!timerRunning) return;
-    const interval = setInterval(() => setTimerSeconds(s => s + 1), 1000);
-    return () => clearInterval(interval);
-  }, [timerRunning]);
-
-  const renderOzet = () => (
-    <View style={styles.tabPanel}>
-      <View style={styles.card}>
-        <Text style={styles.cardHeader}>MÜŞTERİ PROBLEMI</Text>
-        <Text style={styles.cardBody}>{request.description || 'Makine Z ekseni hata veriyor.'}</Text>
-      </View>
-      <View style={styles.card}>
-        <Text style={styles.cardHeader}>ATANAN</Text>
-        <View style={styles.assignedRow}>
-          <View style={styles.assignedAvatar}>
-            <Text style={styles.assignedAvatarText}>T</Text>
-          </View>
-          <View>
-            <Text style={styles.assignedName}>{request.assignedTo}</Text>
-            <Text style={styles.assignedRole}>Servis Teknisyeni</Text>
-          </View>
-        </View>
-      </View>
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#eef2ff' }]}>
-          <Text style={[styles.actionBtnText, { color: PRIMARY }]}>Aşama Güncelle</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#fef7e0' }]}>
-          <Text style={[styles.actionBtnText, { color: '#b06000' }]}>Not Ekle</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderTeklif = () => (
-    <View style={styles.tabPanel}>
-      <View style={styles.card}>
-        <Text style={styles.cardHeader}>KALEMLER</Text>
-        {[
-          { desc: 'Z ekseni kontrol kartı', qty: 1, price: 1200, unit: 'adet' },
-          { desc: 'Teknik servis işçiliği (4 saat)', qty: 4, price: 200, unit: 'saat' },
-        ].map((item, i) => (
-          <View key={i} style={[styles.itemRow, i > 0 && styles.itemRowBorder]}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.itemName}>{item.desc}</Text>
-              <Text style={styles.itemMeta}>{item.qty} {item.unit} × €{item.price}</Text>
-            </View>
-            <Text style={styles.itemTotal}>€{(item.qty * item.price).toLocaleString('tr-TR')}</Text>
-          </View>
-        ))}
-        <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>Toplam</Text>
-          <Text style={styles.totalVal}>€2.000</Text>
-        </View>
-      </View>
-      <TouchableOpacity style={styles.addBtn}>
-        <Ionicons name="add" size={16} color={PRIMARY} />
-        <Text style={styles.addBtnText}>Kalem Ekle</Text>
-      </TouchableOpacity>
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: SERVICE_GREEN }]}>
-          <Text style={[styles.actionBtnText, { color: '#ffffff' }]}>Kaydet</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: PRIMARY }]}>
-          <Text style={[styles.actionBtnText, { color: '#ffffff' }]}>Kaydet & Yazdır</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderGaranti = () => (
-    <View style={styles.tabPanel}>
-      <View style={styles.card}>
-        <Text style={styles.cardHeader}>GARANTİ DURUMU</Text>
-        <View style={styles.garantiBadge}>
-          <Ionicons name="shield-checkmark" size={16} color="#137333" />
-          <View style={styles.garantiChip}>
-            <Text style={styles.garantiText}>Garanti Kapsamında</Text>
-          </View>
-        </View>
-        <Text style={styles.garantiDate}>Garanti bitiş: 15.03.2027</Text>
-      </View>
-      <View style={styles.card}>
-        <Text style={styles.cardHeader}>RMA TALEP</Text>
-        {[
-          { label: 'Arıza Kategorisi', value: 'Elektronik Arıza' },
-          { label: 'Tedarikçi', value: 'Siemens Türkiye' },
-          { label: 'Değerlendirme', value: 'Kontrol kartı değişimi gerekli' },
-        ].map((f, i) => (
-          <View key={f.label} style={styles.rmaRow}>
-            <Text style={styles.rmaLabel}>{f.label}</Text>
-            <Text style={styles.rmaVal}>{f.value}</Text>
-          </View>
-        ))}
-      </View>
-      <View style={styles.actionRow}>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#fef7e0' }]}>
-          <Text style={[styles.actionBtnText, { color: '#b06000' }]}>Onaya Gönder</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: PRIMARY }]}>
-          <Text style={[styles.actionBtnText, { color: '#ffffff' }]}>Kaydet</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderTamamlama = () => {
-    const doneCount = CHECKLIST_ITEMS.filter(c => c.status === 'done').length;
-    return (
-      <View style={styles.tabPanel}>
-        <View style={styles.card}>
-          <View style={styles.clHeader}>
-            <Text style={styles.cardHeader}>KONTROL LİSTESİ</Text>
-            <Text style={styles.clProgressText}>{doneCount}/{CHECKLIST_ITEMS.length}</Text>
-          </View>
-          <View style={styles.clTrack}>
-            <View style={[styles.clFill, { width: `${(doneCount / CHECKLIST_ITEMS.length) * 100}%` }]} />
-          </View>
-          {CHECKLIST_ITEMS.map((item, i) => {
-            const cfg = CHECKLIST_STATUS[item.status as keyof typeof CHECKLIST_STATUS];
-            return (
-              <View key={item.id} style={[styles.clItem, i > 0 && styles.clItemBorder]}>
-                <View style={[styles.clBox, { backgroundColor: cfg.bg, borderColor: `${cfg.text}30` }]}>
-                  {item.status === 'done' && <Ionicons name="checkmark" size={12} color={cfg.text} />}
-                  {item.status === 'na' && <Text style={[styles.clNa, { color: cfg.text }]}>N/A</Text>}
-                </View>
-                <Text style={styles.clLabel}>{item.label}</Text>
-                <View style={[styles.clBadge, { backgroundColor: cfg.bg }]}>
-                  <Text style={[styles.clBadgeText, { color: cfg.text }]}>{cfg.label}</Text>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-        <TouchableOpacity style={[styles.actionBtn, { backgroundColor: SERVICE_GREEN }]}>
-          <Text style={[styles.actionBtnText, { color: '#ffffff' }]}>Servisi Kapat</Text>
-        </TouchableOpacity>
-      </View>
-    );
+  const run = async (action: () => Promise<unknown>) => {
+    if (busy) return;
+    setBusy(true);
+    try { await action(); }
+    catch (cause) { Alert.alert('İşlem tamamlanamadı', cause instanceof Error ? cause.message : 'Tekrar deneyin.'); }
+    finally { setBusy(false); }
   };
+  const setStage = (status: string, stage: string) => void run(async () => {
+    await serviceService.updateTicketStatus(id, status, stage);
+    setStagePicker(false);
+    await load();
+  });
+  const saveNote = () => void run(async () => {
+    const message = note.trim();
+    if (!message) throw new Error('Servis notunu yazın.');
+    const latest = await api.get<Row>(`/service-tickets/${encodeURIComponent(id)}`);
+    const metadata = record(latest.metadata);
+    const history = rows(metadata.noteHistory);
+    await serviceService.update(id, { metadata: { ...metadata, noteHistory: [...history, {
+      id: `mobile-${Date.now()}`, text: message, createdAt: new Date().toISOString(), userId: user?.id,
+    }] } });
+    setNote('');
+    await load();
+  });
+  const download = () => void run(() => openFileUrl(`/service-tickets/${encodeURIComponent(id)}/service-form.pdf`, { method: 'GET', filename: `${text(request?.ticketNo) || 'servis-formu'}.pdf` }));
 
-  const renderNotlar = () => (
-    <View style={styles.tabPanel}>
-      {[
-        { text: 'Müşteri, sorunun yazılım kaynaklı olduğunu düşünüyor. Ancak donanım problemi tespit edildi.', user: 'Serkan T.', time: '29.06.2026 15:30' },
-        { text: 'Yedek parça temin süreci başlatıldı. 3-5 iş günü bekleniyor.', user: 'Teknik Servis', time: '30.06.2026 09:15' },
-      ].map((note, i) => (
-        <View key={i} style={styles.card}>
-          <Text style={styles.noteText}>{note.text}</Text>
-          <Text style={styles.noteMeta}>{note.time} · {note.user}</Text>
-        </View>
-      ))}
-      <TouchableOpacity style={styles.addBtn}>
-        <Ionicons name="add" size={16} color={PRIMARY} />
-        <Text style={styles.addBtnText}>Servis Notu Ekle</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const metadata = record(request?.metadata);
+  const company = record(request?.company);
+  const status = record(request?.status);
+  const completion = record(metadata.completionForm);
+  const machine = record(completion.tezgah);
+  const quote = record(metadata.serviceQuote);
+  const quoteItems = rows(quote.items);
+  const operations = rows(metadata.operations);
+  const checks = rows(completion.checks);
+  const notes = rows(metadata.noteHistory);
+  const warranty = record(request?.warrantyClaim);
+  const stage = text(metadata.serviceStage);
+  const currency = text(quote.currency) || 'TRY';
+  const total = quoteItems.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
+  const field = (label: string, value: unknown) => <View key={label} style={styles.rmaRow}><Text style={styles.rmaLabel}>{label}</Text><Text style={[styles.rmaVal, { flex: 1, textAlign: 'right', paddingLeft: 12 }]}>{text(value) || '—'}</Text></View>;
+  const card = (title: string, content: React.ReactNode) => <View style={styles.card}><Text style={styles.cardHeader}>{title}</Text>{content}</View>;
+  const empty = (message: string) => <Text style={styles.cardBody}>{message}</Text>;
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <View style={styles.headerBar}>
-        <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
-          <Ionicons name="arrow-back" size={24} color={INK} />
-        </TouchableOpacity>
+        <TouchableOpacity accessibilityLabel="Geri" accessibilityRole="button" onPress={() => router.back()} style={{ padding: 12 }}><Ionicons name="arrow-back" size={24} color={INK} /></TouchableOpacity>
+        <Text style={styles.assignedName}>Servis Kaydı</Text>
       </View>
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Hero */}
-        <View style={styles.hero}>
-          <Text style={styles.heroId}>SR-2026-00{request.id.replace('sr', '')}</Text>
-          <Text style={styles.heroTitle}>{request.companyName}</Text>
-          {request.machineName && <Text style={styles.heroSub}>{request.machineName}</Text>}
-          
-          <View style={styles.heroTags}>
-            <View style={[styles.stageChip, { backgroundColor: stageCfg.bg, borderColor: stageCfg.border }]}>
-              <Text style={[styles.stageChipText, { color: stageCfg.text }]}>{stageCfg.label}</Text>
-            </View>
-            <Text style={[styles.priorityText, { color: priCfg.color }]}>▲ {priCfg.label}</Text>
-            {request.tags.map(tag => (
-              <View key={tag} style={styles.tagChip}>
-                <Text style={styles.tagChipText}>{tag}</Text>
-              </View>
-            ))}
+      {loading && !request ? <ActivityIndicator style={{ marginTop: 40 }} color={PRIMARY} /> : error || !request ? (
+        <View style={styles.tabPanel}><Text accessibilityRole="alert" style={styles.cardBody}>{error || 'Servis kaydı bulunamadı.'}</Text><Button title="Tekrar dene" onPress={() => void load()} /></View>
+      ) : (
+        <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
+          <View style={styles.hero}>
+            <Text style={styles.heroId}>{text(request.ticketNo) || id}</Text>
+            <Text style={styles.heroTitle}>{text(request.subject) || 'Servis talebi'}</Text>
+            <Text style={styles.heroSub}>{text(company.shortName) || text(company.legalTitle) || 'Firma bilgisi yok'}</Text>
+            <View style={styles.heroTags}><View style={[styles.stageChip, { borderColor: PRIMARY }]}><Text style={[styles.stageChipText, { color: PRIMARY }]}>{STAGES[stage] || STATUS_LABELS[text(status.code)] || text(status.name) || stage || 'Durum bilgisi yok'}</Text></View><Text style={styles.priorityText}>{PRIORITIES[text(request.severity)] || text(request.severity)}</Text></View>
+            <View style={{ marginTop: 16 }}><Button title="Servis Formu PDF Aç / Paylaş" onPress={download} loading={busy} /></View>
           </View>
-
-          {/* Timer */}
-          <View style={styles.timerBox}>
-            <View>
-              <Text style={styles.timerLabel}>SÜRE</Text>
-              <TimerDisplay seconds={timerSeconds} />
-            </View>
-            <View style={styles.timerActions}>
-              {!timerRunning ? (
-                <TouchableOpacity style={styles.timerPlayBtn} onPress={() => setTimerRunning(true)}>
-                  <Ionicons name="play" size={14} color="#ffffff" />
-                  <Text style={styles.timerPlayText}>Başlat</Text>
-                </TouchableOpacity>
-              ) : (
-                <>
-                  <TouchableOpacity style={styles.timerPauseBtn} onPress={() => setTimerRunning(false)}>
-                    <Ionicons name="pause" size={16} color="#b06000" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.timerStopBtn} onPress={() => { setTimerRunning(false); setTimerSeconds(0); }}>
-                    <Ionicons name="square" size={14} color={RED} />
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </View>
-        </View>
-
-        {/* Tabs */}
-        <View style={styles.tabsWrapper}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
-            {TABS.map((t, i) => (
-              <TouchableOpacity key={t.label} style={[styles.tabBtn, activeTab === i && styles.tabBtnActive]} onPress={() => setActiveTab(i)}>
-                <Ionicons name={t.icon as any} size={14} color={activeTab === i ? PRIMARY : MUTED} style={{ marginRight: 6 }} />
-                <Text style={[styles.tabText, activeTab === i && styles.tabTextActive]}>{t.label}</Text>
-              </TouchableOpacity>
-            ))}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsWrapper} contentContainerStyle={styles.tabsScroll}>
+            {TABS.map((label, index) => <TouchableOpacity key={label} accessibilityRole="tab" accessibilityState={{ selected: activeTab === index }} style={[styles.tabBtn, activeTab === index && styles.tabBtnActive]} onPress={() => setActiveTab(index)}><Text style={[styles.tabText, activeTab === index && styles.tabTextActive]}>{label}</Text></TouchableOpacity>)}
           </ScrollView>
-        </View>
-
-        {/* Content */}
-        <View style={styles.contentArea}>
-          {activeTab === 0 && renderOzet()}
-          {activeTab === 1 && renderTeklif()}
-          {activeTab === 2 && renderGaranti()}
-          {activeTab === 3 && renderTamamlama()}
-          {activeTab === 4 && renderNotlar()}
-          <View style={{ height: 100 }} />
-        </View>
-      </ScrollView>
+          <View style={styles.tabPanel}>
+            {activeTab === 0 ? <>
+              {card('MÜŞTERİ PROBLEMİ', empty(text(request.description) || 'Açıklama kaydedilmemiş.'))}
+              {card('SERVİS BİLGİLERİ', <>{field('İlgili kişi', record(request.contact).fullName)}{field('Makine', [text(machine.marka), text(machine.model), text(machine.seriNo)].filter(Boolean).join(' / '))}{field('Rapor tarihi', request.reportedAt)}{field('Çözüm notu', request.resolutionNote)}{field('Atanan kullanıcı', request.assignedToUserId || 'Atanmamış')}</>)}
+              {canUpdate ? <><Button title="Aşama Güncelle" onPress={() => setStagePicker(value => !value)} disabled={busy} />{stagePicker ? <View style={{ gap: 8 }}>{[
+                ['Diagnosis', 'Teşhis'], ['Quote Needed', 'Servis Teklifi'], ['Scheduled', 'Bakım/Onarım'], ['Service In Progress', 'Devam Ediyor'],
+              ].map(([code, label]) => <Button key={code} variant="secondary" title={label} disabled={busy} onPress={() => setStage('in_progress', code)} />)}</View> : null}</> : null}
+              {card('KAYITLI İŞLEMLER', operations.length ? operations.map((item, index) => <View key={text(item.id) || index} style={styles.itemRow}><Text style={styles.cardBody}>{text(item.description) || 'İşlem'}</Text><Text style={styles.itemMeta}>{text(item.quantity)} {text(item.currency)}</Text></View>) : empty('Bu servis için işlem kaydedilmemiş.'))}
+            </> : null}
+            {activeTab === 1 ? <>{card('SERVİS TEKLİFİ', quoteItems.length ? <>{field('Teklif No', quote.quoteNo)}{field('Tarih', quote.date)}{field('Konu', quote.subject)}{quoteItems.map((item, index) => <View key={text(item.id) || index} style={styles.itemRow}><View style={{ flex: 1 }}><Text style={styles.itemName}>{text(item.description)}</Text><Text style={styles.itemMeta}>{text(item.quantity)} {text(item.unit)} × {text(item.unitPrice)} {currency}</Text></View></View>)}{field('Ara toplam', `${total.toLocaleString('tr-TR')} ${currency}`)}</> : empty('CRM’de kayıtlı servis teklifi bulunmuyor.'))}</> : null}
+            {activeTab === 2 ? card('GARANTİ / RMA', warranty.id ? <>{field('Durum', warranty.status)}{field('Kapsam önerisi', warranty.coverageSuggestion)}{field('Kapsam kararı', warranty.coverageDecision)}{field('RMA No', warranty.rmaNo)}{field('Tedarikçi durumu', warranty.supplierRmaStatus)}</> : empty('Garanti veya RMA kaydı bulunmuyor.')) : null}
+            {activeTab === 3 ? <>
+              {card('TAMAMLAMA FORMU', <>{field('Yapılan işler', completion.yapilanIsler)}{field('Teknisyen', completion.kurulumuYapan)}{field('Teslim alan', completion.teslimAlan)}{field('İmza tarihi', completion.signedAt)}{checks.length ? checks.map((item, index) => field(text(item.label) || `Kontrol ${index + 1}`, item.status === 'done' ? 'Tamamlandı' : item.status === 'na' ? 'Uygulanmaz' : 'Tamamlanmadı')) : empty('Kayıtlı kontrol listesi bulunmuyor.')}</>)}
+              {canUpdate && text(status.code) !== 'closed' ? <Button title="Tamamlama Formunu Doldur ve İmzala" onPress={() => router.push({ pathname: '/forms/service-complete', params: { ticketId: id } })} /> : null}
+              {canUpdate && text(status.code) !== 'closed' ? <Button title="Servisi Kapat" disabled={busy} onPress={() => Alert.alert('Servisi kapat', 'CRM’deki imzalı tamamlama formu doğrulandıktan sonra servis kapatılır.', [{ text: 'Vazgeç', style: 'cancel' }, { text: 'Kapat', onPress: () => setStage('closed', 'Closed') }])} /> : null}
+            </> : null}
+            {activeTab === 4 ? <>
+              {notes.length ? notes.map((item, index) => <View key={text(item.id) || index} style={styles.card}><Text style={styles.noteText}>{text(item.text)}</Text><Text style={styles.noteMeta}>{text(item.createdAt)}</Text></View>) : card('NOTLAR', empty('CRM’de servis notu bulunmuyor.'))}
+              {canUpdate ? <><TextInput accessibilityLabel="Servis notu" placeholder="Yeni servis notu" value={note} onChangeText={setNote} multiline maxLength={4000} style={[styles.card, styles.cardBody, { minHeight: 100 }]} editable={!busy} /><Button title="Notu CRM’ye Kaydet" disabled={!note.trim()} loading={busy} onPress={saveNote} /></> : null}
+            </> : null}
+          </View>
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }

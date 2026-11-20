@@ -135,9 +135,14 @@ export function OfferDetailScreen({ id }: Props) {
     }
   };
 
+  const downloadPdf = async () => {
+    try { await quoteService.downloadPdf(id); }
+    catch (e) { Alert.alert('PDF açılamadı', e instanceof Error ? e.message : 'Tekrar deneyin.'); }
+  };
+
   const onMore = () => {
     const actions: { text: string; onPress?: () => void; style?: 'destructive' | 'cancel' }[] = [
-      { text: 'PDF İndir', onPress: () => void quoteService.downloadPdf(id) },
+      { text: 'PDF İndir', onPress: () => void downloadPdf() },
       { text: 'Proforma Oluştur', onPress: () => router.push(`/forms/proforma?quoteId=${id}`) },
       { text: 'Sözleşme Oluştur', onPress: () => router.push(`/forms/contract?quoteId=${id}`) },
     ];
@@ -281,7 +286,7 @@ export function OfferDetailScreen({ id }: Props) {
 
         {tab === 'pdf' ? (
           <View style={styles.pdfWrap}>
-            <PdfPreview path={`/quotes/${id}/generate-pdf`} />
+            <PdfPreview path={`/quotes/${id}/generate-pdf`} onOpen={() => quoteService.openPdf(id)} />
           </View>
         ) : null}
       </ScrollView>
@@ -292,7 +297,7 @@ export function OfferDetailScreen({ id }: Props) {
         orderNo={orderNo || undefined}
         sending={sending}
         creatingOrder={creatingOrder}
-        onPdf={() => void quoteService.downloadPdf(id)}
+        onPdf={() => void downloadPdf()}
         onSend={statusCode === 'draft' ? () => void onSend() : undefined}
         onApprove={statusCode === 'sent' ? () => void onApprove() : undefined}
         onReject={statusCode === 'sent' ? () => void onReject() : undefined}

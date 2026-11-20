@@ -1,0 +1,11 @@
+[Unit]
+Description=Run monthly Haksan PostgreSQL restore verification
+
+[Timer]
+OnCalendar=*-*-01 04:30:00 UTC
+RandomizedDelaySec=30m
+Persistent=true
+Unit=haksan-postgres-restore-test.service
+
+[Install]
+WantedBy=timers.target

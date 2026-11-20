@@ -1,49 +1,75 @@
-import { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { purchaseOrderService } from '@/src/api/services';
+import { useAuth } from '@/src/auth/AuthProvider';
 
 const PRIMARY = '#000c69';
 
-type POStatus = 'all' | 'onay_bekliyor' | 'onaylandi' | 'gonderildi' | 'tamamlandi';
-
-const MOCK_POS = [
-  { id: 'po1', no: 'PO-2026-001', supplier: 'Kontrol Elektronik Ltd.', type: 'Ticari', total: 3200, currency: 'EUR', dueDate: '15.07.2026', status: 'onay_bekliyor', items: 2 },
-  { id: 'po2', no: 'PO-2026-002', supplier: 'Endüstriyel Parça A.Ş.', type: 'Ticari', total: 8700, currency: 'EUR', dueDate: '20.06.2026', status: 'tamamlandi', items: 5 },
-  { id: 'po3', no: 'PO-2026-003', supplier: 'Siemens Türkiye', type: 'İdari', total: 4500, currency: 'EUR', dueDate: '01.08.2026', status: 'onaylandi', items: 1 },
-  { id: 'po4', no: 'PO-2026-004', supplier: 'Yedek Parça Ltd.', type: 'Ticari', total: 1800, currency: 'EUR', dueDate: '30.07.2026', status: 'gonderildi', items: 3 },
-  { id: 'po5', no: 'PO-2026-005', supplier: 'Makine Ekipman A.Ş.', type: 'İdari', total: 920, currency: 'EUR', dueDate: '10.07.2026', status: 'onay_bekliyor', items: 4 },
-];
+type POStatus = 'all' | 'draft' | 'pending_manager_approval' | 'approved' | 'sent' | 'in_transit' | 'received' | 'cancelled';
 
 const STATUS_CONFIG: Record<POStatus | string, { label: string; bg: string; text: string }> = {
-  onay_bekliyor: { label: 'Onay Bekliyor', bg: '#FFFBEB', text: '#D97706' },
-  onaylandi: { label: 'Onaylandı', bg: '#EEF2FF', text: PRIMARY },
-  gonderildi: { label: 'Gönderildi', bg: '#F0FDF4', text: '#059669' },
-  tamamlandi: { label: 'Tamamlandı', bg: '#F3F4F6', text: '#6B7280' },
+  draft: { label: 'Taslak', bg: '#f3f4f6', text: '#6b7280' },
+  cancelled: { label: 'İptal', bg: '#fef2f2', text: '#cf060c' },
+  in_transit: { label: 'Yolda', bg: '#eef2ff', text: PRIMARY },
+  pending_manager_approval: { label: 'Onay Bekliyor', bg: '#FFFBEB', text: '#D97706' },
+  approved: { label: 'Onaylandı', bg: '#EEF2FF', text: PRIMARY },
+  sent: { label: 'Gönderildi', bg: '#F0FDF4', text: '#059669' },
+  received: { label: 'Tamamlandı', bg: '#F3F4F6', text: '#6B7280' },
 };
 
 const STATUS_TABS: { key: POStatus; label: string }[] = [
   { key: 'all', label: 'Tümü' },
-  { key: 'onay_bekliyor', label: 'Bekliyor' },
-  { key: 'onaylandi', label: 'Onaylı' },
-  { key: 'gonderildi', label: 'Gönderildi' },
-  { key: 'tamamlandi', label: 'Tamamlandı' },
+  { key: 'draft', label: 'Taslak' },
+  { key: 'pending_manager_approval', label: 'Bekliyor' },
+  { key: 'approved', label: 'Onaylı' },
+  { key: 'sent', label: 'Gönderildi' },
+  { key: 'in_transit', label: 'Yolda' },
+  { key: 'received', label: 'Teslim Alındı' },
+  { key: 'cancelled', label: 'İptal' },
 ];
 
 export function PurchaseOrdersListScreen() {
   const [search, setSearch] = useState('');
   const [statusTab, setStatusTab] = useState<POStatus>('all');
 
-  const filtered = useMemo(() => {
-    return MOCK_POS.filter(p => {
-      const matchSearch = `${p.no} ${p.supplier}`.toLowerCase().includes(search.toLowerCase());
-      const matchStatus = statusTab === 'all' || p.status === statusTab;
-      return matchSearch && matchStatus;
-    });
-  }, [search, statusTab]);
-
-  const totalValue = MOCK_POS.reduce((s, p) => s + p.total, 0);
+  const { user } = useAuth();
+  const can = (permission: string) => Boolean(user?.permissions.includes(permission) || user?.roles.includes('super_admin'));
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [records, setRecords] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const requestId = useRef(0);
+  useEffect(() => { const timer = setTimeout(() => { setQuery(search.trim()); setPage(1); }, 300); return () => clearTimeout(timer); }, [search]);
+  const load = useCallback(async () => {
+    const request = ++requestId.current;
+    setLoading(true); setError('');
+    if (page === 1) { setRecords([]); setTotal(0); }
+    try {
+      const result = await purchaseOrderService.list({ page, pageSize: 50, search: query || undefined, statusCode: statusTab === 'all' ? undefined : statusTab });
+      if (request === requestId.current) { setRecords(previous => page === 1 ? result.data : [...previous, ...result.data]); setTotal(result.meta.total); }
+    } catch (err) { if (request === requestId.current) setError(err instanceof Error ? err.message : 'Siparişler yüklenemedi.'); }
+    finally { if (request === requestId.current) setLoading(false); }
+  }, [page, query, statusTab]);
+  useFocusEffect(useCallback(() => { void load(); return () => { requestId.current += 1; }; }, [load]));
+  const refresh = () => { if (page === 1) void load(); else setPage(1); };
+  const updateOrder = async (orderId: string, action: 'approve' | 'send') => {
+    if (busyId) return;
+    setBusyId(orderId);
+    try { await purchaseOrderService[action](orderId); refresh(); }
+    catch (err) { Alert.alert('İşlem tamamlanamadı', err instanceof Error ? err.message : 'Tekrar deneyin.'); }
+    finally { setBusyId(null); }
+  };
+  const filtered = records.map(record => ({
+    id: record.id, no: record.orderNo, supplier: record.supplier?.shortName || record.supplier?.legalTitle || 'Tedarikçi belirtilmemiş',
+    type: record.purchaseType === 'administrative' ? 'İdari' : 'Ticari', total: Number(record.grandTotal ?? 0), currency: record.currency?.code ?? '',
+    dueDate: record.expectedDate ? new Date(record.expectedDate).toLocaleDateString('tr-TR') : 'Belirtilmemiş', status: record.status?.code ?? '', statusName: record.status?.name ?? 'Durum belirtilmemiş',
+  }));
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
@@ -58,16 +84,16 @@ export function PurchaseOrdersListScreen() {
       {/* KPI Row */}
       <View style={styles.kpiRow}>
         <View style={[styles.kpiBox, { backgroundColor: '#F3F4F6' }]}>
-          <Text style={[styles.kpiValue, { color: '#717182' }]}>{MOCK_POS.length}</Text>
+          <Text style={[styles.kpiValue, { color: '#717182' }]}>{loading && !records.length ? '—' : total}</Text>
           <Text style={styles.kpiLabel}>sipariş</Text>
         </View>
         <View style={[styles.kpiBox, { backgroundColor: '#FFFBEB' }]}>
-          <Text style={[styles.kpiValue, { color: '#D97706' }]}>{MOCK_POS.filter(p => p.status === 'onay_bekliyor').length}</Text>
-          <Text style={styles.kpiLabel}>onay</Text>
+          <Text style={[styles.kpiValue, { color: '#D97706' }]}>{records.length}</Text>
+          <Text style={styles.kpiLabel}>yüklenen</Text>
         </View>
         <View style={[styles.kpiBox, { backgroundColor: '#EEF2FF' }]}>
-          <Text style={[styles.kpiValue, { color: PRIMARY }]}>€{(totalValue / 1000).toFixed(1)}K</Text>
-          <Text style={styles.kpiLabel}>toplam</Text>
+          <Text style={[styles.kpiValue, { color: PRIMARY }]}>{statusTab === 'all' ? 'Tümü' : STATUS_CONFIG[statusTab]?.label}</Text>
+          <Text style={styles.kpiLabel}>durum filtresi</Text>
         </View>
       </View>
 
@@ -77,7 +103,7 @@ export function PurchaseOrdersListScreen() {
           {STATUS_TABS.map(tab => (
             <TouchableOpacity
               key={tab.key}
-              onPress={() => setStatusTab(tab.key)}
+              onPress={() => { setRecords([]); setPage(1); setStatusTab(tab.key); }}
               style={[styles.tabButton, statusTab === tab.key && styles.tabButtonActive]}
             >
               <Text style={[styles.tabText, statusTab === tab.key && styles.tabTextActive]}>
@@ -94,7 +120,7 @@ export function PurchaseOrdersListScreen() {
           <Ionicons name="search" size={16} color="#9ca3af" />
           <TextInput
             style={styles.searchInput}
-            placeholder="PO no veya tedarikçi..."
+            placeholder="Sipariş numarası ara..."
             placeholderTextColor="#717182"
             value={search}
             onChangeText={setSearch}
@@ -104,45 +130,48 @@ export function PurchaseOrdersListScreen() {
       </View>
 
       {/* List */}
-      <ScrollView style={styles.list} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.list} contentContainerStyle={styles.listContent} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={loading && records.length > 0} onRefresh={refresh} />}>
+        {error ? <View><Text style={{ color: '#cf060c' }}>{error}</Text><TouchableOpacity onPress={() => void load()} style={styles.actionBtn}><Text>Tekrar Dene</Text></TouchableOpacity></View> : null}
+        {loading && <ActivityIndicator color={PRIMARY} />}
+        {!loading && !error && !records.length && <Text>Sipariş bulunamadı.</Text>}
         {filtered.map(po => {
-          const cfg = STATUS_CONFIG[po.status];
+          const cfg = STATUS_CONFIG[po.status] ?? { label: po.statusName, bg: '#f3f4f6', text: '#6b7280' };
           return (
             <View key={po.id} style={styles.card}>
-              <View style={styles.cardTop}>
+              <TouchableOpacity style={styles.cardTop} onPress={() => router.push(`/modules/purchase-orders/${po.id}`)}>
                 <View style={[styles.avatar, { backgroundColor: PRIMARY }]}>
                   <Text style={styles.avatarText}>{po.supplier.charAt(0)}</Text>
                 </View>
                 <View style={styles.cardInfo}>
                   <Text style={styles.supplierText} numberOfLines={1}>{po.supplier}</Text>
-                  <Text style={styles.metaText}>{po.no} · {po.type} · {po.items} kalem</Text>
+                  <Text style={styles.metaText}>{po.no} · {po.type}</Text>
                   <Text style={styles.dateText}>Vade: {po.dueDate}</Text>
                 </View>
                 <View style={styles.cardRight}>
-                  <Text style={styles.priceText}>€{po.total.toLocaleString('tr-TR')}</Text>
+                  <Text style={styles.priceText}>{po.total.toLocaleString('tr-TR')} {po.currency}</Text>
                   <View style={[styles.statusBadge, { backgroundColor: cfg.bg }]}>
                     <Text style={[styles.statusText, { color: cfg.text }]}>{cfg.label}</Text>
                   </View>
                 </View>
-              </View>
+              </TouchableOpacity>
 
               {/* Actions */}
-              {(po.status === 'onay_bekliyor' || po.status === 'onaylandi') && (
+              {(po.status === 'pending_manager_approval' || po.status === 'approved') && (
                 <View style={styles.actionsRow}>
-                  {po.status === 'onay_bekliyor' && (
-                    <TouchableOpacity style={styles.actionBtn}>
+                  {po.status === 'pending_manager_approval' && can('purchase_orders.approve') && (
+                    <TouchableOpacity disabled={busyId !== null} onPress={() => void updateOrder(po.id, 'approve')} style={styles.actionBtn}>
                       <Ionicons name="checkmark-circle" size={14} color="#059669" />
                       <Text style={[styles.actionBtnText, { color: '#059669' }]}>Onayla</Text>
                     </TouchableOpacity>
                   )}
-                  {po.status === 'onaylandi' && (
-                    <TouchableOpacity style={styles.actionBtn}>
+                  {po.status === 'approved' && can('purchase_orders.update') && (
+                    <TouchableOpacity disabled={busyId !== null} onPress={() => void updateOrder(po.id, 'send')} style={styles.actionBtn}>
                       <Ionicons name="send" size={14} color={PRIMARY} />
                       <Text style={[styles.actionBtnText, { color: PRIMARY }]}>Gönder</Text>
                     </TouchableOpacity>
                   )}
                   <View style={styles.actionsDivider} />
-                  <TouchableOpacity style={styles.actionChevron}>
+                  <TouchableOpacity accessibilityLabel="Sipariş detayını aç" style={styles.actionChevron} onPress={() => router.push(`/modules/purchase-orders/${po.id}`)}>
                     <Ionicons name="chevron-forward" size={18} color="#d1d5db" />
                   </TouchableOpacity>
                 </View>
@@ -150,12 +179,13 @@ export function PurchaseOrdersListScreen() {
             </View>
           );
         })}
+        {!loading && !error && records.length < total && <TouchableOpacity style={styles.actionBtn} onPress={() => setPage(value => value + 1)}><Text>Daha Fazla Göster ({records.length}/{total})</Text></TouchableOpacity>}
       </ScrollView>
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab} activeOpacity={0.8} onPress={() => router.push('/forms/purchase-order')}>
+      {can('purchase_orders.create') && <TouchableOpacity style={styles.fab} activeOpacity={0.8} onPress={() => router.push('/forms/purchase-order')}>
         <Ionicons name="add" size={24} color="#ffffff" />
-      </TouchableOpacity>
+      </TouchableOpacity>}
     </SafeAreaView>
   );
 }

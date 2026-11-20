@@ -81,7 +81,7 @@ server {
     add_header Permissions-Policy "camera=(self), microphone=(self), geolocation=(self)" always;
     add_header X-Robots-Tag "noindex, nofollow" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
-    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://${STORAGE_DOMAIN} https://tile.openstreetmap.org https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://${APP_DOMAIN} https://${STORAGE_DOMAIN} wss://${APP_DOMAIN}; frame-src 'self' https://${STORAGE_DOMAIN}; media-src 'self' blob: https://${STORAGE_DOMAIN}; form-action 'self'; upgrade-insecure-requests" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://${STORAGE_DOMAIN} https://haksan-prod-files-866490183348-eu-central-1.s3.eu-central-1.amazonaws.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://${APP_DOMAIN} https://${STORAGE_DOMAIN} wss://${APP_DOMAIN}; frame-src 'self' https://${STORAGE_DOMAIN}; media-src 'self' blob: https://${STORAGE_DOMAIN}; form-action 'self'; upgrade-insecure-requests" always;
 
     client_max_body_size 25m;
 
@@ -180,12 +180,15 @@ server {
         add_header Permissions-Policy "camera=(self), microphone=(self), geolocation=(self)" always;
         add_header X-Robots-Tag "noindex, nofollow" always;
         add_header Cross-Origin-Opener-Policy "same-origin" always;
-        add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://${STORAGE_DOMAIN} https://tile.openstreetmap.org https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://${APP_DOMAIN} https://${STORAGE_DOMAIN} wss://${APP_DOMAIN}; frame-src 'self' https://${STORAGE_DOMAIN}; media-src 'self' blob: https://${STORAGE_DOMAIN}; form-action 'self'; upgrade-insecure-requests" always;
+        add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://${STORAGE_DOMAIN} https://haksan-prod-files-866490183348-eu-central-1.s3.eu-central-1.amazonaws.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org; font-src 'self' data:; connect-src 'self' https://${APP_DOMAIN} https://${STORAGE_DOMAIN} wss://${APP_DOMAIN}; frame-src 'self' https://${STORAGE_DOMAIN}; media-src 'self' blob: https://${STORAGE_DOMAIN}; form-action 'self'; upgrade-insecure-requests" always;
         add_header Cache-Control "public, immutable";
     }
 
     location / {
         limit_req zone=app_per_ip burst=60 nodelay;
+        # index.html her açılışta doğrulansın; yoksa deploy sonrası eski parça adlarını ister.
+        # expires add_header değildir, sunucu düzeyindeki güvenlik başlıkları miras kalır.
+        expires -1;
         try_files $uri $uri/ /index.html;
     }
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { LoadingCenter } from '@/src/ui/DetailLayout';
 import {
@@ -27,10 +27,10 @@ export function PaymentDetailScreen({ id }: Props) {
   const title = String(data?.title ?? data?.receiptNo ?? data?.id ?? 'Ödeme Detayı');
   
   const paymentType = String(data?.type ?? data?.paymentType ?? 'Tahsilat');
-  const amount = data?.amount ? `${data.amount} ${data.currency ?? '₺'}` : '';
+  const amount = data?.amount != null ? `${Number(data.amount).toLocaleString('tr-TR')} ${data.currency?.code ?? ''}` : '';
   const date = String(data?.date ?? data?.paymentDate ?? data?.createdAt ?? '');
   
-  const companyName = String(data?.company?.name ?? data?.companyName ?? data?.customerName ?? 'Firma Bağlantısı Yok');
+  const companyName = String(data?.company?.legalTitle ?? data?.company?.name ?? data?.companyName ?? data?.customerName ?? 'Firma Bağlantısı Yok');
   const companyId = String(data?.companyId ?? data?.customerId ?? '');
   
   const accountName = String(data?.account?.name ?? data?.accountName ?? data?.bankName ?? 'Kasa / Banka Seçilmedi');
@@ -85,9 +85,9 @@ export function PaymentDetailScreen({ id }: Props) {
 
         <CompanyQuickActionFlatRow>
           <CompanyQuickActionFlat 
-            label="Makbuz Gönder" 
+            label="Ödeme Bilgilerini Paylaş"
             icon="share-outline" 
-            onPress={() => Alert.alert('Bilgi', 'Makbuz paylaşma özelliği yakında eklenecek')} 
+            onPress={() => void Share.share({ message: [companyName, amount, date, String(data.status?.name ?? ''), notes].filter(Boolean).join('\n') }).catch((e) => Alert.alert('Paylaşım açılamadı', e instanceof Error ? e.message : 'Tekrar deneyin.'))}
           />
         </CompanyQuickActionFlatRow>
 

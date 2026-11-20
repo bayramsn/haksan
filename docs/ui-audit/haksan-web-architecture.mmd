@@ -1,0 +1,29 @@
+flowchart LR
+  U[Web kullanıcısı] --> S[React + Vite Web UI]
+  S --> SH[App shell\nSidebar / Topbar / Dialog / Sheet]
+  S --> AUTH[AuthProvider\nJWT + httpOnly refresh + tenant context]
+  S --> Q[TanStack Query / Store]
+  S --> SV[Domain service wrappers\napps/web/src/lib/services.ts]
+  SV --> API[API Client\n/api/v1]
+  API --> G[NestJS + Fastify API]
+  G --> SEC[AuthGuard + PermissionsGuard\nRBAC + tenant/division scope]
+  G --> RL[Global throttler\nvalidation + exception filter]
+  G --> DOM[Domain modules]
+  DOM --> CRM[Companies / Contacts / Opportunities / Activities]
+  DOM --> COMM[Quotes / Orders / Proformas / Contracts / Invoices]
+  DOM --> OPS[Products / Inventory / Shipments / Installations]
+  DOM --> SRV[Service / Warranty / Complaints / Maintenance]
+  DOM --> FIN[Finance / Reports / Exports]
+  DOM --> ADM[Admin / Lookups / Notifications / Mail / Chat]
+  DOM --> DB[Drizzle ORM]
+  DB --> PG[(PostgreSQL\nMulti-tenant tables)]
+  DOM --> FILE[StorageService]
+  FILE --> OBJ[(MinIO / S3 / R2 / Supabase Storage)]
+  DOM --> OBS[Audit / Structured logs / Metrics / OTel]
+  S --> PUB[Public service complaint form\nslug + token]
+  PUB --> API
+
+  SH --> NAV[Shared navigation\npackages/shared]
+  NAV --> SEC
+  AUTH --> SEC
+  SVC[CRM web prototype] -. ayrı web yüzeyi .-> U

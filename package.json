@@ -2,7 +2,7 @@
   "name": "haksan",
   "private": true,
   "version": "0.1.0",
-  "description": "CNC ERP/CRM monorepo — backend (NestJS) + frontend (React/Vite) + shared types",
+  "description": "CNC ERP/CRM monorepo \u2014 backend (NestJS) + frontend (React/Vite) + shared types",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -39,7 +39,11 @@
     "test:e2e:install": "npm --workspace @haksan/web run test:e2e:install",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f"
+    "docker:logs": "docker compose logs -f",
+    "dev:mobile-v2": "npm --workspace @haksan/mobile-v2 run start",
+    "typecheck:mobile-v2": "npm --workspace @haksan/mobile-v2 run typecheck",
+    "test:mobile-v2": "npm --workspace @haksan/mobile-v2 run test",
+    "quality:mobile-v2": "npm --workspace @haksan/mobile-v2 run quality"
   },
   "engines": {
     "node": ">=22.22.2 <23"
@@ -62,7 +66,8 @@
     "gaxios": "7.3.0",
     "js-yaml": "5.2.3",
     "postcss": {
-      "nanoid": "3.3.18"
+      "nanoid": "3.3.18",
+      ".": "8.5.33"
     },
     "exceljs": {
       "archiver": "8.0.0",
@@ -72,6 +77,12 @@
     "fast-uri": "3.1.7",
     "fast-json-stringify": {
       "fast-uri": "4.1.4"
-    }
+    },
+    "image-size": "2.0.3",
+    "query-string": {
+      "decode-uri-component": "0.5.1"
+    },
+    "basic-ftp": "6.2.6",
+    "picomatch@>=4": "4.0.7"
   }
 }

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Haksan Ops Console</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Haksan Ops</h1>
+          <p id="statusLine">Disconnected</p>
+        </div>
+        <div class="top-actions">
+          <input id="tokenInput" type="password" autocomplete="off" placeholder="Ops token">
+          <button id="saveTokenBtn" type="button">Save</button>
+          <button id="refreshBtn" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <section class="grid">
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Health</h2>
+          </div>
+          <dl id="healthGrid" class="metrics"></dl>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Actions</h2>
+          </div>
+          <div id="requestActions" class="button-row"></div>
+          <div id="actionsList" class="list"></div>
+        </section>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Log</h2>
+          <button id="clearLogBtn" type="button">Clear</button>
+        </div>
+        <pre id="logBox"></pre>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

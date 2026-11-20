@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { getModuleConfig } from '@/src/modules/registry';
 import { serviceService } from '@/src/api/services';
 import { normalizeList } from '@/src/modules/registry';
@@ -10,38 +11,40 @@ export function useDetailRecord(navKey: string, id: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    setLoading(true); setError(null); setData(null);
     void (async () => {
       try {
         let res: Record<string, any>;
         if (navKey === 'service-requests' || navKey === 'service-kanban') {
-          const list = await serviceService.tickets({ page: 1, pageSize: 300 });
-          const found = normalizeList(list).find((r) => String(r.id) === id);
-          if (!found) throw new Error('Servis talebi bulunamadı');
-          res = found;
+          res = await serviceService.ticket(id);
         } else if (navKey === 'deliveries') {
-          const list = await serviceService.deliveries({ page: 1, pageSize: 300 });
-          const found = normalizeList(list).find((r) => String(r.id) === id);
+          let found: Record<string, unknown> | undefined;
+          for (let page = 1; ; page++) {
+            const list = await serviceService.deliveries({ page, pageSize: 100 });
+            const rows = normalizeList(list);
+            found = rows.find((r) => String(r.id) === id);
+            if (found || rows.length < 100) break;
+          }
           if (!found) throw new Error('Teslimat bulunamadı');
           res = found;
         } else if (navKey === 'installations') {
-          const list = await serviceService.installations({ page: 1, pageSize: 300 });
-          const found = normalizeList(list).find((r) => String(r.id) === id);
-          if (!found) throw new Error('Kurulum bulunamadı');
-          res = found;
+          res = await serviceService.installation(id);
         } else if (!config?.fetchOne) {
           throw new Error('Detay API yok');
         } else {
           res = await config.fetchOne(id);
         }
-        setData(res);
+        if (active) setData(res);
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Detay yüklenemedi');
+        if (active) setError(e instanceof Error ? e.message : 'Detay yüklenemedi');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     })();
-  }, [config, id, navKey]);
+    return () => { active = false; };
+  }, [config, id, navKey]));
 
   return { data, loading, error, config };
 }

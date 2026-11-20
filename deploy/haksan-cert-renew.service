@@ -1,0 +1,18 @@
+[Unit]
+Description=Renew Haksan Let's Encrypt certificates
+After=network-online.target docker.service haksan-runtime-secrets.service
+Wants=network-online.target
+Requires=docker.service haksan-runtime-secrets.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/haksan
+Environment=ENV_FILE=/opt/haksan/.env
+ExecStart=/usr/bin/docker compose --env-file /opt/haksan/.env run --rm certbot renew --no-random-sleep-on-renew --webroot --webroot-path /var/www/certbot
+ExecStartPost=/usr/bin/docker compose --env-file /opt/haksan/.env exec nginx nginx -s reload
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/haksan/deploy/certbot

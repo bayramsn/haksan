@@ -1,0 +1,20 @@
+[Unit]
+Description=Verify latest Haksan PostgreSQL S3 backup by isolated restore
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=AWS_REGION=eu-central-1
+Environment=AWS_BACKUP_BUCKET=haksan-prod-backups-866490183348-eu-central-1
+Environment=INSTANCE_ID=i-0fac9a4d4eca0cf13
+Environment=EXPECTED_MIGRATIONS=81
+ExecStart=/usr/local/sbin/haksan-verify-postgres-backup-restore
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+

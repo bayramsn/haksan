@@ -15,8 +15,10 @@ import {
   activityService,
   companyService,
   opportunityService,
+  productService,
   quoteService,
 } from '@/src/api/services';
+import { api, ApiError } from '@/src/api/apiClient';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { CompanyPicker } from '@/src/ui/CompanyPicker';
 import { ContactPicker } from '@/src/ui/ContactPicker';
@@ -72,11 +74,13 @@ export function OfferFormScreen() {
     opportunityId: initialOpportunityId,
     offerId: editOfferId,
     revisionFrom,
+    productId: initialProductId,
   } = useLocalSearchParams<{
     companyId?: string;
     opportunityId?: string;
     offerId?: string;
     revisionFrom?: string;
+    productId?: string;
   }>();
 
   const editing = Boolean(editOfferId);
@@ -98,6 +102,15 @@ export function OfferFormScreen() {
   const [validityDays, setValidityDays] = useState('30');
   const [currency, setCurrency] = useState('USD');
   const [lines, setLines] = useState<OfferLine[]>([newOfferLine()]);
+  useEffect(() => {
+    if (!initialProductId || editing || revising) return;
+    let cancelled = false;
+    void productService.get(initialProductId).then((product) => {
+      if (cancelled) return;
+      setLines([{ ...newOfferLine(), productModelId: initialProductId, stockCode: String(product.stockCode ?? ''), description: String(product.fullName ?? product.name ?? ''), unitPrice: String(product.listPrice ?? ''), vatRate: String(product.vatRate ?? 20) }]);
+    }).catch((e) => { if (!cancelled) Alert.alert('Ürün yüklenemedi', e instanceof Error ? e.message : 'Tekrar deneyin.'); });
+    return () => { cancelled = true; };
+  }, [initialProductId, editing, revising]);
   const [deliveryCode, setDeliveryCode] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
   const [deliveryTerms, setDeliveryTerms] = useState('');
@@ -290,6 +303,10 @@ export function OfferFormScreen() {
         Alert.alert('Bölüm gerekli', 'Teklifi CNC / Üniversal / Sac bölümlerinden birine atayın.');
         return;
       }
+      if (!selectedOpportunityId) {
+        Alert.alert('Satış kartı gerekli', 'Teklif hazırlamak için mevcut bir fırsat seçin.');
+        return;
+      }
       setStep(1);
       return;
     }
@@ -314,6 +331,19 @@ export function OfferFormScreen() {
     if (!companyId || !validLines.length) return;
     setLoading(true);
     try {
+      if (!selectedOpportunityId) {
+        setStep(0);
+        Alert.alert('Fırsat gerekli', 'Teklif kaydetmeden önce mevcut bir fırsat seçin ve fırsattaki zorunlu bilgileri tamamlayın.');
+        return;
+      }
+      const readiness = await api.get<{ ready: boolean; blockers: { label: string }[] }>(`/opportunities/${encodeURIComponent(selectedOpportunityId)}/quote-readiness`);
+      if (!readiness.ready) {
+        Alert.alert('Teklif için eksik bilgiler', readiness.blockers.map((b) => `• ${b.label}`).join('\n'), [
+          { text: 'Formda kal', style: 'cancel' },
+          { text: 'Eksikleri tamamla', onPress: () => router.push(`/modules/sales-cases/${selectedOpportunityId}`) },
+        ]);
+        return;
+      }
       const preset = DELIVERY_TERM_OPTIONS.find((d) => d.code === deliveryCode);
 
       if (editing && editOfferId) {
@@ -368,25 +398,7 @@ export function OfferFormScreen() {
         return;
       }
 
-      let oppId = selectedOpportunityId || undefined;
-      let createdNewCase = false;
-
-      if (!oppId) {
-        const estimated = validLines.reduce((s, l) => s + lineSubtotal(l), 0);
-        const opp = await opportunityService.create({
-          companyId,
-          title:
-            caseTitle.trim() ||
-            validLines[0].description.trim().slice(0, 80) ||
-            'Yeni Teklif',
-          estimatedValue: estimated,
-          currencyCode: currency,
-          probability: 50,
-          divisionId: canPickDivision ? divisionId || undefined : undefined,
-        });
-        oppId = String((opp as { id: string }).id);
-        createdNewCase = true;
-      }
+      const oppId = selectedOpportunityId;
 
       const quote = await quoteService.create({
         opportunityId: oppId,
@@ -441,16 +453,17 @@ export function OfferFormScreen() {
         })
         .catch(() => undefined);
 
-      if (createdNewCase) {
-        await opportunityService.changeStage(oppId, { toStage: 'quote' }).catch(() => undefined);
-      }
-
       Alert.alert('Başarılı', `Teklif kaydedildi${docNo ? `: ${docNo}` : ''}`, [
         { text: 'Detay', onPress: () => router.replace(`/modules/offers/${quoteId}`) },
         { text: 'Tamam', onPress: () => router.back() },
       ]);
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Teklif oluşturulamadı');
+      const details = e instanceof ApiError ? e.details as { blockers?: { label?: string }[] } | undefined : undefined;
+      const blockers = details?.blockers?.map((b) => b.label).filter(Boolean).join('\n');
+      Alert.alert('Teklif kaydedilemedi', blockers || (e instanceof Error ? e.message : 'Teklif oluşturulamadı'), selectedOpportunityId && blockers ? [
+        { text: 'Formda kal', style: 'cancel' },
+        { text: 'Eksikleri tamamla', onPress: () => router.push(`/modules/sales-cases/${selectedOpportunityId}`) },
+      ] : undefined);
     } finally {
       setLoading(false);
     }
@@ -535,7 +548,7 @@ export function OfferFormScreen() {
                   }}
                 />
                 <OpportunityPicker
-                  label="Satış Kartı"
+                  label="Satış Kartı *"
                   companyId={companyId}
                   value={selectedOpportunityId}
                   displayName={opportunityLabel}
@@ -578,14 +591,6 @@ export function OfferFormScreen() {
               <View style={styles.stepBlock}>
                 <OfferSectionTitle title="Teklif Bilgileri" />
                 <View style={styles.fieldsGap}>
-                  {!selectedOpportunityId ? (
-                    <OfferField
-                      label="Başlık"
-                      value={caseTitle}
-                      onChangeText={setCaseTitle}
-                      placeholder="CNC Torna Satışı"
-                    />
-                  ) : null}
                   <View style={styles.rowFields}>
                     <View style={styles.flexField}>
                       <OfferSelectField

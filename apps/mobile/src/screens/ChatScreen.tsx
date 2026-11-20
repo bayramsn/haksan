@@ -1,167 +1,36 @@
-import { useState } from 'react';
-import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-} from 'react-native';
+import { useState, useCallback, useRef } from 'react';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, ScrollView, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-
+import { router, useFocusEffect } from 'expo-router';
+import { chatService } from '@/src/api/services';
+import { useAuth } from '@/src/auth/AuthProvider';
 const PRIMARY = '#000c69';
-
-interface Conversation {
-  id: string;
-  participantName: string;
-  participantCompany: string;
-  lastMessage: string;
-  lastMessageTime: string;
-  unreadCount: number;
-  avatarColor: string;
-}
-
-interface ChatMessage {
-  id: string;
-  conversationId: string;
-  senderId: string;
-  senderName: string;
-  content: string;
-  timestamp: string;
-  isOwn: boolean;
-}
-
-const mockConversations: Conversation[] = [
-  { id: 'cv1', participantName: 'Ahmet Yılmaz', participantCompany: 'Haksan Makine A.Ş.', lastMessage: 'Teklifimizi inceledik, birkaç değişiklik istiyoruz', lastMessageTime: '10:24', unreadCount: 3, avatarColor: '#000c69' },
-  { id: 'cv2', participantName: 'Can Arslan', participantCompany: 'Bora Sanayi Ltd.', lastMessage: 'Servis randevusu için müsait misiniz?', lastMessageTime: '09:15', unreadCount: 1, avatarColor: '#F97316' },
-  { id: 'cv3', participantName: 'Ayşe Arslan', participantCompany: 'Atalay Endüstri A.Ş.', lastMessage: 'Proforma faturayı aldık, teşekkürler', lastMessageTime: 'Dün', unreadCount: 2, avatarColor: '#EF4444' },
-  { id: 'cv4', participantName: 'Ali Demir', participantCompany: 'Precision CNC Ltd.', lastMessage: 'Merhaba, sipariş onayı için arayacağım', lastMessageTime: 'Dün', unreadCount: 0, avatarColor: '#F59E0B' },
-  { id: 'cv5', participantName: 'Mert Yıldız', participantCompany: 'Delta Teknoloji A.Ş.', lastMessage: 'Stok durumu hakkında bilgi alabilir miyim?', lastMessageTime: 'Salı', unreadCount: 0, avatarColor: '#6366F1' },
-];
-
-const initialMessages: ChatMessage[] = [
-  { id: 'm1', conversationId: 'cv1', senderId: 'ahmet', senderName: 'Ahmet Yılmaz', content: 'Merhaba, gönderdiğiniz teklifi inceledik.', timestamp: '10:15', isOwn: false },
-  { id: 'm2', conversationId: 'cv1', senderId: 'me', senderName: 'Ben', content: 'Merhaba Ahmet Bey, değerlendirmeniz için teşekkürler. Nasıl buldunuz?', timestamp: '10:18', isOwn: true },
-  { id: 'm3', conversationId: 'cv1', senderId: 'ahmet', senderName: 'Ahmet Yılmaz', content: 'Genel olarak uygun, ancak teslimat süresi konusunda daha esnek olabilir misiniz?', timestamp: '10:20', isOwn: false },
-  { id: 'm4', conversationId: 'cv1', senderId: 'me', senderName: 'Ben', content: 'Evet, 4 hafta yerine 3 haftaya çekebiliriz. Başka bir talebiniz var mı?', timestamp: '10:22', isOwn: true },
-  { id: 'm5', conversationId: 'cv1', senderId: 'ahmet', senderName: 'Ahmet Yılmaz', content: 'Teklifimizi inceledik, birkaç değişiklik istiyoruz', timestamp: '10:24', isOwn: false },
-];
-
-/** Stitch #11 Sohbet */
+interface Conversation { id: string; participantName: string; participantCompany: string; lastMessage: string; lastMessageTime: string; unreadCount: number; avatarColor: string; }
 export function ChatScreen() {
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
-  const [activeConv, setActiveConv] = useState<Conversation | null>(null);
-  const [inputText, setInputText] = useState('');
-  const [messages, setMessages] = useState(initialMessages);
-
-  const filtered = mockConversations.filter(c =>
-    `${c.participantName} ${c.participantCompany}`.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const convMessages = messages.filter(m => m.conversationId === activeConv?.id);
-
-  const handleSend = () => {
-    if (!inputText.trim() || !activeConv) return;
-    const newMsg: ChatMessage = {
-      id: `m-${Date.now()}`,
-      conversationId: activeConv.id,
-      senderId: 'me',
-      senderName: 'Ben',
-      content: inputText.trim(),
-      timestamp: new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' }),
-      isOwn: true,
-    };
-    setMessages(prev => [...prev, newMsg]);
-    setInputText('');
-  };
-
-  if (activeConv) {
-    return (
-      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          {/* Thread Header */}
-          <View style={styles.threadHeader}>
-            <TouchableOpacity onPress={() => setActiveConv(null)} style={{ padding: 8 }}>
-              <Ionicons name="arrow-back" size={24} color="#374151" />
-            </TouchableOpacity>
-            
-            <View style={[styles.avatarSm, { backgroundColor: activeConv.avatarColor }]}>
-              <Text style={styles.avatarTextSm}>
-                {activeConv.participantName.split(' ').map(w => w[0]).join('').slice(0, 2)}
-              </Text>
-            </View>
-            
-            <View style={styles.threadHeaderInfo}>
-              <Text style={styles.threadName}>{activeConv.participantName}</Text>
-              <Text style={styles.threadCompany}>{activeConv.participantCompany}</Text>
-            </View>
-
-            <TouchableOpacity style={{ padding: 8 }}>
-              <Ionicons name="call-outline" size={20} color="#6b7280" />
-            </TouchableOpacity>
-            <TouchableOpacity style={{ padding: 8 }}>
-              <Ionicons name="ellipsis-vertical" size={20} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
-
-          {/* Messages */}
-          <ScrollView style={styles.messagesArea} contentContainerStyle={styles.messagesContent}>
-            {convMessages.length === 0 ? (
-              <View style={styles.emptyState}>
-                <View style={[styles.avatarLg, { backgroundColor: activeConv.avatarColor, marginBottom: 12 }]}>
-                  <Text style={styles.avatarTextLg}>
-                    {activeConv.participantName.split(' ').map(w => w[0]).join('').slice(0, 2)}
-                  </Text>
-                </View>
-                <Text style={styles.emptyName}>{activeConv.participantName}</Text>
-                <Text style={styles.emptyCompany}>{activeConv.participantCompany}</Text>
-                <Text style={styles.emptyPrompt}>Konuşmaya başlamak için mesaj yazın</Text>
-              </View>
-            ) : (
-              convMessages.map(msg => (
-                <View key={msg.id} style={[styles.msgRow, msg.isOwn ? styles.msgRowOwn : styles.msgRowOther]}>
-                  <View style={[styles.msgBubble, msg.isOwn ? styles.msgBubbleOwn : styles.msgBubbleOther]}>
-                    <Text style={[styles.msgText, msg.isOwn ? { color: '#ffffff' } : { color: '#1f2937' }]}>
-                      {msg.content}
-                    </Text>
-                    <Text style={[styles.msgTime, msg.isOwn ? { color: 'rgba(255,255,255,0.7)' } : { color: '#9ca3af' }]}>
-                      {msg.timestamp}
-                    </Text>
-                  </View>
-                </View>
-              ))
-            )}
-          </ScrollView>
-
-          {/* Input */}
-          <View style={styles.inputArea}>
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.input}
-                value={inputText}
-                onChangeText={setInputText}
-                placeholder="Mesaj yazın..."
-                placeholderTextColor="#9ca3af"
-                multiline
-              />
-            </View>
-            <TouchableOpacity
-              onPress={handleSend}
-              disabled={!inputText.trim()}
-              style={[styles.sendBtn, !inputText.trim() && { opacity: 0.4 }]}
-            >
-              <Ionicons name="send" size={16} color="#ffffff" style={{ marginLeft: 4 }} />
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    );
-  }
-
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sequence = useRef(0);
+  const load = useCallback(async () => {
+    const request = ++sequence.current;
+    setLoading(true); setError(null);
+    try {
+      const rows = await chatService.conversations();
+      if (request !== sequence.current) return;
+      setConversations(rows.map((row: any) => ({ id: row.id,
+        participantName: row.title || row.members.filter((m: any) => m.userId !== user?.id).map((m: any) => m.fullName ?? m.user?.fullName).filter(Boolean).join(', ') || 'Sohbet',
+        participantCompany: row.type === 'group' ? 'Grup sohbeti' : 'CRM sohbeti',
+        lastMessage: row.lastMessage?.preview ?? '', lastMessageTime: row.lastActivityAt ? new Date(row.lastActivityAt).toLocaleString('tr-TR') : '',
+        unreadCount: row.unreadCount, avatarColor: PRIMARY,
+      })));
+    } catch (e) { if (request === sequence.current) setError(e instanceof Error ? e.message : 'Sohbetler yüklenemedi.'); }
+    finally { if (request === sequence.current) setLoading(false); }
+  }, [user?.id]);
+  useFocusEffect(useCallback(() => { void load(); return () => { sequence.current++; }; }, [load]));
+  const filtered = conversations.filter(c => `${c.participantName} ${c.lastMessage}`.toLocaleLowerCase('tr-TR').includes(search.toLocaleLowerCase('tr-TR')));
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       {/* Header */}
@@ -188,12 +57,14 @@ export function ChatScreen() {
       </View>
 
       {/* List */}
-      <ScrollView style={{ flex: 1 }}>
+      <ScrollView style={{ flex: 1 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
+        {error ? <TouchableOpacity onPress={() => void load()}><Text style={{ color: '#cf060c', padding: 20 }}>{error} · Tekrar dene</Text></TouchableOpacity> : null}
+        {!loading && !error && !filtered.length ? <Text style={{ padding: 24 }}>Konuşma bulunamadı.</Text> : null}
         {filtered.map(conv => (
           <TouchableOpacity
             key={conv.id}
             style={styles.listRow}
-            onPress={() => setActiveConv(conv)}
+            onPress={() => router.push(`/modules/chat/${conv.id}`)}
             activeOpacity={0.7}
           >
             <View style={styles.listAvatarWrap}>

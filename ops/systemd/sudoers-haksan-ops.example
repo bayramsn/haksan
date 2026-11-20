@@ -1,0 +1,16 @@
+# Copy to /etc/sudoers.d/haksan-ops only after reviewing paths and ownership.
+# Do not use broad rules such as:
+#   haksan-ops ALL=(ALL) NOPASSWD: ALL
+#
+# Safer default: run the ops services as the same locked-down deploy user that
+# already owns the Docker Compose workflow, or put haksan-ops in the docker group
+# only if you accept that Docker socket access is effectively root-equivalent.
+#
+# If sudo is unavoidable, keep it to the audited single entry point:
+# haksan-ops ALL=(root) NOPASSWD: /opt/haksan/ops/bin/run-action.sh diagnostics *
+# haksan-ops ALL=(root) NOPASSWD: /opt/haksan/ops/bin/run-action.sh smoke_test *
+# haksan-ops ALL=(root) NOPASSWD: /opt/haksan/ops/bin/run-action.sh nginx_test *
+# haksan-ops ALL=(root) NOPASSWD: /opt/haksan/ops/bin/run-action.sh nginx_reload *
+# haksan-ops ALL=(root) NOPASSWD: /opt/haksan/ops/bin/run-action.sh restart_nginx *
+# haksan-ops ALL=(root) NOPASSWD: /opt/haksan/ops/bin/run-action.sh restart_api *
+# haksan-ops ALL=(root) NOPASSWD: /opt/haksan/ops/bin/run-action.sh backup_verify *

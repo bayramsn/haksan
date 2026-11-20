@@ -215,6 +215,14 @@ docker compose --env-file .env config --quiet
 docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/migrate.js
 docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/data-migrate.js
 
+# The release image contains both public catalog snapshots. Import only after
+# the verified offsite backup and migrations, before switching live containers.
+# Both imports are idempotent by HM source ID. The Haksan tenant is explicit.
+echo "ECR_DEPLOY_CATALOG_IMPORT_START"
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/import-haksanmakina-catalog.js --tenant-slug=haksan --apply
+docker compose --env-file .env run --rm --no-deps api node apps/api/dist/db/import-haksanmakina-catalog.js --tenant-slug=haksan --fiber-laser-only --apply
+echo "ECR_DEPLOY_CATALOG_IMPORT_SUCCEEDED"
+
 SWITCH_STARTED=true
 docker compose --env-file .env up -d --no-deps --no-build --force-recreate api
 for _ in $(seq 1 60); do

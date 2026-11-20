@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { LoadingCenter } from '@/src/ui/DetailLayout';
 import {
@@ -13,6 +13,7 @@ import { Screen } from '@/src/ui/Screen';
 import { TabStrip } from '@/src/ui/TabStrip';
 import { colors, layout, spacing, typography, fonts } from '@/src/theme/tokens';
 import { useDetailRecord } from './useDetailRecord';
+import { serviceService } from '@/src/api/services';
 
 const TABS = ['Genel', 'Bakım', 'Servis Geçmişi', 'Notlar'] as const;
 type Tab = (typeof TABS)[number];
@@ -23,12 +24,35 @@ type Props = { id: string };
 export function MachineDetailScreen({ id }: Props) {
   const { data, loading, error } = useDetailRecord('machines', id);
   const [tab, setTab] = useState<Tab>('Genel');
+  const [history, setHistory] = useState<Record<string, any>[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRevision, setHistoryRevision] = useState(0);
+  useEffect(() => {
+    if (tab !== 'Servis Geçmişi') return;
+    let active = true;
+    setHistory([]); setHistoryError(null); setHistoryLoading(true);
+    void (async () => {
+      try {
+        const rows: Record<string, any>[] = [];
+        for (let page = 1; ; page++) {
+          const result = await serviceService.tickets({ page, pageSize: 100 });
+          if (!active) return;
+          rows.push(...result.data.filter((row) => row.customerDeviceId === id));
+          if (result.data.length < 100 || page >= result.meta.totalPages) break;
+        }
+        setHistory(rows);
+      } catch (e) { if (active) setHistoryError(e instanceof Error ? e.message : 'Servis geçmişi yüklenemedi.'); }
+      finally { if (active) setHistoryLoading(false); }
+    })();
+    return () => { active = false; };
+  }, [id, tab, historyRevision]);
 
   const serialNumber = String(data?.serialNumber ?? data?.serialNo ?? 'Seri No Yok');
-  const modelName = String(data?.modelName ?? data?.product?.name ?? data?.productName ?? 'Makine Model');
+  const modelName = String(data?.productModelName ?? data?.modelName ?? data?.product?.name ?? data?.productName ?? 'Makine Model');
   const modelCode = String(data?.modelCode ?? '');
   
-  const companyName = String(data?.company?.name ?? data?.companyName ?? data?.customerName ?? 'Firma Bağlantısı Yok');
+  const companyName = String(data?.company?.legalTitle ?? data?.company?.name ?? data?.companyName ?? data?.customerName ?? 'Firma Bağlantısı Yok');
   const companyId = String(data?.companyId ?? data?.customerId ?? '');
   
   const installationDate = String(data?.installationDate ?? data?.installedAt ?? '');
@@ -63,7 +87,6 @@ export function MachineDetailScreen({ id }: Props) {
     lastServiceAt ? { icon: 'construct-outline' as const, label: 'Son Servis', value: lastServiceAt } : null,
   ].filter(Boolean) as any;
 
-  // Garanti durumu hesaplama (basit mock)
   const isWarrantyActive = warrantyEndDate ? new Date(warrantyEndDate) > new Date() : false;
 
   return (
@@ -84,7 +107,7 @@ export function MachineDetailScreen({ id }: Props) {
           
           <View style={[styles.warrantyBadge, { backgroundColor: isWarrantyActive ? colors.accentGreen + '20' : colors.accentRed + '20' }]}>
             <Text style={[styles.warrantyText, { color: isWarrantyActive ? colors.accentGreen : colors.accentRed }]}>
-              {isWarrantyActive ? 'Garanti Devam Ediyor' : 'Garanti Süresi Doldu'}
+              {!warrantyEndDate ? 'Garanti tarihi girilmemiş' : isWarrantyActive ? 'Garanti Devam Ediyor' : 'Garanti Süresi Doldu'}
             </Text>
           </View>
         </View>
@@ -124,7 +147,10 @@ export function MachineDetailScreen({ id }: Props) {
         
         {tab === 'Servis Geçmişi' ? (
           <View style={styles.tabBody}>
-            <Text style={styles.muted}>Servis geçmişi listesi yakında eklenecek.</Text>
+            {historyLoading ? <Text style={styles.muted}>CRM servis kayıtları yükleniyor…</Text> : null}
+            {historyError ? <Pressable onPress={() => setHistoryRevision((value) => value + 1)}><Text style={styles.err}>{historyError} · Tekrar dene</Text></Pressable> : null}
+            {!historyLoading && !historyError && !history.length ? <Text style={styles.muted}>Bu makineye ait servis kaydı bulunmuyor.</Text> : null}
+            {history.map((ticket) => <Pressable key={String(ticket.id)} onPress={() => router.push(`/modules/service-requests/${ticket.id}`)} style={{ paddingVertical: spacing.md }}><Text style={typography.bodyMd}>{String(ticket.ticketNo ?? ticket.subject ?? 'Servis kaydı')}</Text><Text style={styles.muted}>{String(ticket.status?.name ?? '')} · {ticket.reportedAt ? new Date(ticket.reportedAt).toLocaleDateString('tr-TR') : ''}</Text></Pressable>)}
           </View>
         ) : null}
 

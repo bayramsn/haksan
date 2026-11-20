@@ -1,0 +1,24 @@
+[Unit]
+Description=Haksan Ops monitor run
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=haksan-ops
+Group=haksan-ops
+SupplementaryGroups=docker
+WorkingDirectory=/opt/haksan
+Environment=OPS_CONFIG_FILE=/opt/haksan/ops/.env
+EnvironmentFile=-/opt/haksan/ops/.env
+ExecStart=/bin/bash /opt/haksan/ops/bin/monitor.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/haksan
+ReadWritePaths=/opt/haksan/ops/state /run/docker.sock
+CapabilityBoundingSet=
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native

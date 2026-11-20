@@ -5,16 +5,45 @@ import { ApiError } from '@/src/api/apiClient';
 import { apiBaseOrigin } from '@/src/api/config';
 
 const LEGACY_QUEUE_KEY = 'haksan_offline_mutations';
-const INDEX_PREFIX = 'haksan_offline_mutations:index:';
-const ITEM_PREFIX = 'haksan_offline_mutations:item:';
+const INDEX_PREFIX = 'haksan_offline_mutations_index_';
+const ITEM_PREFIX = 'haksan_offline_mutations_item_';
 const MAX_QUEUE_ITEMS = 20;
+
+export type ServiceCompletionPayload = {
+  ticketId: string;
+  completionForm: Record<string, unknown> & {
+    serviceType: 'montaj' | 'ariza' | 'periyodik';
+    responsibility: 'ucretli' | 'garanti' | 'bakim';
+    yapilanIsler: string;
+    kurulumuYapan: string;
+    teslimAlan: string;
+    signedAt: string;
+    signedByUserId?: string;
+  };
+};
+
+/** Online kayıt ve offline tekrar gönderim aynı imzalı form sözleşmesini kullanır. */
+export async function completeServiceTicket(payload: ServiceCompletionPayload): Promise<void> {
+  const form = payload.completionForm;
+  if (!payload.ticketId || !form || !['montaj', 'ariza', 'periyodik'].includes(form.serviceType)
+    || !['ucretli', 'garanti', 'bakim'].includes(form.responsibility)
+    || !form.yapilanIsler?.trim() || !form.kurulumuYapan?.trim() || !form.teslimAlan?.trim()
+    || !form.signedAt?.trim()) {
+    throw new ApiError(422, 'SERVICE_COMPLETION_INCOMPLETE', 'Servis türü, sorumluluk, yapılan işler, teknisyen, teslim alan ve imza bilgileri gerekli.');
+  }
+  await serviceService.update(payload.ticketId, {
+    resolutionNote: form.yapilanIsler,
+    metadata: { completionForm: form },
+  });
+  await serviceService.updateTicketStatus(payload.ticketId, 'closed', 'Closed');
+}
 
 export type OfflineMutation =
   | {
       id: string;
       kind: 'service-complete';
       createdAt: string;
-      payload: { ticketId: string; notes: string };
+      payload: ServiceCompletionPayload;
     }
   | {
       id: string;
@@ -30,7 +59,13 @@ let activeScope: QueueScope | null = null;
 let legacyQueueRemoved = false;
 
 function scopeKey(scope: QueueScope): string {
-  return `${scope.origin}:${scope.tenantId}:${scope.userId}`;
+  // SecureStore anahtarları yalnız harf, rakam, nokta, tire ve alt çizgi kabul eder.
+  // Sabit uzunluklu UTF-16 hex kodlama farklı sunucu/kullanıcı kapsamlarını çakıştırmaz.
+  return Array.from(JSON.stringify([scope.origin, scope.tenantId, scope.userId])).map(character => {
+    let result = '';
+    for (let index = 0; index < character.length; index++) result += character.charCodeAt(index).toString(16).padStart(4, '0');
+    return result;
+  }).join('');
 }
 
 function indexKey(scope: QueueScope): string {
@@ -38,7 +73,7 @@ function indexKey(scope: QueueScope): string {
 }
 
 function itemKey(scope: QueueScope, id: string): string {
-  return `${ITEM_PREFIX}${scopeKey(scope)}:${id}`;
+  return `${ITEM_PREFIX}${scopeKey(scope)}_${id}`;
 }
 
 async function removeLegacyPlaintextQueue(): Promise<void> {
@@ -147,14 +182,12 @@ export async function flushOfflineQueue(): Promise<{ ok: number; failed: number 
   for (const item of queue) {
     try {
       if (item.kind === 'service-complete') {
-        const { ticketId, notes } = item.payload;
-        await serviceService.update(ticketId, { resolutionNotes: notes });
-        await serviceService.updateTicketStatus(ticketId, 'completed', 'closed');
+        await completeServiceTicket(item.payload);
       }
       ok++;
     } catch (error) {
       const retryable = (error instanceof ApiError && (error.status >= 500 || error.status === 0)) || error instanceof TypeError;
-      if (retryable) remaining.push(item);
+      if (retryable || (item.kind === 'service-complete' && error instanceof ApiError && error.code === 'SERVICE_COMPLETION_INCOMPLETE')) remaining.push(item);
       failed++;
     }
   }

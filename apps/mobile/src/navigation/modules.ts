@@ -9,6 +9,7 @@ export type NavKey =
   | 'customers'
   | 'contacts'
   | 'sales-cases'
+  | 'trade-fairs'
   | 'sales-map'
   | 'offers'
   | 'proformas'
@@ -57,6 +58,7 @@ export const MOBILE_MODULES: MobileModule[] = [
   { key: 'customers', label: 'Firmalar', group: 'sales', icon: 'business-outline', stitchScreenId: '97f60630c8ea490884fbd3e5d4a8b98d', roles: ['sales', 'finance'] },
   { key: 'contacts', label: 'Kontaklar', group: 'sales', icon: 'people-outline', stitchScreenId: 'cc4d0dd86ff44d15a4d91ee39a6edcb2', roles: ['sales'] },
   { key: 'sales-cases', label: 'Satış Kartları', group: 'sales', icon: 'briefcase-outline', stitchScreenId: 'e0417d17b4494b689a8a7ce4f90c3ce9', roles: ['sales'] },
+  { key: 'trade-fairs', label: 'Fuar Kayıtları', group: 'sales', icon: 'storefront-outline' },
   { key: 'sales-map', label: 'Firma Haritası', group: 'sales', icon: 'map-outline', stitchScreenId: '233c28eb0f214df2a92e45e37c1331be', roles: ['sales', 'service'] },
   { key: 'offers', label: 'Teklifler', group: 'sales', icon: 'document-text-outline', stitchScreenId: '967defac0e8a4b9c81ad0fae8ec76f0c', roles: ['sales', 'finance'] },
   { key: 'proformas', label: 'Proformalar', group: 'sales', icon: 'document-outline', stitchScreenId: '1639d10a6abe4318b740ea99e490bb9f', roles: ['sales', 'finance'] },

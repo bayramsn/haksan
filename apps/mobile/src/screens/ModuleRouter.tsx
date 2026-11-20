@@ -1,3 +1,4 @@
+import { TradeFairsScreen } from '@/src/screens/TradeFairsScreen';
 import { getModuleConfig } from '@/src/modules/registry';
 import { CalendarScreen } from '@/src/screens/CalendarScreen';
 import { ChatScreen } from '@/src/screens/ChatScreen';
@@ -66,6 +67,7 @@ export function ModuleRouter({ navKey, id }: Props) {
     case 'admin-list':
       return <AdminListScreen navKey={navKey} />;
     case 'list':
+      if (navKey === 'trade-fairs') return <TradeFairsScreen />;
       if (navKey === 'customers') return <CompaniesListScreen />;
       if (navKey === 'contacts') return <ContactsListScreen />;
       if (navKey === 'offers') return <OffersListScreen />;

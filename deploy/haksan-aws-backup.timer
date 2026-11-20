@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Haksan AWS PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+RandomizedDelaySec=10m
+Persistent=true
+Unit=haksan-aws-backup.service
+
+[Install]
+WantedBy=timers.target

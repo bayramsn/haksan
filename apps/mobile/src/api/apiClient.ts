@@ -206,7 +206,7 @@ function toNetworkError(err: unknown): ApiError {
     : new ApiError(0, 'NETWORK', 'Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin.');
 }
 
-async function request<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, opts: RequestOpts<T> = {}, rawResponse = false): Promise<T> {
   const { schema, timeoutMs = DEFAULT_TIMEOUT_MS, ...init } = opts;
   const baseUrl = getApiBaseUrl();
   const baseOrigin = apiBaseOrigin(baseUrl);
@@ -245,7 +245,9 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
   if (res.status === 401 && !path.startsWith('/auth/')) {
     const newToken = await refreshSession();
     if (newToken) {
-      const retryHeaders = { ...headers, Authorization: `Bearer ${newToken}` };
+      const retryHeaders: Record<string, string> = { ...headers, Authorization: `Bearer ${newToken}` };
+      if (refreshCookie) retryHeaders.Cookie = refreshCookie;
+      else delete retryHeaders.Cookie;
       try {
         res = await fetchWithTimeout(url, { ...init, method, headers: retryHeaders, body: serializedBody }, timeoutMs);
       } catch (err) {
@@ -266,7 +268,7 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     }
   }
 
-  if (res.status === 204) return undefined as T;
+  if (res.status === 204 && !rawResponse) return undefined as T;
 
   const contentType = res.headers.get('content-type') ?? '';
   if (!res.ok) {
@@ -278,6 +280,8 @@ async function request<T>(method: string, path: string, body?: unknown, opts: Re
     }
     throw new ApiError(res.status, `HTTP_${res.status}`, res.statusText || `Hata ${res.status}`);
   }
+
+  if (rawResponse) return res as T;
 
   if (contentType.includes('application/json')) {
     const json = await res.json();
@@ -296,6 +300,11 @@ setApiOriginChangedHandler(async () => {
   await clearApiSession();
   onSessionExpired?.();
 });
+
+/** PDF/Excel yanıtları da JSON istekleriyle aynı oturum ve yetki kontrollerinden geçer. */
+export function apiBinaryRequest(path: string, method: 'GET' | 'POST' = 'GET', body?: unknown): Promise<Response> {
+  return request<Response>(method, path, body, { headers: { Accept: '*/*' }, timeoutMs: 60_000 }, true);
+}
 
 export const api = {
   get: <T = unknown>(p: string, o?: RequestOpts<T>) => request<T>('GET', p, undefined, o),

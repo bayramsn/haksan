@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { productService } from '@/src/api/services';
+import { openStoredFile } from '@/src/api/download';
+import { shareProductTechnicalDocument } from '@/src/print/productTechnicalDocument';
 import { Screen } from '@/src/ui/Screen';
 import { productTitle } from '@/src/ui/products/productHelpers';
 import {
@@ -68,6 +70,34 @@ export function ProductDetailScreen({ id }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<ProductDetailTab>('genel');
+  const [media, setMedia] = useState<Awaited<ReturnType<typeof productService.media>>>([]);
+  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [openingFile, setOpeningFile] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMedia([]); setMediaError(null); setMediaLoading(true);
+    void productService.media(id).then((rows) => { if (!cancelled) setMedia(rows); })
+      .catch((e) => { if (!cancelled) setMediaError(e instanceof Error ? e.message : 'Medya yüklenemedi.'); })
+      .finally(() => { if (!cancelled) setMediaLoading(false); });
+    return () => { cancelled = true; };
+  }, [id]);
+
+  const openMedia = async (fileId: string) => {
+    if (openingFile) return;
+    setOpeningFile(true);
+    try { await openStoredFile(fileId); }
+    catch (e) { Alert.alert('Dosya açılamadı', e instanceof Error ? e.message : 'Tekrar deneyin.'); }
+    finally { setOpeningFile(false); }
+  };
+  const openTechnicalPdf = async () => {
+    if (openingFile) return;
+    setOpeningFile(true);
+    try { await shareProductTechnicalDocument(id); }
+    catch (e) { Alert.alert('Teknik PDF oluşturulamadı', e instanceof Error ? e.message : 'Tekrar deneyin.'); }
+    finally { setOpeningFile(false); }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -142,7 +172,7 @@ export function ProductDetailScreen({ id }: Props) {
       <ProductDetailTopBar
         modelCode={modelCode}
         onBack={() => router.back()}
-        onShare={() => Alert.alert('Paylaş', 'Paylaşım yakında eklenecek.')}
+        onShare={() => void openTechnicalPdf()}
         onMore={() => Alert.alert('Menü', 'Ek işlemler yakında eklenecek.')}
       />
 
@@ -185,7 +215,10 @@ export function ProductDetailScreen({ id }: Props) {
 
           <View style={styles.section}>
             <ProductQuickActions
-              onAddToQuote={() => Alert.alert('Teklife Ekle', 'Teklif akışı yakında eklenecek.')}
+              onAddToQuote={() => router.push(`/forms/offer?productId=${encodeURIComponent(id)}`)}
+              onCatalog={() => void openTechnicalPdf()}
+              onPrices={() => router.push('/modules/sales-price-list')}
+              onRelated={() => router.push('/modules/products')}
             />
           </View>
 
@@ -210,19 +243,21 @@ export function ProductDetailScreen({ id }: Props) {
             {tab === 'donanim' ? (
               <ProductEquipmentSection standard={equipment.standard} optional={equipment.optional} />
             ) : null}
-            {tab === 'medya' ? (
-              data.imageUrl ? (
-                <Text style={styles.muted}>Görsel galerisi yakında eklenecek.</Text>
-              ) : (
-                <Text style={styles.muted}>Medya bulunamadı</Text>
-              )
-            ) : null}
+            {tab === 'medya' ? <View style={{ gap: spacing.md }}>
+              {mediaLoading ? <ActivityIndicator color={colors.primary} /> : null}
+              {mediaError ? <Text style={styles.err}>{mediaError}</Text> : null}
+              {!mediaLoading && !mediaError && !media.length ? <Text style={styles.muted}>CRM’de bu ürüne ait medya bulunamadı.</Text> : null}
+              {media.map((item) => <Pressable key={item.fileId} disabled={openingFile} onPress={() => void openMedia(item.fileId)} accessibilityRole="button">
+                {item.mediaType === 'image' ? <Image source={{ uri: item.url }} style={{ width: '100%', height: 200 }} resizeMode="contain" /> : null}
+                <Text style={{ ...typography.bodyMd, color: colors.primary, paddingVertical: spacing.sm }}>{item.title || (item.mediaType === 'document' ? 'CRM belgesi / katalog' : 'Ürün görseli')} · Aç / Paylaş</Text>
+              </Pressable>)}
+            </View> : null}
           </View>
         </ScrollView>
 
         <ProductDetailFooter
           onEdit={() => Alert.alert('Düzenle', 'Ürün düzenleme yakında eklenecek.')}
-          onAddToQuote={() => Alert.alert('Teklife Ekle', 'Teklif akışı yakında eklenecek.')}
+          onAddToQuote={() => router.push(`/forms/offer?productId=${encodeURIComponent(id)}`)}
         />
       </View>
     </Screen>

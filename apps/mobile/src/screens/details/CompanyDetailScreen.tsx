@@ -1,322 +1,114 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { companyService, opportunityService, activityService, financeService, inventoryService, contactService, fileService } from '@/src/api/services';
+import { openStoredFile } from '@/src/api/download';
+import { useAuth } from '@/src/auth/AuthProvider';
 
 const PRIMARY = '#000c69';
 const RED = '#cf060c';
 const INK = '#1a1c1d';
 const MUTED = '#717182';
-
-const STATUS_CONFIG = {
-  aktif: { label: 'Aktif', bg: '#e6f4ea', text: '#137333', border: '#b7e1c1' },
-  pasif: { label: 'Pasif', bg: '#f3f4f6', text: '#4b5563', border: '#d1d5db' },
-  potansiyel: { label: 'Potansiyel', bg: '#fef7e0', text: '#b06000', border: '#f7d98c' },
-};
-
-const TABS = ['Geçmiş', 'Satış Kartları', 'Aktivite', 'Cari', 'Makineler'];
-
-// MOCK DATA
-const companies = [
-  { id: '1', name: 'Haksan Makina', code: 'C-001', phone: '0532 123 45 67', email: 'info@haksan.com', city: 'İstanbul', sector: 'Üretim', avatarColor: '#000c69', status: 'aktif' },
-  { id: '2', name: 'Asil Çelik', code: 'C-002', phone: '0532 987 65 43', email: 'satis@asilcelik.com', city: 'Bursa', sector: 'Otomotiv', avatarColor: '#10B981', status: 'aktif' },
-  { id: '3', name: 'Demirbağ Endüstri', code: 'C-003', phone: '0533 444 55 66', email: 'iletisim@demirbag.com', city: 'Ankara', sector: 'Savunma', avatarColor: '#F59E0B', status: 'pasif' },
-];
-
-const salesCards = [
-  { id: '1', companyId: '1', notes: 'Yeni CNC Tezgahı Alımı', stage: 'Teklif Aşamasında', createdAt: '20.06.2026', value: 24500 },
-];
-
-const machines = [
-  { id: '1', companyId: '1', model: 'HS-2000 CNC Torna', serialNumber: 'SN-2024-001', installDate: '15.01.2024', warrantyUntil: '15.01.2026', status: 'aktif' },
-  { id: '2', companyId: '1', model: 'VX-500 Dik İşleme', serialNumber: 'SN-2023-045', installDate: '10.05.2023', warrantyUntil: '10.05.2025', status: 'bakim' },
-];
-
-const MOCK_ACTIVITIES = [
-  { id: 'act1', type: 'call', title: 'Arama yapıldı', note: 'Teklif takibi için arandı, olumlu geri bildirim', user: 'Ahmet K.', time: '30.06.2026 10:15' },
-  { id: 'act2', type: 'visit', title: 'Saha ziyareti', note: 'Makine kurulum alanı incelendi', user: 'Serkan T.', time: '28.06.2026 14:30' },
-  { id: 'act3', type: 'offer', title: 'Teklif gönderildi', note: 'TKL-2026-001 — €24.500 teklif gönderildi', user: 'Satış', time: '25.06.2026 09:00' },
-  { id: 'act4', type: 'note', title: 'Not eklendi', note: 'Müşteri karar sürecini Temmuz ayına erteledi', user: 'Ahmet K.', time: '20.06.2026 16:45' },
-];
-
-const MOCK_FINANCIALS = [
-  { id: 'f1', date: '01.06.2026', desc: 'Satış Faturası — TKL-2026-001', amount: 24500, type: 'debit', status: 'bekliyor' },
-  { id: 'f2', date: '15.05.2026', desc: 'Tahsilat — EFT', amount: 12250, type: 'credit', status: 'odendi' },
-  { id: 'f3', date: '10.04.2026', desc: 'Satış Faturası — TKL-2026-000', amount: 18000, type: 'debit', status: 'odendi' },
-  { id: 'f4', date: '15.03.2026', desc: 'Tahsilat — Çek', amount: 18000, type: 'credit', status: 'odendi' },
-];
-
-const ACTIVITY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
-  call: 'call-outline', visit: 'car-outline', offer: 'document-text-outline', note: 'create-outline', service: 'build-outline',
-};
-
-function HealthScore({ status }: { status: string }) {
-  const score = status === 'aktif' ? 82 : status === 'potansiyel' ? 45 : 20;
-  const color = score >= 70 ? '#137333' : score >= 40 ? '#b06000' : RED;
-  return (
-    <View style={styles.scoreRow}>
-      <View style={styles.scoreTrack}>
-        <View style={[styles.scoreFill, { width: `${score}%`, backgroundColor: color }]} />
-      </View>
-      <Text style={[styles.scoreVal, { color }]}>{score}</Text>
-    </View>
-  );
-}
+const TABS = ['Aktiviteler', 'Fırsatlar', 'Cari', 'Makineler', 'Kişiler', 'Dokümanlar'];
+const formatDate = (value: unknown) => { const parsed = new Date(String(value ?? '')); return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString('tr-TR'); };
+const money = (value: unknown, currency?: string) => `${Number(value ?? 0).toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${currency ?? ''}`.trim();
+const failure = (error: unknown) => error instanceof Error ? error.message : 'Kayıtlar yüklenemedi. Tekrar deneyin.';
 
 type Props = { id: string };
-
 export function CompanyDetailScreen({ id }: Props) {
+  const { user } = useAuth();
+  const can = (permission: string) => Boolean(user?.permissions.includes(permission) || user?.roles.includes('super_admin'));
+  const [company, setCompany] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState(0);
-
-  const company = companies.find(c => c.id === id) ?? companies[0];
-  const cfg = STATUS_CONFIG[company.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.aktif;
-  
-  const companySales = salesCards.filter(s => s.companyId === company.id);
-  const companyMachines = machines.filter(m => m.companyId === company.id);
-  const balance = 12250;
-
-  const handleAction = (url: string) => {
-    Linking.openURL(url).catch(() => {});
-  };
-
-  const renderGecmis = () => (
-    <View style={styles.tabPanel}>
-      {MOCK_ACTIVITIES.map((act) => (
-        <View key={act.id} style={styles.activityCard}>
-          <View style={styles.actIconBox}>
-            <Ionicons name={ACTIVITY_ICONS[act.type] || 'ellipse'} size={18} color={MUTED} />
-          </View>
-          <View style={styles.actContent}>
-            <Text style={styles.actTitle}>{act.title}</Text>
-            <Text style={styles.actNote}>{act.note}</Text>
-            <View style={styles.actMeta}>
-              <Ionicons name="time-outline" size={12} color={MUTED} />
-              <Text style={styles.actMetaText}>{act.time} · {act.user}</Text>
-            </View>
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-
-  const renderSatisKartlari = () => (
-    <View style={styles.tabPanel}>
-      {companySales.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="trending-up" size={32} color="#d1d5db" />
-          <Text style={styles.emptyTitle}>Henüz satış kartı yok</Text>
-          <Text style={styles.emptyDesc}>Bu firma için ilk kartı oluşturun</Text>
-        </View>
-      ) : (
-        companySales.map(card => (
-          <TouchableOpacity
-            key={card.id}
-            style={styles.salesCard}
-            onPress={() => router.push(`/modules/sales/${card.id}`)}
-          >
-            <View style={[styles.salesAvatar, { backgroundColor: company.avatarColor }]}>
-              <Text style={styles.salesAvatarText}>{company.name.charAt(0)}</Text>
-            </View>
-            <View style={styles.salesContent}>
-              <Text style={styles.salesTitle}>{card.notes || 'Satış Kartı'}</Text>
-              <Text style={styles.salesDesc}>{card.stage} · {card.createdAt}</Text>
-            </View>
-            <View style={styles.salesRight}>
-              <Text style={styles.salesValue}>€{card.value.toLocaleString('tr-TR')}</Text>
-              <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
-            </View>
-          </TouchableOpacity>
-        ))
-      )}
-      <TouchableOpacity style={styles.newSaleBtn}>
-        <Ionicons name="add" size={18} color={PRIMARY} />
-        <Text style={styles.newSaleBtnText}>Yeni Satış Kartı</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderAktivite = () => (
-    <View style={styles.tabPanel}>
-      <View style={styles.quickAddRow}>
-        <TouchableOpacity style={styles.quickAddBtn}>
-          <Text style={styles.quickAddText}>+ Ziyaret Ekle</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.quickAddBtn}>
-          <Text style={styles.quickAddText}>+ Arama Ekle</Text>
-        </TouchableOpacity>
-      </View>
-      {MOCK_ACTIVITIES.filter(a => ['call', 'visit'].includes(a.type)).map((act) => (
-        <View key={act.id} style={styles.activityCard}>
-          <View style={styles.actIconBox}>
-            <Ionicons name={ACTIVITY_ICONS[act.type] || 'ellipse'} size={18} color={MUTED} />
-          </View>
-          <View style={styles.actContent}>
-            <Text style={styles.actTitle}>{act.title}</Text>
-            <Text style={styles.actNote}>{act.note}</Text>
-            <Text style={styles.actMetaText}>{act.time}</Text>
-          </View>
-        </View>
-      ))}
-    </View>
-  );
-
-  const renderCari = () => (
-    <View style={styles.tabPanel}>
-      <View style={styles.balanceCard}>
-        <Text style={styles.balanceHeader}>Cari Bakiye</Text>
-        <View style={styles.balanceRow}>
-          <View style={[styles.balanceItem, { backgroundColor: '#fef2f2' }]}>
-            <Text style={[styles.balanceVal, { color: RED }]}>€36.500</Text>
-            <Text style={styles.balanceLabel}>Borç</Text>
-          </View>
-          <View style={[styles.balanceItem, { backgroundColor: '#e6f4ea' }]}>
-            <Text style={[styles.balanceVal, { color: '#137333' }]}>€24.250</Text>
-            <Text style={styles.balanceLabel}>Ödendi</Text>
-          </View>
-          <View style={[styles.balanceItem, { backgroundColor: '#eef2ff' }]}>
-            <Text style={[styles.balanceVal, { color: PRIMARY }]}>€{balance.toLocaleString('tr-TR')}</Text>
-            <Text style={styles.balanceLabel}>Bakiye</Text>
-          </View>
+  const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [summary, setSummary] = useState<any>(null);
+  const [sectionLoading, setSectionLoading] = useState(false);
+  const [sectionError, setSectionError] = useState('');
+  const [revision, setRevision] = useState(0);
+  const [fileBusy, setFileBusy] = useState(false);
+  const epoch = useRef(0);
+  const load = useCallback(async () => {
+    const request = ++epoch.current;
+    setLoading(true); setError('');
+    try { const result = await companyService.get(id); if (request === epoch.current) { setCompany(result); setPage(1); setRevision(v => v + 1); } }
+    catch (err) { if (request === epoch.current) { setCompany(null); setError(failure(err)); } }
+    finally { if (request === epoch.current) setLoading(false); }
+  }, [id]);
+  useFocusEffect(useCallback(() => { setCompany(null); setRows([]); void load(); return () => { epoch.current += 1; }; }, [load]));
+  useEffect(() => {
+    let current = true;
+    if (page === 1) { setRows([]); setSummary(null); setTotal(0); }
+    setSectionError('');
+    if (!company) { setSectionLoading(false); return; }
+    const permission = ['activities.read', 'opportunities.read', 'receivables.read', 'customer_devices.read', 'contacts.read', 'files.read'][activeTab];
+    if (!can(permission)) { setSectionLoading(false); setSectionError('Bu kayıtları görüntüleme yetkiniz yok.'); return; }
+    setSectionLoading(true);
+    const params = { companyId: id, page, pageSize: 100 };
+    const request = activeTab === 0 ? activityService.list(params)
+      : activeTab === 1 ? opportunityService.list(params)
+      : activeTab === 2 ? Promise.all([financeService.companySummary(id), financeService.companyStatement(id)]).then(([result, lines]) => ({ data: lines, meta: { total: lines.length }, summary: result }))
+      : activeTab === 3 ? inventoryService.customerDevices(params)
+      : activeTab === 4 ? contactService.list(params)
+      : fileService.links({ entityType: 'company', entityId: id, page, pageSize: 100 });
+    void request.then(result => {
+      if (!current) return;
+      setRows(previous => page === 1 ? result.data : [...previous, ...result.data]); setTotal(result.meta.total);
+      if ('summary' in result) setSummary(result.summary);
+    }).catch(err => { if (current) setSectionError(failure(err)); }).finally(() => { if (current) setSectionLoading(false); });
+    return () => { current = false; };
+  }, [id, company?.id, activeTab, page, revision, user]);
+  const handleAction = (url: string) => { void Linking.openURL(url).catch(() => Alert.alert('Açılamadı', 'Bu işlem için uygun bir uygulama bulunamadı.')); };
+  const openFile = async (fileId: string) => { if (fileBusy) return; setFileBusy(true); try { await openStoredFile(fileId); } catch (err) { Alert.alert('Dosya açılamadı', failure(err)); } finally { setFileBusy(false); } };
+  const name = company?.shortName || company?.legalTitle || 'Firma';
+  const address = company?.addresses?.find((item: any) => item.isDefault) ?? company?.addresses?.[0];
+  const phone = company?.phones?.find((item: any) => item.isDefault)?.phone ?? company?.phones?.[0]?.phone;
+  const email = company?.emails?.find((item: any) => item.isDefault)?.email ?? company?.emails?.[0]?.email;
+  const addressText = address ? [address.fullAddress, address.district, address.province, address.country].filter(Boolean).join(', ') : '';
+  const phoneDigits = String(phone ?? '').replace(/[^0-9+]/g, '');
+  const whatsappDigits = phoneDigits.replace(/^00/, '').replace(/[^0-9]/g, '');
+  const header = <View style={styles.headerBar}><TouchableOpacity accessibilityLabel="Geri" onPress={() => router.back()} style={{ padding: 8 }}><Ionicons name="arrow-back" size={24} color={INK} /></TouchableOpacity>{can('companies.update') && company && <TouchableOpacity style={{ padding: 12 }} onPress={() => router.push({ pathname: '/forms/company', params: { id } })}><Text style={{ color: PRIMARY }}>Düzenle</Text></TouchableOpacity>}</View>;
+  if (loading && !company) return <SafeAreaView style={styles.root}>{header}<ActivityIndicator style={{ margin: 32 }} color={PRIMARY} /></SafeAreaView>;
+  if (!company) return <SafeAreaView style={styles.root}>{header}<View style={styles.tabPanel}><Text>{error || 'Firma bulunamadı.'}</Text><TouchableOpacity style={styles.newSaleBtn} onPress={() => void load()}><Text>Tekrar Dene</Text></TouchableOpacity></View></SafeAreaView>;
+  return <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+    {header}
+    <ScrollView style={styles.scroll} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
+      <View style={styles.hero}>
+        <View style={styles.heroTop}><View style={[styles.avatarLarge, { backgroundColor: PRIMARY }]}><Text style={styles.avatarLargeText}>{name.charAt(0)}</Text></View><View style={styles.heroInfo}><Text style={styles.heroTitle}>{name}</Text><Text style={styles.heroMetaText}>{company.legalTitle}</Text><Text style={styles.heroMetaText}>{[company.sector, address?.province].filter(Boolean).join(' · ')}</Text></View></View>
+        {phone ? <Text style={styles.heroMetaText}>{phone}</Text> : null}{email ? <Text style={styles.heroMetaText}>{email}</Text> : null}{addressText ? <Text style={styles.heroMetaText}>{addressText}</Text> : null}
+        {company.notes ? <Text style={styles.actNote}>{company.notes}</Text> : null}
+        <View style={styles.quickActions}>
+          {phoneDigits && <TouchableOpacity style={styles.qaBtn} onPress={() => handleAction(`tel:${phoneDigits}`)}><Ionicons name="call" size={18} color={PRIMARY} /><Text style={styles.qaText}>Ara</Text></TouchableOpacity>}
+          {email && <TouchableOpacity style={styles.qaBtn} onPress={() => handleAction(`mailto:${encodeURIComponent(email)}`)}><Ionicons name="mail" size={18} color={PRIMARY} /><Text style={styles.qaText}>E-posta</Text></TouchableOpacity>}
+          {whatsappDigits && <TouchableOpacity style={styles.qaBtn} onPress={() => handleAction(`https://wa.me/${whatsappDigits}`)}><Ionicons name="logo-whatsapp" size={18} color="#137333" /><Text style={styles.qaText}>WhatsApp</Text></TouchableOpacity>}
+          {addressText && <TouchableOpacity style={styles.qaBtn} onPress={() => handleAction(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addressText)}`)}><Ionicons name="map" size={18} color={PRIMARY} /><Text style={styles.qaText}>Harita</Text></TouchableOpacity>}
         </View>
       </View>
-      <View style={styles.financialList}>
-        {MOCK_FINANCIALS.map(f => (
-          <View key={f.id} style={styles.finRow}>
-            <View style={styles.finContent}>
-              <Text style={styles.finDesc}>{f.desc}</Text>
-              <Text style={styles.finDate}>{f.date}</Text>
-            </View>
-            <Text style={[styles.finAmount, { color: f.type === 'credit' ? '#137333' : RED }]}>
-              {f.type === 'credit' ? '+' : '-'}€{f.amount.toLocaleString('tr-TR')}
-            </Text>
-          </View>
-        ))}
+      <ScrollView horizontal style={styles.tabsWrapper} contentContainerStyle={styles.tabsScroll}>{TABS.map((tab, index) => <TouchableOpacity key={tab} style={[styles.tabBtn, activeTab === index && styles.tabBtnActive]} onPress={() => { setRows([]); setSummary(null); setPage(1); setActiveTab(index); }}><Text style={[styles.tabText, activeTab === index && styles.tabTextActive]}>{tab}</Text></TouchableOpacity>)}</ScrollView>
+      <View style={styles.tabPanel}>
+        {activeTab === 0 && can('activities.create') && <TouchableOpacity style={styles.newSaleBtn} onPress={() => router.push({ pathname: '/forms/visit', params: { companyId: id } })}><Text style={styles.newSaleBtnText}>Ziyaret Ekle</Text></TouchableOpacity>}
+        {activeTab === 1 && can('opportunities.create') && <TouchableOpacity style={styles.newSaleBtn} onPress={() => router.push({ pathname: '/forms/opportunity', params: { companyId: id } })}><Text style={styles.newSaleBtnText}>Yeni Fırsat</Text></TouchableOpacity>}
+        {activeTab === 3 && can('service_tickets.create') && <TouchableOpacity style={styles.newSaleBtn} onPress={() => router.push({ pathname: '/forms/service-ticket', params: { companyId: id } })}><Text style={styles.newSaleBtnText}>Servis Talebi Aç</Text></TouchableOpacity>}
+        {activeTab === 4 && can('contacts.create') && <TouchableOpacity style={styles.newSaleBtn} onPress={() => router.push({ pathname: '/forms/contact', params: { companyId: id } })}><Text style={styles.newSaleBtnText}>Kişi Ekle</Text></TouchableOpacity>}
+        {sectionError ? <View><Text style={{ color: RED }}>{sectionError}</Text><TouchableOpacity style={styles.newSaleBtn} onPress={() => setRevision(v => v + 1)}><Text>Tekrar Dene</Text></TouchableOpacity></View> : null}
+        {activeTab === 2 && summary?.byCurrency?.map((balance: any) => <View key={balance.currencyCode} style={styles.balanceCard}><Text style={styles.balanceHeader}>{balance.currencyCode} Cari Özeti</Text><Text style={styles.finDesc}>Satış: {money(balance.salesTotal, balance.currencyCode)}</Text><Text style={styles.finDesc}>Tahsilat: {money(balance.collections, balance.currencyCode)}</Text><Text style={styles.finDesc}>Borç: {money(balance.borc, balance.currencyCode)}</Text><Text style={styles.finDesc}>Alacak: {money(balance.alacak, balance.currencyCode)}</Text><Text style={styles.finDesc}>Net bakiye: {money(balance.net, balance.currencyCode)}</Text></View>)}
+        {rows.map((item, index) => activeTab === 0 ? <View key={item.id} style={styles.activityCard}><View style={styles.actContent}><Text style={styles.actTitle}>{item.subject || item.type?.name || 'Aktivite'}</Text><Text style={styles.actNote}>{item.description || item.result || ''}</Text><Text style={styles.actMetaText}>{formatDate(item.occurredAt ?? item.createdAt)} · {item.createdByUser?.fullName ?? ''}</Text>{item.files?.map((file: any) => <TouchableOpacity key={file.fileId ?? file.id} disabled={fileBusy} onPress={() => void openFile(file.fileId ?? file.file?.id ?? file.id)}><Text style={{ color: PRIMARY }}>{file.originalFilename ?? file.file?.originalFilename ?? 'Aktivite eki'}</Text></TouchableOpacity>)}</View></View>
+          : activeTab === 1 ? <TouchableOpacity key={item.id} style={styles.salesCard} onPress={() => router.push(`/modules/sales-cases/${item.id}`)}><View style={styles.salesContent}><Text style={styles.salesTitle}>{item.title || 'Fırsat'}</Text><Text style={styles.salesDesc}>{item.stage?.name ?? ''} · {formatDate(item.createdAt)}</Text><Text style={styles.salesValue}>{money(item.estimatedValue, item.currency?.code)}</Text></View><Ionicons name="chevron-forward" size={18} color={PRIMARY} /></TouchableOpacity>
+          : activeTab === 2 ? <View key={`${item.type}-${item.id}-${index}`} style={styles.finRow}><View style={styles.finContent}><Text style={styles.finDesc}>{item.description || item.invoiceNo || 'Cari hareket'}</Text><Text style={styles.finDate}>{formatDate(item.date)}</Text><Text style={styles.finDate}>Borç {money(item.debit, item.currencyCode)} · Alacak {money(item.credit, item.currencyCode)}</Text><Text style={styles.finAmount}>Bakiye {money(item.balance, item.currencyCode)}</Text></View></View>
+          : activeTab === 3 ? <TouchableOpacity key={item.id} style={styles.machineCard} onPress={() => router.push(`/modules/machines/${item.id}`)}><Text style={styles.machineModel}>{item.productModelName || item.model || 'Makine'}</Text><Text style={styles.machineSerial}>{item.serialNumber || 'Seri numarası belirtilmemiş'}</Text><Text style={styles.machineDates}>Kurulum: {formatDate(item.installationDate ?? item.installedAt)} · Garanti: {formatDate(item.warrantyEndDate)}</Text></TouchableOpacity>
+          : activeTab === 4 ? <TouchableOpacity key={item.id} style={styles.activityCard} onPress={() => router.push(`/modules/contacts/${item.id}`)}><View style={styles.actContent}><Text style={styles.actTitle}>{item.fullName}</Text><Text style={styles.actNote}>{item.title || item.department || ''}</Text><Text style={styles.actMetaText}>{item.phone || item.mobilePhone || item.email || ''}</Text></View><Ionicons name="chevron-forward" size={18} color={PRIMARY} /></TouchableOpacity>
+          : <TouchableOpacity key={item.id} disabled={fileBusy || !item.file?.id} style={styles.activityCard} onPress={() => void openFile(item.file.id)}><Ionicons name="document-text-outline" size={24} color={PRIMARY} /><View style={styles.actContent}><Text style={styles.actTitle}>{item.file?.originalFilename || 'Dosya'}</Text><Text style={styles.actMetaText}>{formatDate(item.file?.createdAt)}</Text></View><Ionicons name="download-outline" size={20} color={PRIMARY} /></TouchableOpacity>)}
+        {sectionLoading && <ActivityIndicator color={PRIMARY} />}
+        {!sectionLoading && !sectionError && !rows.length && <Text style={styles.emptyTitle}>Kayıt bulunamadı.</Text>}
+        {activeTab !== 2 && total > rows.length && !sectionLoading && <TouchableOpacity style={styles.newSaleBtn} onPress={() => setPage(p => p + 1)}><Text style={styles.newSaleBtnText}>Daha Fazla Göster ({rows.length}/{total})</Text></TouchableOpacity>}
       </View>
-    </View>
-  );
-
-  const renderMakineler = () => (
-    <View style={styles.tabPanel}>
-      {companyMachines.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Ionicons name="build-outline" size={32} color="#d1d5db" />
-          <Text style={styles.emptyTitle}>Kayıtlı makine yok</Text>
-        </View>
-      ) : (
-        companyMachines.map(m => {
-          const statusColor = m.status === 'aktif' ? '#137333' : m.status === 'bakim' ? '#b06000' : RED;
-          const statusBg = m.status === 'aktif' ? '#e6f4ea' : m.status === 'bakim' ? '#fef7e0' : '#fef2f2';
-          const statusLabel = m.status === 'aktif' ? 'Aktif' : m.status === 'bakim' ? 'Bakımda' : 'Arızalı';
-
-          return (
-            <View key={m.id} style={styles.machineCard}>
-              <View style={styles.machineHeader}>
-                <View style={styles.machineContent}>
-                  <Text style={styles.machineModel}>{m.model}</Text>
-                  <Text style={styles.machineSerial}>{m.serialNumber}</Text>
-                  <Text style={styles.machineDates}>Kurulum: {m.installDate} · Garanti: {m.warrantyUntil}</Text>
-                </View>
-                <View style={[styles.statusChip, { backgroundColor: statusBg, borderColor: statusColor }]}>
-                  <Text style={[styles.statusText, { color: statusColor }]}>{statusLabel}</Text>
-                </View>
-              </View>
-              <TouchableOpacity style={styles.serviceBtn}>
-                <Ionicons name="open-outline" size={12} color={PRIMARY} />
-                <Text style={styles.serviceBtnText}>Servis Talebi Aç</Text>
-              </TouchableOpacity>
-            </View>
-          );
-        })
-      )}
-    </View>
-  );
-
-  return (
-    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-      <View style={styles.headerBar}>
-        <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
-          <Ionicons name="arrow-back" size={24} color={INK} />
-        </TouchableOpacity>
-      </View>
-      <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Hero */}
-        <View style={styles.hero}>
-          <View style={styles.heroTop}>
-            <View style={[styles.avatarLarge, { backgroundColor: company.avatarColor }]}>
-              <Text style={styles.avatarLargeText}>{company.name.charAt(0)}</Text>
-            </View>
-            <View style={styles.heroInfo}>
-              <Text style={styles.heroTitle}>{company.name}</Text>
-              <View style={styles.heroMetaRow}>
-                <View style={[styles.statusChip, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
-                  <Text style={[styles.statusText, { color: cfg.text }]}>{cfg.label}</Text>
-                </View>
-                <Text style={styles.heroMetaText}>{company.sector}</Text>
-                <Text style={styles.heroMetaDot}>·</Text>
-                <View style={styles.heroCity}>
-                  <Ionicons name="location" size={10} color={MUTED} />
-                  <Text style={styles.heroMetaText}>{company.city}</Text>
-                </View>
-              </View>
-              <View style={styles.scoreContainer}>
-                <Text style={styles.scoreLabel}>Müşteri Skoru</Text>
-                <HealthScore status={company.status} />
-              </View>
-            </View>
-          </View>
-          <View style={styles.quickActions}>
-            <TouchableOpacity style={[styles.qaBtn, { backgroundColor: '#e6f4ea' }]} onPress={() => handleAction(`tel:${company.phone}`)}>
-              <Ionicons name="call" size={16} color="#137333" />
-              <Text style={[styles.qaText, { color: '#137333' }]}>Ara</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.qaBtn, { backgroundColor: '#eef2ff' }]} onPress={() => handleAction(`mailto:${company.email}`)}>
-              <Ionicons name="mail" size={16} color={PRIMARY} />
-              <Text style={[styles.qaText, { color: PRIMARY }]}>Mail</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.qaBtn, { backgroundColor: '#f0fdf4' }]}>
-              <Ionicons name="logo-whatsapp" size={16} color="#16a34a" />
-              <Text style={[styles.qaText, { color: '#16a34a' }]}>WA</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.qaBtn, { backgroundColor: '#fef7e0' }]}>
-              <Ionicons name="map" size={16} color="#854d0e" />
-              <Text style={[styles.qaText, { color: '#854d0e' }]}>Harita</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Tabs */}
-        <View style={styles.tabsWrapper}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
-            {TABS.map((t, i) => (
-              <TouchableOpacity
-                key={t}
-                style={[styles.tabBtn, activeTab === i && styles.tabBtnActive]}
-                onPress={() => setActiveTab(i)}
-              >
-                <Text style={[styles.tabText, activeTab === i && styles.tabTextActive]}>{t}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* Content */}
-        <View style={styles.contentArea}>
-          {activeTab === 0 && renderGecmis()}
-          {activeTab === 1 && renderSatisKartlari()}
-          {activeTab === 2 && renderAktivite()}
-          {activeTab === 3 && renderCari()}
-          {activeTab === 4 && renderMakineler()}
-          <View style={{ height: 100 }} />
-        </View>
-      </ScrollView>
-
-      {/* FAB */}
-      <TouchableOpacity style={styles.fab}>
-        <Ionicons name="add" size={24} color="#ffffff" />
-      </TouchableOpacity>
-    </SafeAreaView>
-  );
+    </ScrollView>
+  </SafeAreaView>;
 }
 
 const styles = StyleSheet.create({

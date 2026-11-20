@@ -208,10 +208,11 @@ export interface NotificationDTO {
 }
 
 export const notificationService = {
-  list: (params?: { unread?: boolean; pageSize?: number }) =>
+  list: (params?: { unread?: boolean; pageSize?: number; page?: number }) =>
     api.get<Paginated<NotificationDTO>>(`/notifications${qs({
       unread: params?.unread === undefined ? undefined : String(params.unread),
       pageSize: params?.pageSize,
+      page: params?.page,
     })}`),
   markRead: (id: string) => api.patch<NotificationDTO>(`/notifications/${id}/read`, {}),
   registerPushToken: (token: string, platform: 'expo' | 'ios' | 'android' = 'expo') =>
@@ -371,6 +372,7 @@ export const competitorService = {
 
 // ───── Inventory ─────
 export const inventoryService = {
+  customerDevice: (id: string) => api.get<any>(`/customer-devices/${encodeURIComponent(id)}`),
   listWarehouses: () => api.get<any[]>('/warehouses'),
   createWarehouse: (body: WarehouseCreateInput) => api.post<any>('/warehouses', body),
   list: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/inventory${qs(params)}`),
@@ -411,8 +413,8 @@ export const quoteService = {
    * Teklif PDF'ini backend'den (PDFKit) indirir. Endpoint binary döndürdüğü için
    * api client yerine token'lı ham fetch + blob indirmesi kullanılır.
    */
-  downloadPdf: (id: string) => openPdfUrl(`/quotes/${id}/generate-pdf`),
-  openPdf: (id: string) => openPdfUrl(`/quotes/${id}/generate-pdf`),
+  downloadPdf: (id: string) => import('../print/quoteDocument').then(({ shareQuoteDocument }) => shareQuoteDocument(id)),
+  openPdf: (id: string) => import('../print/quoteDocument').then(({ shareQuoteDocument }) => shareQuoteDocument(id)),
 };
 
 // ───── Note templates (reusable quote notes) ─────
@@ -451,6 +453,8 @@ export const purchaseOrderService = {
 
 // ───── Commercial documents ─────
 export const documentService = {
+  proforma: (id: string) => api.get<any>(`/proformas/${encodeURIComponent(id)}`),
+  contract: (id: string) => api.get<any>(`/contracts/${encodeURIComponent(id)}`),
   proformas: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/proformas${qs(params)}`),
   createProforma: (body: ProformaCreateInput) => api.post<any>('/proformas', body),
   updateProforma: (id: string, body: ProformaUpdateInput) => api.patch<any>(`/proformas/${id}`, body),
@@ -468,6 +472,7 @@ export const documentService = {
 
 // ───── Finance ─────
 export const financeService = {
+  payment: (id: string) => api.get<any>(`/payments/${encodeURIComponent(id)}`),
   receivables: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/receivables${qs(params)}`),
   createReceivable: (body: ReceivableCreateInput) => api.post<any>('/receivables', body),
   payments: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/payments${qs(params)}`),
@@ -491,6 +496,8 @@ export const financeService = {
 
 // ───── Service / Installation / Shipment ─────
 export const serviceService = {
+  ticket: (id: string) => api.get<any>(`/service-tickets/${encodeURIComponent(id)}`),
+  installation: (id: string) => api.get<any>(`/installations/${encodeURIComponent(id)}`),
   tickets: (params?: Record<string, string | number | undefined>) => api.get<Paginated<any>>(`/service-tickets${qs(params)}`),
   createTicket: (body: any) => api.post<any>('/service-tickets', body),
   update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),

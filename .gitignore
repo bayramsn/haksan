@@ -30,8 +30,10 @@ output/
 
 .env
 .env.*
+/.env [0-9]*
 !.env.example
 !.env.*.example
+!/.env [0-9]*.example
 deploy/certbot/
 deploy/keys/
 deploy/security/

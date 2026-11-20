@@ -1,39 +1,68 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   ScrollView,
   TouchableOpacity,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-
-const MOCK_NOTIFICATIONS = [
-  { id: 'n1', title: 'Yeni Servis Talebi', body: 'raifcnc — CNC Freze arızası bildirdi', time: '10 dak', read: false, type: 'service', color: '#EF4444' },
-  { id: 'n2', title: 'Teklif Onaylandı', body: 'Omega Endüstri — TKL-2026-003 onaylandı', time: '1 saat', read: false, type: 'offer', color: '#10B981' },
-  { id: 'n3', title: 'Ödeme Alındı', body: 'Kaya Metal A.Ş. — €33.700 tahsilat', time: '2 saat', read: false, type: 'payment', color: '#F59E0B' },
-  { id: 'n4', title: 'Vade Uyarısı', body: 'Precision CNC Ltd. — 5 gün kaldı', time: 'Dün', read: true, type: 'finance', color: '#F97316' },
-  { id: 'n5', title: 'Yeni Şikayet', body: 'Şikayet kutusuna yeni kayıt eklendi', time: 'Dün', read: true, type: 'complaint', color: '#EF4444' },
-  { id: 'n6', title: 'Stok Uyarısı', body: 'Kontrol Kartı X1 — kritik seviyede', time: '2 gün', read: true, type: 'stock', color: '#8B5CF6' },
-  { id: 'n7', title: 'Garanti Bitiyor', body: 'TC 500 Torna — 7 gün kaldı', time: '2 gün', read: true, type: 'warranty', color: '#6366F1' },
-];
+import { router, useFocusEffect } from 'expo-router';
+import { notificationService } from '@/src/api/services';
+import { getModuleConfig } from '@/src/modules/registry';
 
 const TYPE_ICONS: Record<string, string> = {
   service: '🔧', offer: '📄', payment: '💰', finance: '📅', complaint: '⚠️', stock: '📦', warranty: '🛡️',
 };
 
 export function NotificationsScreen() {
-  const [notifications, setNotifications] = useState(MOCK_NOTIFICATIONS);
-
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const sequence = useRef(0);
+  const load = useCallback(async () => {
+    const request = ++sequence.current;
+    setLoading(true); setError(null);
+    try {
+      const rows: any[] = [];
+      for (let page = 1; ; page++) {
+        const result = await notificationService.list({ page, pageSize: 100 });
+        if (request !== sequence.current) return;
+        rows.push(...result.data.map(row => ({ ...row, read: Boolean(row.readAt), time: new Date(row.createdAt).toLocaleString('tr-TR'), color: '#000c69' })));
+        if (page >= result.meta.totalPages || result.data.length < 100) break;
+      }
+      setNotifications(rows);
+    } catch (e) { if (request === sequence.current) setError(e instanceof Error ? e.message : 'Bildirimler yüklenemedi.'); }
+    finally { if (request === sequence.current) setLoading(false); }
+  }, []);
+  useFocusEffect(useCallback(() => { void load(); return () => { sequence.current++; }; }, [load]));
   const unreadCount = notifications.filter(n => !n.read).length;
-
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  const markAsRead = async (id: string, navigate = true) => {
+    const item = notifications.find(n => n.id === id);
+    try {
+      if (!item?.read) await notificationService.markRead(id);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      if (!navigate) return;
+      const target = item?.target;
+      if (target?.kind === 'company') router.push(`/modules/customers/${encodeURIComponent(target.companyId)}`);
+      else if (target?.kind === 'opportunity') router.push(`/modules/sales-cases/${encodeURIComponent(target.opportunityId)}`);
+      else if (target?.kind === 'navigate' && getModuleConfig(target.nav)) router.push(`/modules/${target.nav}`);
+    } catch (e) { Alert.alert('Bildirim güncellenemedi', e instanceof Error ? e.message : 'Tekrar deneyin.'); }
   };
-
-  const markAsRead = (id: string) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  const markAllAsRead = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      for (const item of notifications.filter(n => !n.read)) {
+        await notificationService.markRead(item.id);
+        setNotifications(prev => prev.map(n => n.id === item.id ? { ...n, read: true } : n));
+      }
+    } catch (e) { Alert.alert('İşlem tamamlanamadı', e instanceof Error ? e.message : 'Tekrar deneyin.'); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -46,23 +75,24 @@ export function NotificationsScreen() {
             <Text style={styles.headerUnreadText}>{unreadCount} okunmamış</Text>
           )}
         </View>
-        <TouchableOpacity onPress={markAllAsRead} style={styles.headerRight}>
+        <TouchableOpacity disabled={saving || loading} onPress={() => void markAllAsRead()} style={styles.headerRight}>
           <Ionicons name="checkmark-done" size={16} color="#000c69" />
           <Text style={styles.headerMarkText}>Tümünü okundu işaretle</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.listArea}>
+      <ScrollView style={styles.listArea} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
+        {error ? <TouchableOpacity onPress={() => void load()}><Text style={{ padding: 20, color: '#cf060c' }}>{error} · Tekrar dene</Text></TouchableOpacity> : null}
         {notifications.map((notif) => (
           <TouchableOpacity
             key={notif.id}
             style={[styles.row, notif.read ? styles.rowRead : styles.rowUnread]}
-            onPress={() => markAsRead(notif.id)}
+            onPress={() => void markAsRead(notif.id)}
             activeOpacity={0.7}
           >
             {/* Icon */}
             <View style={[styles.iconWrap, { backgroundColor: `${notif.color}18` }]}>
-              <Text style={styles.iconText}>{TYPE_ICONS[notif.type]}</Text>
+              <Text style={styles.iconText}>{TYPE_ICONS[notif.type] ?? '🔔'}</Text>
             </View>
 
             {/* Content */}
@@ -83,7 +113,7 @@ export function NotificationsScreen() {
           </TouchableOpacity>
         ))}
 
-        {notifications.length === 0 && (
+        {!loading && !error && notifications.length === 0 && (
           <View style={styles.emptyWrap}>
             <View style={styles.emptyIconWrap}>
               <Ionicons name="notifications" size={28} color="#d1d5db" />

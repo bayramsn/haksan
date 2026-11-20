@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "2.2",
+  "description": "Haksan Ops whitelisted maintenance actions. No arbitrary shell.",
+  "parameters": {
+    "Action": {
+      "type": "String",
+      "description": "Whitelisted action to run",
+      "allowedValues": [
+        "diagnostics",
+        "smoke_test",
+        "nginx_test",
+        "nginx_reload",
+        "restart_nginx",
+        "restart_api",
+        "backup_verify",
+        "deploy_prepare"
+      ]
+    }
+  },
+  "mainSteps": [
+    {
+      "action": "aws:runShellScript",
+      "name": "runWhitelistedOpsAction",
+      "inputs": {
+        "timeoutSeconds": "900",
+        "runCommand": [
+          "cd /opt/haksan",
+          "OPS_CONFIG_FILE=/opt/haksan/ops/.env /bin/bash /opt/haksan/ops/bin/run-action.sh '{{ Action }}' 'ssm_manual'"
+        ]
+      }
+    }
+  ]
+}

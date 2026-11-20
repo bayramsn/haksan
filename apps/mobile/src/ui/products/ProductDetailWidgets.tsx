@@ -149,14 +149,20 @@ export function ProductPriceCard({
 
 export function ProductQuickActions({
   onAddToQuote,
+  onCatalog,
+  onPrices,
+  onRelated,
 }: {
   onAddToQuote?: () => void;
+  onCatalog?: () => void;
+  onPrices?: () => void;
+  onRelated?: () => void;
 }) {
   const chips = [
     { label: 'Teklife Ekle', icon: 'document-text-outline' as const, onPress: onAddToQuote, primary: true },
-    { label: 'Fiyat Listesi', icon: 'list-outline' as const },
-    { label: 'Muadil Ürün', icon: 'swap-horizontal-outline' as const },
-    { label: 'PDF Katalog', icon: 'document-outline' as const },
+    { label: 'Fiyat Listesi', icon: 'list-outline' as const, onPress: onPrices },
+    { label: 'Ürünler', icon: 'swap-horizontal-outline' as const, onPress: onRelated },
+    { label: 'PDF Katalog', icon: 'document-outline' as const, onPress: onCatalog },
   ];
 
   return (

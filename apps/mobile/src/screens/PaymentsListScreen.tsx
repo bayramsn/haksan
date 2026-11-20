@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,7 +8,8 @@ import {
   ScrollView,
   RefreshControl,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
+import { financeService } from '@/src/api/services';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -23,24 +24,13 @@ interface Payment {
   company: string;
   type: string;
   amount: number;
-  currency: 'EUR' | 'TRY' | 'USD';
+  currency: string;
   date: string;
   dueDate?: string;
   direction: 'received' | 'paid';
   status: 'paid' | 'pending' | 'overdue';
   method: string;
 }
-
-const MOCK_PAYMENTS: Payment[] = [
-  { id: 'p1', company: 'Omega Endüstri', type: 'Satış Tahsilatı', amount: 28500, currency: 'EUR', date: '25.05.2026', direction: 'received', status: 'paid', method: 'Havale' },
-  { id: 'p2', company: 'Kartal Endüstri A.Ş.', type: 'Satış Tahsilatı', amount: 19800, currency: 'EUR', date: '28.05.2026', direction: 'received', status: 'paid', method: 'EFT' },
-  { id: 'p3', company: 'Kaya Metal A.Ş.', type: 'Satış Tahsilatı', amount: 33700, currency: 'EUR', date: '02.06.2026', direction: 'received', status: 'paid', method: 'Çek' },
-  { id: 'p4', company: 'Kontrol Elektronik Ltd.', type: 'Satın Alma', amount: 3200, currency: 'EUR', date: '26.06.2026', direction: 'paid', status: 'pending', method: 'Havale' },
-  { id: 'p5', company: 'Haksan Makine A.Ş.', type: 'Satış Tahsilatı', amount: 12250, currency: 'EUR', date: '15.07.2026', dueDate: '15.07.2026', direction: 'received', status: 'pending', method: 'Havale' },
-  { id: 'p6', company: 'Precision CNC Ltd.', type: 'Satış Tahsilatı', amount: 9100, currency: 'EUR', date: '20.07.2026', dueDate: '20.07.2026', direction: 'received', status: 'overdue', method: 'EFT' },
-  { id: 'p7', company: 'Bozkurt Makine A.Ş.', type: 'Satış Tahsilatı', amount: 21000, currency: 'EUR', date: '01.08.2026', dueDate: '01.08.2026', direction: 'received', status: 'pending', method: 'Çek' },
-  { id: 'p8', company: 'Endüstriyel Parça A.Ş.', type: 'Satın Alma', amount: 8700, currency: 'EUR', date: '20.06.2026', direction: 'paid', status: 'paid', method: 'EFT' },
-];
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
   paid: { label: 'Ödendi', bg: '#ECFDF5', text: '#059669' },
@@ -59,24 +49,47 @@ export function PaymentsListScreen() {
   const [direction, setDirection] = useState<Direction>('all');
   const [payStatus, setPayStatus] = useState<PayStatus>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const sequence = useRef(0);
+  const onRefresh = useCallback(async () => {
+    const request = ++sequence.current;
+    setRefreshing(true); setError(null); setPayments([]);
+    try {
+      const rows: Payment[] = [];
+      for (let page = 1; ; page++) {
+        const result = await financeService.payments({ page, pageSize: 100 });
+        if (request !== sequence.current) return;
+        rows.push(...result.data.map((row: any): Payment => ({
+          id: row.id, company: row.company?.legalTitle ?? row.company?.shortName ?? 'Firma bilgisi yok',
+          type: row.direction === 'out' ? 'Ödeme' : 'Tahsilat', amount: Number(row.amount),
+          currency: row.currency?.code ?? '', date: row.paymentDate ? new Date(row.paymentDate).toLocaleDateString('tr-TR') : '',
+          direction: row.direction === 'out' ? 'paid' : 'received', status: row.status?.code ?? 'pending',
+          method: row.paymentMethod ?? '',
+        })));
+        if (result.data.length < 100 || page >= result.meta.totalPages) break;
+      }
+      setPayments(rows);
+    } catch (e) { if (request === sequence.current) setError(e instanceof Error ? e.message : 'Ödemeler yüklenemedi.'); }
+    finally { if (request === sequence.current) setRefreshing(false); }
+  }, []);
+  useFocusEffect(useCallback(() => { void onRefresh(); return () => { sequence.current++; }; }, [onRefresh]));
 
-  const filtered = MOCK_PAYMENTS.filter(p => {
+  const filtered = payments.filter(p => {
     const matchSearch = p.company.toLowerCase().includes(search.toLowerCase());
     const matchDir = direction === 'all' || p.direction === direction;
     const matchStatus = payStatus === 'all' || p.status === payStatus;
     return matchSearch && matchDir && matchStatus;
   });
 
-  const totalReceived = MOCK_PAYMENTS.filter(p => p.direction === 'received' && p.status === 'paid').reduce((s, p) => s + p.amount, 0);
-  const totalPaid = MOCK_PAYMENTS.filter(p => p.direction === 'paid' && p.status === 'paid').reduce((s, p) => s + p.amount, 0);
-  const balance = totalReceived - totalPaid;
-  const overdueCount = MOCK_PAYMENTS.filter(p => p.status === 'overdue').length;
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await new Promise(res => setTimeout(res, 600));
-    setRefreshing(false);
-  }, []);
+  const totals = (direction?: Payment['direction']) => {
+    const byCurrency = new Map<string, number>();
+    for (const p of payments.filter(p => p.status === 'paid' && (!direction || p.direction === direction))) {
+      byCurrency.set(p.currency, (byCurrency.get(p.currency) ?? 0) + p.amount * (!direction && p.direction === 'paid' ? -1 : 1));
+    }
+    return [...byCurrency].map(([currency, amount]) => `${amount.toLocaleString('tr-TR', { maximumFractionDigits: 2 })} ${currency}`).join('\n') || '—';
+  };
+  const overdueCount = payments.filter(p => p.status === 'overdue').length;
 
   const renderHeader = () => (
     <View style={styles.headerBar}>
@@ -96,14 +109,15 @@ export function PaymentsListScreen() {
         style={styles.mainScroll}
         contentContainerStyle={styles.mainContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        stickyHeaderIndices={[2, 3]} // Optional: you can sticky the tabs
+
       >
+        {error ? <TouchableOpacity onPress={() => void onRefresh()} accessibilityRole="button"><Text style={{ color: RED, padding: 16 }}>{error} · Tekrar dene</Text></TouchableOpacity> : null}
         {/* KPI Cards */}
         <View style={styles.kpiContainer}>
           <View style={styles.kpiHeaderRow}>
             <Text style={styles.kpiTitle}>Kasa Özeti</Text>
             <View style={styles.fxBadge}>
-              <Text style={styles.fxBadgeText}>€1 = ₺33.20</Text>
+              <Text style={styles.fxBadgeText}>CRM kayıtları</Text>
             </View>
           </View>
           <View style={styles.kpiCardsRow}>
@@ -112,21 +126,21 @@ export function PaymentsListScreen() {
                 <Ionicons name="trending-up" size={12} color="#059669" />
                 <Text style={styles.kpiLabel}>Alınan</Text>
               </View>
-              <Text style={[styles.kpiValue, { color: '#059669' }]}>€{(totalReceived / 1000).toFixed(0)}K</Text>
+              <Text style={[styles.kpiValue, { color: '#059669' }]}>{totals('received')}</Text>
             </View>
             <View style={[styles.kpiCard, { backgroundColor: '#FEF2F2' }]}>
               <View style={styles.kpiIconRow}>
                 <Ionicons name="trending-down" size={12} color={RED} />
                 <Text style={styles.kpiLabel}>Ödenen</Text>
               </View>
-              <Text style={[styles.kpiValue, { color: RED }]}>€{(totalPaid / 1000).toFixed(0)}K</Text>
+              <Text style={[styles.kpiValue, { color: RED }]}>{totals('paid')}</Text>
             </View>
             <View style={[styles.kpiCard, { backgroundColor: '#EEF2FF' }]}>
               <View style={styles.kpiIconRow}>
                 <Ionicons name="cash" size={12} color={PRIMARY} />
                 <Text style={styles.kpiLabel}>Bakiye</Text>
               </View>
-              <Text style={[styles.kpiValue, { color: PRIMARY }]}>€{(balance / 1000).toFixed(0)}K</Text>
+              <Text style={[styles.kpiValue, { color: PRIMARY }]}>{totals()}</Text>
             </View>
           </View>
           {overdueCount > 0 && (
@@ -375,7 +389,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   avatarText: { color: '#ffffff', fontSize: 14, fontWeight: '900' },
-  
+
   infoCol: { flex: 1, minWidth: 0 },
   companyText: { fontSize: 14, fontWeight: '700', color: '#1a1c1d' },
   dateRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' },

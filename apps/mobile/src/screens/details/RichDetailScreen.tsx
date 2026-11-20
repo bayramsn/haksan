@@ -191,7 +191,7 @@ function StatementTab({
 }
 
 function PdfTab({ navKey, id, data }: { navKey: string; id: string; data: Record<string, unknown> }) {
-  if (navKey === 'offers') return <PdfPreview path={`/quotes/${id}/generate-pdf`} />;
+  if (navKey === 'offers') return <PdfPreview path={`/quotes/${id}/generate-pdf`} onOpen={() => import('@/src/print/quoteDocument').then(({ shareQuoteDocument }) => shareQuoteDocument(id))} />;
   if (navKey === 'accounting-invoices') {
     const fileId = data.pdfFileId ?? data.documentFileId ?? data.fileId;
     if (fileId) return <PdfPreview path={`/files/${String(fileId)}/content`} method="GET" />;

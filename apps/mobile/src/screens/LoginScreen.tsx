@@ -174,6 +174,12 @@ export function LoginScreen() {
                     <Text style={styles.primaryButtonText}>Giriş Yap</Text>
                   )}
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.backLinkContainer}
+                  onPress={() => router.push('/onboarding/api-setup?from=login')}
+                >
+                  <Text style={styles.backLinkText}>Sunucu adresini değiştir</Text>
+                </TouchableOpacity>
               </>
             ) : (
               <>

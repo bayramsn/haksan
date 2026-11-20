@@ -1,0 +1,30 @@
+[Unit]
+Description=Haksan Ops approval console
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=haksan-ops
+Group=haksan-ops
+SupplementaryGroups=docker
+WorkingDirectory=/opt/haksan
+Environment=OPS_CONFIG_FILE=/opt/haksan/ops/.env
+EnvironmentFile=-/opt/haksan/ops/.env
+ExecStart=/usr/bin/node /opt/haksan/ops/server/server.js
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/haksan
+ReadWritePaths=/opt/haksan/ops/state /run/docker.sock
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

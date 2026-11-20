@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 const API_URL_KEY = 'haksan_api_base_url';
+const CONFIGURED_API_URL_KEY = 'haksan_configured_api_base_url';
 
 /** Android emülatör: 10.0.2.2 · iOS sim: localhost · fiziksel cihaz: LAN IP */
 function defaultHost(): string {
@@ -66,7 +67,19 @@ export function getApiBaseUrl(): string {
 export const API_BASE_URL = getApiBaseUrl();
 
 export async function loadApiBaseUrlFromStorage(): Promise<string> {
-  const stored = (await SecureStore.getItemAsync(API_URL_KEY))?.trim();
+  let stored = (await SecureStore.getItemAsync(API_URL_KEY))?.trim();
+  const configured = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  if (configured) {
+    assertAllowedBaseUrl(configured);
+    const previousConfigured = await SecureStore.getItemAsync(CONFIGURED_API_URL_KEY);
+    // When a live API is configured for the first time, discard an old local
+    // override so an earlier onboarding choice cannot keep pointing at localhost.
+    if (previousConfigured !== configured && stored && LOCAL_HOST_RE.test(stored) && !LOCAL_HOST_RE.test(configured)) {
+      await SecureStore.deleteItemAsync(API_URL_KEY);
+      stored = undefined;
+    }
+    if (previousConfigured !== configured) await SecureStore.setItemAsync(CONFIGURED_API_URL_KEY, configured);
+  }
   if (stored) {
     try {
       assertAllowedBaseUrl(stored);

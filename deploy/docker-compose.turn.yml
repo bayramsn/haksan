@@ -1,0 +1,64 @@
+services:
+  turn:
+    image: ${WEBRTC_TURN_IMAGE:?WEBRTC_TURN_IMAGE digest is required}
+    restart: unless-stopped
+    network_mode: host
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    # Official binary has this file capability; retain it in the bounding set.
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    tmpfs:
+      - /run/coturn:size=1m,uid=65534,gid=65534,mode=0700
+    environment:
+      TURN_SHARED_SECRET: ${WEBRTC_TURN_SHARED_SECRET:?WEBRTC_TURN_SHARED_SECRET is required}
+      TURN_PUBLIC_IP: ${WEBRTC_TURN_PUBLIC_IP:?WEBRTC_TURN_PUBLIC_IP is required}
+      TURN_PRIVATE_IP: ${WEBRTC_TURN_PRIVATE_IP:?WEBRTC_TURN_PRIVATE_IP is required}
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        umask 077
+        printf '%s\n' \
+          'listening-port=3478' \
+          "listening-ip=$$TURN_PRIVATE_IP" \
+          "relay-ip=$$TURN_PRIVATE_IP" \
+          "external-ip=$$TURN_PUBLIC_IP/$$TURN_PRIVATE_IP" \
+          'realm=haksan' \
+          'server-name=haksan' \
+          'fingerprint' \
+          'use-auth-secret' \
+          "static-auth-secret=$$TURN_SHARED_SECRET" \
+          'min-port=49160' \
+          'max-port=49259' \
+          'user-quota=8' \
+          'total-quota=100' \
+          'max-bps=1000000' \
+          'bps-capacity=10000000' \
+          'no-tls' \
+          'no-tcp-relay' \
+          'no-multicast-peers' \
+          'denied-peer-ip=0.0.0.0-0.255.255.255' \
+          'denied-peer-ip=10.0.0.0-10.255.255.255' \
+          'denied-peer-ip=100.64.0.0-100.127.255.255' \
+          'denied-peer-ip=127.0.0.0-127.255.255.255' \
+          'denied-peer-ip=169.254.0.0-169.254.255.255' \
+          'denied-peer-ip=172.16.0.0-172.31.255.255' \
+          'denied-peer-ip=192.168.0.0-192.168.255.255' \
+          'denied-peer-ip=224.0.0.0-255.255.255.255' \
+          'denied-peer-ip=::' \
+          'denied-peer-ip=::1' \
+          'denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' \
+          'denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff' \
+          'pidfile=/run/coturn/turnserver.pid' \
+          'log-file=stdout' \
+          'no-software-attribute' > /run/coturn/turnserver.conf
+        exec turnserver -c /run/coturn/turnserver.conf
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

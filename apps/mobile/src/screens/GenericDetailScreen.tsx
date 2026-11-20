@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { quoteService } from '@/src/api/services';
 import { fieldText, getModuleConfig } from '@/src/modules/registry';
 import { Button } from '@/src/ui/Button';
@@ -46,7 +46,7 @@ export function GenericDetailScreen({ navKey, id }: Props) {
         </View>
       ))}
       {navKey === 'offers' ? (
-        <Button title="PDF Önizle" onPress={() => void quoteService.openPdf(id)} style={{ marginTop: 16 }} />
+        <Button title="PDF Önizle" onPress={() => void quoteService.openPdf(id).catch((e) => Alert.alert('PDF açılamadı', e instanceof Error ? e.message : 'Tekrar deneyin.'))} style={{ marginTop: 16 }} />
       ) : null}
     </Screen>
   );

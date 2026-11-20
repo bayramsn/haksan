@@ -1,121 +1,123 @@
 import { useEffect, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { serviceService } from '@/src/api/services';
-import { normalizeList } from '@/src/modules/registry';
-import { ApiError } from '@/src/api/apiClient';
-import { enqueueMutation } from '@/src/offline/queue';
+import { api, ApiError } from '@/src/api/apiClient';
+import { completeServiceTicket, enqueueMutation, type ServiceCompletionPayload } from '@/src/offline/queue';
+import { useAuth } from '@/src/auth/AuthProvider';
 import { Button } from '@/src/ui/Button';
 import { Input } from '@/src/ui/Input';
 import { FormPageLayout } from '@/src/ui/FormPageLayout';
 import { SectionTitle } from '@/src/ui/SectionTitle';
 import { SignaturePad } from '@/src/ui/SignaturePad';
-import { colors, typography } from '@/src/theme/tokens';
+import { colors } from '@/src/theme/tokens';
 
-/** Stitch #51 Servis Tamamlama — imza + foto + offline kuyruk */
+type Completion = ServiceCompletionPayload['completionForm'];
+const asRecord = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+const asText = (value: unknown): string => typeof value === 'string' ? value : '';
+
+/** İmzalı CRM servis formunu kaydeder; bağlantı yoksa aynı form güvenli kuyrukta tutulur. */
 export function ServiceCompleteFormScreen() {
   const { ticketId } = useLocalSearchParams<{ ticketId?: string }>();
+  const { user } = useAuth();
   const [notes, setNotes] = useState('');
+  const [technician, setTechnician] = useState('');
+  const [recipient, setRecipient] = useState('');
+  const [serviceType, setServiceType] = useState<Completion['serviceType']>('ariza');
+  const [responsibility, setResponsibility] = useState<Completion['responsibility']>('ucretli');
   const [signed, setSigned] = useState(false);
-  const [photos, setPhotos] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [ticketLabel, setTicketLabel] = useState<string | null>(null);
+  const [recordLoading, setRecordLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [ticketLabel, setTicketLabel] = useState('');
+  const [existingForm, setExistingForm] = useState<Record<string, unknown>>({});
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    if (!ticketId) return;
-    void serviceService.tickets({ pageSize: 300 }).then((res) => {
-      const row = normalizeList(res).find((r) => String(r.id) === ticketId);
-      if (row) setTicketLabel(String(row.ticketNo ?? row.subject ?? ticketId));
-    });
-  }, [ticketId]);
-
-  const pickPhoto = async () => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('İzin gerekli', 'Kamera izni verin');
-      return;
-    }
-    const res = await ImagePicker.launchCameraAsync({ quality: 0.7 });
-    if (!res.canceled && res.assets[0]?.uri) {
-      setPhotos((p) => [...p, res.assets[0].uri]);
-    }
-  };
-
-  const complete = async () => {
-    if (!ticketId) throw new Error('Servis talebi ID eksik');
-    const resolutionNotes = [notes || 'Mobil tamamlandı', photos.length ? `${photos.length} fotoğraf eklendi` : '']
-      .filter(Boolean)
-      .join(' · ');
-    await serviceService.update(ticketId, { resolutionNotes });
-    await serviceService.updateTicketStatus(ticketId, 'completed', 'closed');
-  };
+    let active = true;
+    setRecordLoading(true);
+    setLoadError(null);
+    setSigned(false);
+    void (async () => {
+      try {
+        if (!ticketId) throw new Error('Servis talebi seçilmedi.');
+        const ticket = await api.get<Record<string, unknown>>(`/service-tickets/${encodeURIComponent(ticketId)}`);
+        if (!active) return;
+        const completion = asRecord(asRecord(ticket.metadata).completionForm);
+        setExistingForm(completion);
+        setTicketLabel(asText(ticket.ticketNo) || asText(ticket.subject) || ticketId);
+        setNotes(asText(completion.yapilanIsler) || asText(ticket.resolutionNote));
+        setTechnician(asText(completion.kurulumuYapan) || user?.fullName || '');
+        setRecipient(asText(completion.teslimAlan));
+        if (['montaj', 'ariza', 'periyodik'].includes(asText(completion.serviceType))) setServiceType(completion.serviceType as Completion['serviceType']);
+        if (['ucretli', 'garanti', 'bakim'].includes(asText(completion.responsibility))) setResponsibility(completion.responsibility as Completion['responsibility']);
+      } catch (cause) {
+        if (active) setLoadError(cause instanceof Error ? cause.message : 'Servis kaydı yüklenemedi.');
+      } finally {
+        if (active) setRecordLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [ticketId, retry, user?.fullName]);
 
   const submit = async () => {
-    if (!ticketId) {
-      Alert.alert('Hata', 'Servis talebi ID eksik');
+    if (loading) return;
+    if (!ticketId || loadError || recordLoading) {
+      Alert.alert('Kayıt gerekli', 'Önce servis kaydını yükleyin.');
+      return;
+    }
+    if (!notes.trim() || !technician.trim() || !recipient.trim()) {
+      Alert.alert('Eksik bilgiler', 'Yapılan işleri, teknisyeni ve teslim alan kişinin adını doldurun.');
       return;
     }
     if (!signed) {
-      Alert.alert('İmza gerekli', 'Lütfen müşteri imzasını alın');
+      Alert.alert('İmza gerekli', 'Teslim alan müşterinin imzasını alın.');
       return;
     }
+    const payload: ServiceCompletionPayload = {
+      ticketId,
+      completionForm: {
+        ...existingForm, serviceType, responsibility,
+        yapilanIsler: notes.trim(), kurulumuYapan: technician.trim(), teslimAlan: recipient.trim(),
+        signedAt: new Date().toISOString(), ...(user?.id ? { signedByUserId: user.id } : {}),
+      },
+    };
     setLoading(true);
     try {
-      await complete();
-      Alert.alert('Başarılı', 'Servis tamamlandı', [{ text: 'Tamam', onPress: () => router.back() }]);
-    } catch (e) {
-      const offline = e instanceof ApiError ? e.status >= 500 || e.status === 0 : e instanceof TypeError;
+      await completeServiceTicket(payload);
+      Alert.alert('Başarılı', 'İmzalı servis formu CRM’ye kaydedildi ve servis kapatıldı.', [{ text: 'Tamam', onPress: () => router.back() }]);
+    } catch (cause) {
+      const offline = cause instanceof ApiError ? cause.status >= 500 || cause.status === 0 : cause instanceof TypeError;
       if (offline) {
-        await enqueueMutation({
-          kind: 'service-complete',
-          payload: { ticketId, notes: notes || 'Mobil tamamlandı (offline)' },
-        });
-        Alert.alert('Offline kaydedildi', 'Bağlantı gelince otomatik gönderilecek', [
-          { text: 'Tamam', onPress: () => router.back() },
-        ]);
-      } else {
-        Alert.alert('Hata', e instanceof Error ? e.message : 'Tamamlanamadı');
-      }
-    } finally {
-      setLoading(false);
-    }
+        try {
+          await enqueueMutation({ kind: 'service-complete', payload });
+          Alert.alert('Gönderim bekliyor', 'İmzalı form güvenli kuyruğa alındı. Bağlantı geldiğinde CRM’ye gönderilecek; servis henüz kapatılmış sayılmaz.', [{ text: 'Tamam', onPress: () => router.back() }]);
+        } catch (queueError) {
+          Alert.alert('Kaydedilemedi', queueError instanceof Error ? queueError.message : 'Form kuyrukta saklanamadı. Sayfayı kapatmadan tekrar deneyin.');
+        }
+      } else Alert.alert('Tamamlanamadı', cause instanceof Error ? cause.message : 'Servis kaydedilemedi.');
+    } finally { setLoading(false); }
   };
 
   return (
-    <FormPageLayout title="Servis Tamamlama" subtitle={`Talep: ${ticketLabel ?? ticketId ?? '—'}`}>
-      <Input label="Çözüm Notları" value={notes} onChangeText={setNotes} multiline />
-      <SectionTitle title="Fotoğraflar" />
-      <View style={styles.photos}>
-        {photos.map((uri) => (
-          <Image key={uri} source={{ uri }} style={styles.thumb} />
-        ))}
-        <Pressable style={styles.addPhoto} onPress={() => void pickPhoto()}>
-          <Text style={styles.addPhotoText}>+ Fotoğraf</Text>
-        </Pressable>
-      </View>
-      <SignaturePad onChange={() => setSigned(true)} />
-      <Button title="Tamamla ve İmzala" onPress={() => void submit()} loading={loading} />
+    <FormPageLayout title="Servis Tamamlama" subtitle={`Talep: ${ticketLabel || ticketId || '—'}`}>
+      {recordLoading ? <ActivityIndicator color={colors.primary} /> : loadError ? <><Text accessibilityRole="alert" style={styles.error}>{loadError}</Text><Button title="Tekrar dene" onPress={() => setRetry(value => value + 1)} /></> : <>
+        <SectionTitle title="Servis Türü" />
+        <View style={styles.options}>{([['ariza', 'Arıza'], ['montaj', 'Montaj'], ['periyodik', 'Periyodik']] as const).map(([value, label]) => <Button key={value} title={label} variant={serviceType === value ? 'primary' : 'secondary'} disabled={loading} onPress={() => { setServiceType(value); setSigned(false); }} />)}</View>
+        <SectionTitle title="Sorumluluk" />
+        <View style={styles.options}>{([['ucretli', 'Ücretli'], ['garanti', 'Garanti'], ['bakim', 'Bakım']] as const).map(([value, label]) => <Button key={value} title={label} variant={responsibility === value ? 'primary' : 'secondary'} disabled={loading} onPress={() => { setResponsibility(value); setSigned(false); }} />)}</View>
+        <Input label="Yapılan İşler" value={notes} onChangeText={value => { setNotes(value); setSigned(false); }} multiline maxLength={8000} editable={!loading} />
+        <Input label="Servisi Yapan Teknisyen" value={technician} onChangeText={value => { setTechnician(value); setSigned(false); }} maxLength={255} editable={!loading} />
+        <Input label="Teslim Alan Kişi" value={recipient} onChangeText={value => { setRecipient(value); setSigned(false); }} maxLength={255} editable={!loading} />
+        <SignaturePad onChange={setSigned} />
+        {!signed ? <Text style={styles.hint}>Bilgileri tamamladıktan sonra müşteri imzasını alın.</Text> : null}
+        <Button title="İmzalı Formu Kaydet ve Servisi Kapat" onPress={() => void submit()} loading={loading} />
+      </>}
     </FormPageLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { ...typography.headline, color: colors.textPrimary, marginBottom: 4 },
-  sub: { color: colors.textMuted, marginBottom: 16 },
-  section: { fontSize: 14, fontWeight: '600', color: colors.textPrimary, marginBottom: 8 },
-  photos: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  thumb: { width: 72, height: 72, borderRadius: 8 },
-  addPhoto: {
-    width: 72,
-    height: 72,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: colors.border,
-    borderStyle: 'dashed',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addPhotoText: { fontSize: 11, color: colors.primary, fontWeight: '600', textAlign: 'center' },
-  btn: { marginTop: 16 },
+  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  error: { color: colors.accentRed },
+  hint: { color: colors.textMuted, fontSize: 13 },
 });

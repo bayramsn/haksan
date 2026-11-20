@@ -1,0 +1,82 @@
+application,category,popup_or_surface,fields_or_actions,source,status
+main-web,shell,Komut Paleti,"Global arama; ekran yönlendirme; firma hedefi; fırsat hedefi; Cmd/Ctrl+K; /",apps/web/src/app/components/CommandPalette.tsx,wired
+main-web,shell,Bildirim Merkezi,"CRM bildirimleri; operasyon uyarıları; okundu işareti; hedefe yönlendirme",apps/web/src/app/components/Layout.tsx,wired
+main-web,shell,Hesap Menüsü,"Sayfayı sabitle/kaldır; rahat/kompakt; Profil & Ayarlar; kısayollar; Raporlar; admin menüsü; Çıkış",apps/web/src/app/components/Layout.tsx,wired
+main-web,shell,Çalışma Alanı Menüsü,"Bölüm seç; Tümü; departman seç",apps/web/src/app/components/Layout.tsx,wired
+main-web,shell,Yardım Merkezi,"SSS; destek e-postası; destek telefonu; klavye kısayolu",apps/web/src/app/components/HelpCenterDialog.tsx,wired
+main-web,shell,Onay Bekleyen Firma Talepleri,"Firma; talep eden bölüm; VKN; not; Onayla; Reddet",apps/web/src/app/components/ApprovalsDialog.tsx,wired
+main-web,shell,Hızlı Oluştur,"Yeni Firma; Yeni Kontak; Yeni Fırsat",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,company,Yeni Firma,"Logo; firma tipi; tedarikçi türü; statü; bölüm; grup; kaynak; sektör; telefonlar; faks; web; adresler; vergi dairesi; not",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,company,Firma Düzenle,"Logo; firma tipi; statü; tedarikçi türü; bölüm; grup; kaynak; not; çoklu adres",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,company,Firma Detay,"Firma özeti; geçmiş; satış kartları; teklifler; belgeler; aktivite; cari; makineler",apps/web/src/app/components/dialogs/DetailDialogs.tsx,wired
+main-web,company,CompanyContactImportDialog,"Firma XLSX; Kontak XLSX; önizleme; doğrulama; commit",apps/web/src/app/components/dialogs/CompanyContactImportDialog.tsx,wired
+main-web,company,Firma Silme Alert,"Silme onayı",apps/web/src/app/components/pages/customers/CustomersPage.tsx,wired
+main-web,contact,Yeni Kontak,"Firma; karar yetkisi; iş telefonu; dahili; cep; diğer telefon; cinsiyet; not; kara liste sebebi",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,contact,Kontak Düzenle,"Firma; bağlı firmalar; primary firma; karar yetkisi; telefonlar; cinsiyet; not; kara liste",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,contact,Kontak Detay,"Kişi bilgisi; bağlı firmalar; primary ayarla; ayır; aktivite",apps/web/src/app/components/dialogs/DetailDialogs.tsx,wired
+main-web,contact,Kontak Silme Alert,"Silme onayı",apps/web/src/app/components/dialogs/DetailDialogs.tsx,wired
+main-web,sales,Yeni Fırsat,"Müşteri; ürün; tezgâh; model; açıklama; miktar; para birimi; atanan; bölüm",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,sales,Lead Capture,"Firma/kontak; telefon; e-posta; il/ilçe; kaynak; ürün; adet; ilk takip; tarih; bölüm; sorumlu",apps/web/src/app/components/dialogs/LeadCaptureDialog.tsx,wired
+main-web,sales,Lead Disqualify,"Eleme nedeni; not",apps/web/src/app/components/dialogs/LeadDisqualifyDialog.tsx,wired
+main-web,sales,Lost Case,"Ürün/makine; kaybetme nedeni; rakip; rakip ürün; uymayan şartlar",apps/web/src/app/components/dialogs/LostCaseDialog.tsx,wired
+main-web,sales,Opportunity Stock Picker,"Uygun stok/seri checkbox; seç; kaydet",apps/web/src/app/components/dialogs/OpportunityStockPickerDialog.tsx,wired
+main-web,sales,Aktivite/Yorum,"Aktivite türü; tarih; başlık; not/yorum; sonuç; dosyalar; atanan",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,sales,Activity Log,"Aktivite türü; kontak; sonuç; sonraki adım",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,sales,Ödeme Planı,"Taksit açıklaması; tutar; vade tarihi; yöntem; satır ekleme",apps/web/src/app/components/dialogs/QuickContractDialog.tsx,wired
+main-web,sales,Stage/Close Alert,"Aşama geçiş koşulları; tamamla/arşivle; yeniden aç",apps/web/src/app/components/pages/sales-cases,wired
+main-web,quote,Yeni Teklif / Teklif Düzenle,"Teslim şekli; kalemler; indirim tutar/yüzde; para birimi; teslim; ödeme; not; şart şablonu",apps/web/src/app/components/dialogs/QuoteDialog.tsx,wired
+main-web,quote,Quote Terms Template,"Ödeme; teslimat; garanti maddeleri; şablon seç; yeni; güncelle; kopyala; sil",apps/web/src/app/components/dialogs/DocumentTermsTemplateEditor.tsx,wired
+main-web,quote,Teklif Durum/Onay Dialogları,"Gönder; onayla; fiyat onayı; reddet; takip",apps/web/src/app/components/pages/offers,wired
+main-web,quote,Teklif PDF,"PDF oluştur; yeni sekmede aç; indir",apps/web/src/lib/services.ts,wired
+main-web,document,Hızlı Proforma,"İş alanı; proforma no; tarih; para birimi; çıktı şablonu; bağlı teklif; kalem/şart",apps/web/src/app/components/dialogs/QuickProformaDialog.tsx,wired
+main-web,document,Yeni Sözleşme,"Teklif; sözleşme no; imza tarihi; ödeme vadesi; teslim yeri; erken/geç gün; KDV; navlun; ithalat; taksit",apps/web/src/app/components/dialogs/CreateContractDialog.tsx,wired
+main-web,document,Hızlı Sözleşme,"İş alanı; sözleşme no; tarih; para birimi; teslim; vade; toggle’lar; taksitler",apps/web/src/app/components/dialogs/QuickContractDialog.tsx,wired
+main-web,document,İmzalı Sözleşme Yükle,"PDF; imza tarihi; yükle ve imzalı yap",apps/web/src/app/components/dialogs/ContractActionsDialogs.tsx,wired
+main-web,document,Sözleşme Şartlarını Düzenle,"KDV dahil; navlun satıcı öder; kaydet",apps/web/src/app/components/dialogs/ContractActionsDialogs.tsx,wired
+main-web,document,Belge Yükle,"Firma/satış kartı kapsamı; belge tipi; hedef; kaynak teklif; açıklama; dosya",apps/web/src/app/components/dialogs/DocumentUploadDialog.tsx,wired
+main-web,document,Ticari Belge Bağlantısı,"Kaynak teklif revizyonu; bağlantıyı tamamla",apps/web/src/app/components/dialogs/LinkCommercialDocumentDialog.tsx,wired
+main-web,document,Belge Detay,"Kaynak teklif/fırsat/firma; yazdır; indir; dosyayı aç; kapat",apps/web/src/app/components/dialogs/DocumentDetailDialog.tsx,wired
+main-web,document,Belge Önizleme,"Önizleme; indir; yeni sekmede aç; kapat",apps/web/src/app/components/dialogs/DocumentPreviewDialog.tsx,wired
+main-web,document,Belge Şart Şablonu,"Şablon başlığı; ödeme/teslim/garanti; güncelle; kopyala; sil onayı",apps/web/src/app/components/dialogs/DocumentTermsTemplateEditor.tsx,wired
+main-web,product,Yeni Ürün / Ürün Düzenle,"Grup; kategori; alt kategori; tip; marka; model; açıklama; tedarikçi; fiyat; para; KDV; menşei; yıl; medya; durum; specs; ekipman; not",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,product,Ürün Detay,"Ürün kimliği; fiyat; para; KDV; specs; equipment; medya; düzenle",apps/web/src/app/components/dialogs/ProductDetailDialog.tsx,wired
+main-web,product,Ürün İçe Aktar,"Şablon indir; XLSX seç; önizle; geçerli satırlar; commit",apps/web/src/app/components/dialogs/ProductImportDialog.tsx,wired
+main-web,product,Teknik Bilgi Grupları,"Grup ara; ad; bölüm; sistem kodu; ürün tipleri; açıklama; aktif switch; kaydet",apps/web/src/app/components/dialogs/ProductSpecGroupManagerDialog.tsx,wired
+main-web,product,Opsiyonel Donanım Ekle,"Makine; opsiyon listesi; ekle; kaldır",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,inventory,Yeni Stok Kalemi,"Kategori; bağlı tezgâh; opsiyonlar; ürün; adet; seri; kontrol ünitesi; yeni/kullanılmış; depo; durum; opsiyon; yedek parça",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,inventory,Stok Silme/Rezervasyon,"Rezervasyon; satış; silme/uyarı",apps/web/src/app/components/pages/stock,wired
+main-web,inventory,Yeni Makine / Varlık,"Firma; stok/seri veya manuel; teknik bilgiler",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,inventory,Makine QR Etiketi,"Public/service link; link kopyala; yazdır",apps/web/src/app/components/dialogs/MachineQrDialog.tsx,wired
+main-web,finance,Yeni Kasa Hareketi,"Firma; tutar; para; fatura no; ödeme yöntemi; not; fatura/fiş dosyası; belge tipi",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,finance,Tahsilat Ekle,"Firma; teklif; tutar; para; fatura no; not",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,finance,Accounting Invoice Create/Edit,"Fatura tipi; firma; kalemler; tutar; KDV; vade; durum; belge",apps/web/src/app/components/pages/finance,wired
+main-web,finance,Fatura Arşiv/Sil Alert,"Arşiv/silme onayı",apps/web/src/app/components/pages/finance,wired
+main-web,logistics,Yeni Sevkiyat,"Satış kartı/müşteri; gönderici; taşıma; taşıyıcı; kategori; varış/depo; teslim adresi; takip; çıkış; durum; ürün/seri/paket satırları",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,logistics,Kargo Etiketi Yazdır,"Firma; alıcı telefonu; yazdır",apps/web/src/app/components/dialogs/CargoLabelDialog.tsx,wired
+main-web,logistics,Sevkiyat Detay/Aksiyon,"Başlat; durum; sil; PDF/etiket",apps/web/src/app/components/pages/shipments,wired
+main-web,service,Yeni Servis Talebi,"Firma; makine; kontak; servis personeli; kayıt tipi; arıza açıklaması; servis notu",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,service,Yeni Kurulum,"Firma; kontak; makineler; teknisyen; konum tipi; süre; notlar",apps/web/src/app/components/dialogs/CreateDialogs.tsx,wired
+main-web,service,Yeni İç Şikayet Kaydı,"Firma; makine; kaynak; öncelik; kayıt tipi; konu; kontak; telefon; e-posta; açıklama",apps/web/src/app/components/pages/service/ServicePages.tsx,wired
+main-web,service,Herkese Açık Şikayet Linki,"Firma/genel; makine; başlık; kapsam; geçerlilik; link oluştur; kopyala; paylaş; aç; QR",apps/web/src/app/components/pages/service/ServicePages.tsx,wired
+main-web,service,QR Kod / Servis Formu QR,"QR görüntüle; PNG indir",apps/web/src/app/components/pages/service/ServicePages.tsx,wired
+main-web,service,Şikayet Detay,"Firma; makine; öncelik; tip; konu; açıklama; garanti önerisi; kanıt; kaydet; servis aç; reddet",apps/web/src/app/components/pages/service/ServicePages.tsx,wired
+main-web,service,Servis Arşiv Alert,"Talebi arşivle; vazgeç",apps/web/src/app/components/pages/service/ServicePages.tsx,wired
+main-web,service,Servis Formu PDF,"PDF aç/indir",apps/web/src/lib/services.ts,wired
+main-web,service,Bakım Planı,"Cihaz; başlık; aralık; sonraki tarih; hatırlatma; otomatik ticket; not",apps/web/src/lib/services.ts,embedded
+main-web,admin,Yeni Kullanıcı,"Ad; e-posta; kullanıcı adı; şifre; telefon; departman; ünvan; bölüm erişimi; roller",apps/web/src/app/components/admin/UserAdminDialogs.tsx,wired
+main-web,admin,Kullanıcıyı Düzenle,"Ad; e-posta; kullanıcı adı; telefon; yeni şifre; tekrar",apps/web/src/app/components/admin/UserAdminDialogs.tsx,wired
+main-web,admin,Departman & Bölüm,"Departman; ünvan; bölüm; yetki alanı; kaynak; departman; bölüm; aktiflik",apps/web/src/app/components/admin/UserAdminDialogs.tsx,wired
+main-web,admin,Departman Hedefi,"Satış hedefi USD; teklif adedi; ziyaret hedefi; not",apps/web/src/app/components/admin/DepartmentTargetDialog.tsx,wired
+main-web,admin,Hedef Belirle,"Hedef kapsamı; birim; değer; dönem; not; otomatik/manuel takip",apps/web/src/app/components/admin/TargetDialog.tsx,wired
+main-web,admin,Rol Oluştur/Düzenle,"Rol adı; açıklama; permission matrix",apps/web/src/app/components/admin,wired
+main-web,settings,Settings save banner,"Kaydedilmemiş değişiklik; Geri Al; Değişiklikleri Kaydet",apps/web/src/app/components/pages/settings/SettingsPage.tsx,wired
+main-web,settings,Webmail Ayarları,"Kurumsal mail hesabı; bağla; ayır; gönderim durumu",apps/web/src/app/components/pages/settings,wired
+main-web,settings,CRM Alan Ayarları,"Departman ayarları; lookup manager",apps/web/src/app/components/pages/settings,wired
+main-web,settings,Fırsat Atama,"Atama kuralı; bölüm; kriter; sıralama; aktiflik",apps/web/src/app/components/pages/settings,wired
+main-web,settings,Teknik Bilgi Şablonu,"Ürün tipi; teknik grup; alan kapsamı",apps/web/src/app/components/pages/settings,wired
+crm-web-prototype,shell,QuickCreate,"Yeni Firma; Yeni Kontak; Yeni Satış Kartı; Yeni Teklif; Yeni Servis Talebi; Yeni Kasa Hareketi; Yeni Etkinlik; Yeni Makine; Yeni Satın Alma; Yeni Sevkiyat",crm app/src/app/components/QuickCreate.tsx,prototype
+crm-web-prototype,shell,TopBar Detail Menu,"Düzenle; Paylaş; Sil",crm app/src/app/components/TopBar.tsx,prototype
+crm-web-prototype,shell,More/Daha Fazla,"Satış; Operasyon; Servis; Yönetim & Raporlar; profil; bildirim; rapor; çıkış",crm app/src/app/components/MoreTab.tsx,prototype
+crm-web-prototype,detail,Company Detail Action,"Geri/kapat; düzenle; paylaş; sil",crm app/src/app/components/TopBar.tsx,prototype
+crm-web-prototype,detail,Sales Card Detail Action,"Geri/kapat; düzenle; paylaş; sil",crm app/src/app/components/TopBar.tsx,prototype
+crm-web-prototype,detail,Service Detail Action,"Geri/kapat; düzenle; paylaş; sil",crm app/src/app/components/TopBar.tsx,prototype
