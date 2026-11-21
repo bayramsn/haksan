@@ -3,9 +3,21 @@ import { api, API_BASE_URL, getAccessToken, getActiveDivision, getActiveDepartme
 const collections = { quote: 'quotes', proforma: 'proformas', contract: 'contracts' } as const;
 const path = (kind: CommercialPdfKind, id: string) => `/${collections[kind]}/${encodeURIComponent(id)}/pdf`;
 
+// Çift tıklama / tekrar dokunma aynı belge için ikinci sekme ya da ikinci üretim başlatmasın:
+// süren iş varsa aynı söz döner.
+const inFlight = new Map<string, Promise<unknown>>();
+function once<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const running = inFlight.get(key);
+  if (running) return running as Promise<T>;
+  const promise = run().finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
+  return promise;
+}
+
 export const commercialPdfService = {
   status: (kind: CommercialPdfKind, id: string) => api.get<CommercialPdfStatus>(`${path(kind, id)}/status`),
-  prepare: (kind: CommercialPdfKind, id: string, options?: { headerLogoMode?: 'haksan' | 'company' | 'none' }) => api.post<CommercialPdfStatus>(path(kind, id), options),
+  prepare: (kind: CommercialPdfKind, id: string, options?: { headerLogoMode?: 'haksan' | 'company' | 'none' }) =>
+    once(`prepare:${kind}:${id}`, () => api.post<CommercialPdfStatus>(path(kind, id), options)),
   async requireReady(kind: CommercialPdfKind, id: string): Promise<CommercialPdfStatus> {
     const status = await commercialPdfService.status(kind, id);
     if (status.status !== 'ready') {
@@ -15,7 +27,10 @@ export const commercialPdfService = {
     }
     return status;
   },
-  async present(kind: CommercialPdfKind, id: string, mode: 'download' | 'open', prepare = false, options?: { headerLogoMode?: 'haksan' | 'company' | 'none' }): Promise<void> {
+  present(kind: CommercialPdfKind, id: string, mode: 'download' | 'open', prepare = false, options?: { headerLogoMode?: 'haksan' | 'company' | 'none' }): Promise<void> {
+    return once(`present:${kind}:${id}`, () => commercialPdfService.presentNow(kind, id, mode, prepare, options));
+  },
+  async presentNow(kind: CommercialPdfKind, id: string, mode: 'download' | 'open', prepare: boolean, options?: { headerLogoMode?: 'haksan' | 'company' | 'none' }): Promise<void> {
     // Tablet tarayıcıları (iPad Safari, Android Chrome) dokunuştan sonra beklemeyle açılan
     // sekmeyi engeller; sekme dokunuş anında boş açılır, PDF gelince içine yüklenir.
     const tab = mode === 'open' ? window.open('', '_blank') : null;

@@ -3532,6 +3532,7 @@ export function ProductDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submitLock = useRef(false); // çift tıklamada state güncellenmeden ikinci ürün açılmasın
   const [specGroupNameOverrides, setSpecGroupNameOverrides] = useState<Record<string, string>>({});
   // Seçili ürün tipinin DB teknik bilgi şablonu: katalogda olmayan (ayarlardan
   // eklenen) tiplerde "sabit liste" bu olur.
@@ -4046,7 +4047,7 @@ export function ProductDialog({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting || submitLock.current) return;
     if (!form.productTypeCode) {
       toast.error("Ürün tipi seçin");
       return;
@@ -4112,6 +4113,7 @@ export function ProductDialog({
       status: form.status,
     };
 
+    submitLock.current = true;
     setSubmitting(true);
     try {
       if (mode === "edit" && product) {
@@ -4131,6 +4133,7 @@ export function ProductDialog({
     } catch (err: any) {
       toast.error(mode === "edit" ? "Ürün güncellenemedi" : "Ürün oluşturulamadı", { description: err?.message ?? "API isteği başarısız oldu." });
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
   };

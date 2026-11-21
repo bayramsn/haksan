@@ -71,6 +71,21 @@ describe('canonical web PDF', () => {
     expect(tab.location.href).toBe('blob:preview');
     vi.runAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); create.mockRestore();
   });
+  it('çift tıklamada tek sekme açar ve PDF\'i bir kez hazırlar', async () => {
+    api.post.mockResolvedValue({ status: 'ready' });
+    const tab = { opener: {}, document: { title: '', body: null }, location: { href: '' }, close: vi.fn() };
+    const open = vi.fn(() => tab);
+    vi.stubGlobal('window', { open });
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('%PDF-ok', { headers: { 'content-type': 'application/pdf' } })));
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:twice');
+    vi.useFakeTimers();
+    await Promise.all([commercialPdfService.present('quote', 'dbl', 'open', true), commercialPdfService.present('quote', 'dbl', 'open', true)]);
+    expect(open).toHaveBeenCalledOnce();
+    expect(api.post).toHaveBeenCalledOnce();
+    await commercialPdfService.present('quote', 'dbl', 'open', true);
+    expect(open).toHaveBeenCalledTimes(2);
+    vi.runAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); create.mockRestore();
+  });
   it('closes the pre-opened tab when the PDF cannot be shown', async () => {
     api.get.mockResolvedValueOnce({ status: 'missing' });
     const tab = { opener: {}, document: { title: '', body: null }, location: { href: '' }, close: vi.fn() };

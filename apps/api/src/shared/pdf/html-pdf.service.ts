@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { ValidationError } from '../utils/errors';
 
@@ -12,6 +13,7 @@ interface PdfPage {
   setContent(html: string, options: { waitUntil: 'load'; timeout: number }): Promise<void>;
   emulateMediaType(type: 'print'): Promise<void>;
   pdf(options: { format: 'A4'; printBackground: boolean; preferCSSPageSize: boolean; timeout: number }): Promise<Uint8Array>;
+  evaluate<T>(fn: (...args: any[]) => T | Promise<T>, ...args: unknown[]): Promise<T>;
   close(): Promise<void>;
 }
 interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(event: 'disconnected', handler: () => void): unknown }
@@ -27,6 +29,8 @@ interface Browser { newPage(): Promise<PdfPage>; close(): Promise<void>; on(even
 export class HtmlPdfService implements OnModuleDestroy {
   private readonly logger = new Logger(HtmlPdfService.name);
   private browser: Promise<Browser> | null = null;
+  // ponytail: süreç içi küçük önbellek (aynı ürün fotoğrafı her PDF'te yeniden işlenmesin); 40 görsel ≈ 10 MB.
+  private readonly shrunk = new Map<string, string>();
 
   static readonly CHROMIUM_CANDIDATES = [
     process.env.CHROMIUM_PATH,
@@ -64,8 +68,53 @@ export class HtmlPdfService implements OnModuleDestroy {
     return this.browser;
   }
 
+  /** Büyük gömülü fotoğraflar (ör. 5616 px CMYK JPEG) Chromium'da ham piksel olarak PDF'e girip
+   * 17 MB / 13 sn'lik çıktı üretiyordu. Baskıya yetecek boyuta küçültülüp sRGB JPEG'e çevrilir;
+   * küçük görseller (logolar, saydam PNG'ler) olduğu gibi kalır. Hata olursa özgün görsel basılır. */
+  private async shrinkImages(browser: Browser, html: string): Promise<string> {
+    // Düzenli ifade çok büyük (MB'lık) özniteliklerde yığın taşırıyor; düz tarama kullanılır.
+    const large = new Set<string>();
+    for (let at = html.indexOf('src="data:image/'); at >= 0; at = html.indexOf('src="data:image/', at + 5)) {
+      const src = html.slice(at + 5, html.indexOf('"', at + 5));
+      if (src.length > 400_000 && /^data:image\/(?:jpeg|png|webp);base64,/.test(src.slice(0, 40))) large.add(src);
+    }
+    if (!large.size) return html;
+    const page = await browser.newPage();
+    try {
+      await page.setRequestInterception(true);
+      page.on('request', (request) => void (request.url().startsWith('data:') || request.url().startsWith('about:') ? request.continue() : request.abort()));
+      for (const src of large) {
+        const key = createHash('sha1').update(src).digest('hex');
+        const cached = this.shrunk.get(key);
+        if (cached) { html = html.split(src).join(cached); continue; }
+        const small = await page.evaluate(async (source: string, max: number) => {
+          const img = new Image();
+          img.src = source;
+          await img.decode();
+          const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.naturalWidth * k);
+          canvas.height = Math.round(img.naturalHeight * k);
+          const ctx = canvas.getContext('2d')!;
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          return canvas.toDataURL('image/jpeg', 0.85);
+        }, src, 1800).catch(() => null);
+            if (!small || small.length >= src.length) continue;
+        if (this.shrunk.size >= 40) this.shrunk.delete(this.shrunk.keys().next().value!);
+        this.shrunk.set(key, small);
+        html = html.split(src).join(small);
+      }
+      return html;
+    } finally {
+      await page.close().catch(() => undefined);
+    }
+  }
+
   async render(html: string, opts: { timeoutMs?: number } = {}): Promise<Buffer> {
     const browser = await this.getBrowser();
+    html = await this.shrinkImages(browser, html);
     const page = await browser.newPage();
     try {
       await page.setJavaScriptEnabled(false);

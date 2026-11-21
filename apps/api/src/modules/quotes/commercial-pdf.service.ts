@@ -8,6 +8,7 @@ import { DB } from '../../shared/database/database.module';
 import type { DbClient } from '../../db/client';
 import { commercialPdfs } from '../../db/schema/commercial-pdfs';
 import { files } from '../../db/schema/files';
+import { productModels } from '../../db/schema/products';
 import { StorageService } from '../../shared/storage/storage.service';
 import { HtmlPdfService } from '../../shared/pdf/html-pdf.service';
 import { inlineRemoteImages } from '../../shared/pdf/remote-image';
@@ -17,9 +18,10 @@ import { AppError, ForbiddenError } from '../../shared/utils/errors';
 import { QuotesService } from './quotes.service';
 import { renderCommercialHtml } from './commercial-pdf-render';
 
-// v2: dış ürün fotoğrafları gömülüyor. v1 PDF'leri sunulmaya devam eder; "Hazırla" v2 üretir.
-const TEMPLATE_VERSION = 'web-2026-11-v2';
-const SERVED_TEMPLATE_VERSIONS = [TEMPLATE_VERSION, 'web-2026-10-v1'];
+// v2: dış ürün fotoğrafları gömülüyor. v3: eski kayıtlarda eksik ürün fotoğrafı katalogdan, büyük
+// görseller küçültülerek basılıyor. Eski PDF'ler sunulmaya devam eder; "Hazırla" v3 üretir.
+const TEMPLATE_VERSION = 'web-2026-11-v3';
+const SERVED_TEMPLATE_VERSIONS = [TEMPLATE_VERSION, 'web-2026-11-v2', 'web-2026-10-v1'];
 const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const resource = { quote: 'quotes', proforma: 'proformas', contract: 'contracts' } as const;
@@ -92,6 +94,19 @@ export class CommercialPdfService {
     return { buffer, filename: file.originalFilename };
   }
 
+  /** Eski belge kayıtlarında ürün fotoğrafı alanı yok (ya da fotoğraf sonradan eklendi): yalnız eksik
+   * fotoğraf güncel katalogdan alınır; fiyat, metin ve özellikler donmuş kayıttan kalır. */
+  private async withCatalogImages(snapshot: Record<string, any>, actor: AuthContext): Promise<Record<string, any>> {
+    const items: any[] = snapshot.items ?? [];
+    const missing = (i: any) => i.product && !i.product.imageUrl && i.productModelId;
+    const ids = [...new Set(items.filter(missing).map((i) => String(i.productModelId)))];
+    if (!ids.length) return snapshot;
+    const rows = await this.db.select({ id: productModels.id, imageUrl: productModels.imageUrl }).from(productModels)
+      .where(and(eq(productModels.tenantId, actor.tenantId), inArray(productModels.id, ids)));
+    const image = new Map(rows.filter((r) => r.imageUrl).map((r) => [r.id, r.imageUrl]));
+    return { ...snapshot, items: items.map((i) => (missing(i) && image.has(i.productModelId) ? { ...i, product: { ...i.product, imageUrl: image.get(i.productModelId) } } : i)) };
+  }
+
   /** Paket logoları ve kiracının depodaki görselleri doğrudan; dış https görseller `inlineRemoteImages` ile gömülür. */
   private async images(html: string, actor: AuthContext): Promise<string> {
     const sources = [...new Set([...html.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]))];
@@ -142,7 +157,7 @@ export class CommercialPdfService {
           return;
         }
         if (!this.renderer.isAvailable()) throw new AppError('PDF_UNAVAILABLE', 'Sunucuda PDF üretici kullanılamıyor.', 503);
-        const html = await this.images(await renderCommercialHtml(kind, source.record, source.snapshot, kind === 'quote' ? headerLogoMode : undefined), actor);
+        const html = await this.images(await renderCommercialHtml(kind, source.record, await this.withCatalogImages(source.snapshot, actor), kind === 'quote' ? headerLogoMode : undefined), actor);
         const buffer = await this.renderer.render(html);
         if (buffer.length > 25 * 1024 * 1024 || buffer.subarray(0, 5).toString() !== '%PDF-') throw new AppError('PDF_INVALID', 'Geçerli PDF oluşturulamadı.', 503);
         if ((await this.source(kind, id, actor)).hash !== source.hash) throw new AppError('PDF_SOURCE_CHANGED', 'Belge hazırlanırken değişti. Yeniden deneyin.', 409);

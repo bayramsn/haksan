@@ -1,6 +1,8 @@
 import { writeFile } from 'node:fs/promises';
 import { CommercialPdfService } from '../src/modules/quotes/commercial-pdf.service';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { crc32, deflateSync } from 'node:zlib';
+import { randomBytes } from 'node:crypto';
 // Gerçek ağa çıkmadan: indirici yalnız bilinen ürün fotoğrafını "alır".
 vi.mock('../src/shared/pdf/remote-image', () => ({
   inlineRemoteImages: vi.fn(async (html: string) => html.split('https://www.haksanmakina.com.tr/a.png').join('data:image/png;base64,QQ==')),
@@ -37,6 +39,20 @@ describe('canonical commercial layout', () => {
     expect(html).toContain('src="data:image/png;base64,QQ=="');
     expect(html).not.toContain('https://');
   });
+  it('eski kayıtta eksik ürün fotoğrafını katalogdan doldurur, mevcut fotoğrafa dokunmaz', async () => {
+    const where = vi.fn(async () => [{ id: 'p1', imageUrl: '/api/v1/products/media/11111111-1111-1111-1111-111111111111' }]);
+    const db = { select: () => ({ from: () => ({ where }) }) };
+    const service = new CommercialPdfService(db as any, {} as any, {} as any, {} as any, {} as any);
+    const out = await (service as any).withCatalogImages({ items: [
+      { productModelId: 'p1', product: { modelCode: 'VM-2' } },
+      { productModelId: 'p2', product: { modelCode: 'X', imageUrl: '/print/x.png' } },
+      { description: 'serbest satır' },
+    ] }, { tenantId: 't' });
+    expect(out.items[0].product.imageUrl).toBe('/api/v1/products/media/11111111-1111-1111-1111-111111111111');
+    expect(out.items[1].product.imageUrl).toBe('/print/x.png');
+    expect(out.items[2]).toEqual({ description: 'serbest satır' });
+    expect(where).toHaveBeenCalledTimes(1);
+  });
   it('incomplete contracts return an actionable validation error', async () => {
     await expect(renderCommercialHtml('contract', record, { ...snapshot, company: {}, companyAddresses: [] }))
       .rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 422 });
@@ -52,5 +68,22 @@ describe.skipIf(!HtmlPdfService.executablePath())('actual commercial PDF bytes',
     expect(buffer.subarray(0, 5).toString()).toBe('%PDF-');
     expect(buffer.length).toBeGreaterThan(1000);
     await writeFile(`/private/tmp/haksan-commercial-${kind}.pdf`, buffer);
+  }, 60_000);
+  it('büyük fotoğrafı küçültüp JPEG olarak basar', async () => {
+    // 2400x1200 rastgele gürültü PNG (~8,6 MB, sıkıştırılamaz): eşiğin üstünde; 1800 px'e iner.
+    const [w, h] = [2400, 1200];
+    const raw = randomBytes((w * 3 + 1) * h);
+    for (let y = 0; y < h; y++) raw[y * (w * 3 + 1)] = 0;
+    const chunk = (type: string, data: Buffer) => {
+      const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+      const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type), data])));
+      return Buffer.concat([len, Buffer.from(type), data, crc]);
+    };
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
+    const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+    const src = `data:image/png;base64,${png.toString('base64')}`;
+    const out = await (pdf as any).shrinkImages(await (pdf as any).getBrowser(), `<img src="${src}">`);
+    expect(out).toContain('src="data:image/jpeg;base64,');
+    expect(out.length).toBeLessThan(src.length);
   }, 60_000);
 });
