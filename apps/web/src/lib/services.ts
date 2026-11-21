@@ -1064,6 +1064,10 @@ export const serviceService = {
   update: (id: string, body: any) => api.patch<any>(`/service-tickets/${id}`, body),
   deleteTicket: (id: string) => api.delete<any>(`/service-tickets/${id}`),
   /** Servis kaydındaki satış ihtiyacını satış ekibine lead olarak iletir. */
+  /** Yeni servislerin varsayılan saat ücreti (Servis Fiyat Listesi). */
+  serviceSettings: () => api.get<{ serviceHourlyRate: number; serviceCurrency: string }>('/service-settings'),
+  updateServiceSettings: (body: { serviceHourlyRate: number; serviceCurrency: string }) =>
+    api.patch<{ serviceHourlyRate: number; serviceCurrency: string }>('/service-settings', body),
   createSalesLead: (id: string, need: string) =>
     api.post<{ id: string; title: string }>(`/service-tickets/${id}/sales-lead`, { need }),
   updateTicketStatus: (id: string, statusCode: string, serviceStage?: string) =>

@@ -2434,8 +2434,9 @@ function StoreInner({ children }: { children: ReactNode }) {
         operations: [],
         timerStatus: s.timerStatus ?? 'idle',
         timerElapsedSeconds: s.timerElapsedSeconds ?? 0,
-        serviceHourlyRate: s.serviceHourlyRate ?? 120,
-        serviceCurrency: s.serviceCurrency ?? 'USD',
+        // Boşsa sunucu Servis Fiyat Listesi'ndeki şirket saat ücretini yazar.
+        serviceHourlyRate: s.serviceHourlyRate,
+        serviceCurrency: s.serviceCurrency,
       },
     });
     await fetchAll();
@@ -2454,8 +2455,8 @@ function StoreInner({ children }: { children: ReactNode }) {
       operations: s.operations ?? [],
       timerStatus: s.timerStatus ?? 'idle',
       timerElapsedSeconds: s.timerElapsedSeconds ?? 0,
-      serviceHourlyRate: s.serviceHourlyRate ?? 120,
-      serviceCurrency: s.serviceCurrency ?? 'USD',
+      serviceHourlyRate: Number(created.metadata?.serviceHourlyRate ?? s.serviceHourlyRate ?? 120),
+      serviceCurrency: created.metadata?.serviceCurrency ?? s.serviceCurrency ?? 'USD',
       warrantyClaim: s.warrantyClaim ?? null,
       sourceComplaint: s.sourceComplaint ?? null,
     } as ServiceRequest;

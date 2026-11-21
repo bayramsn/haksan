@@ -6,7 +6,7 @@ const CUSTOM_VALUE = "__requested_machine_custom__";
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase("tr-TR");
 
-const machineLabel = (product: Product) =>
+export const machineLabel = (product: Product) =>
   [product.brand, product.model].filter(Boolean).join(" ").trim() ||
   product.modelName?.trim() ||
   product.type?.trim() ||

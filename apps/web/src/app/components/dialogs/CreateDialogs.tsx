@@ -109,6 +109,8 @@ import { QuoteDialog } from "./QuoteDialog";
 import { ProductSpecGroupManagerDialog } from "./ProductSpecGroupManagerDialog";
 import { ProductSpecsTable } from "../shared/ProductSpecsTable";
 import { RemoteCompanyCombobox } from "../shared/RemoteCompanyCombobox";
+import { machineLabel as catalogMachineLabel } from "../shared/RequestedMachineCombobox";
+import { foldTr } from "../../lib/trSearch";
 import { RemoteContactCombobox, useRemoteContactDetail } from "../shared/RemoteContactCombobox";
 import { OsmCompanySearch } from "../company/OsmCompanySearch";
 import { CompanyWebsiteLookup } from "../company/CompanyWebsiteLookup";
@@ -3485,13 +3487,15 @@ export const isNewLaserBaseCard = (mode: string, productTypeCode?: string) =>
   mode === 'create' && isConfigurableLaserProduct({ productTypeCode: canonicalProductTypeCode(productTypeCode) });
 
 export function ProductDialog({
-  trigger, mode = "create", product, open: controlledOpen, onOpenChange,
+  trigger, mode = "create", product, open: controlledOpen, onOpenChange, defaultCategoryCode,
 }: {
   trigger?: React.ReactNode;
   mode?: "create" | "edit";
   product?: Product;
   open?: boolean;
   onOpenChange?: (o: boolean) => void;
+  /** Yeni kalem bu kategoriyle açılır (ör. Servis Fiyat Listesi'nin aktif sekmesi). */
+  defaultCategoryCode?: string;
 }) {
   const { addProduct, updateProduct, updateProductStandardEquipment, products } = useStore();
   const { activeDivision, user } = useAuth();
@@ -3943,6 +3947,18 @@ export function ProductDialog({
       specs: specsAfterChange(kept),
     });
   };
+  const appliedDefaultCategory = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      appliedDefaultCategory.current = false;
+      return;
+    }
+    if (mode !== "create" || !defaultCategoryCode || appliedDefaultCategory.current) return;
+    appliedDefaultCategory.current = true;
+    onCategoryChange(defaultCategoryCode);
+    // Yalnız açılışta bir kez uygulanır; sonra kullanıcı kategoriyi serbestçe değiştirir.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, mode, defaultCategoryCode]);
 
   const onSubcategoryChange = (code: string) => {
     const kept = keepTypeIfValid(form.categoryCode, code, form.productGroupCode);
@@ -7014,6 +7030,8 @@ export function CreateInstallationDialog({
   );
 }
 
+const CUSTOM_OPTION = "__manual__";
+
 export function CreateMachineDialog({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const submission = useSubmissionLock();
@@ -7029,6 +7047,8 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
     warrantyEnd: "",
   });
   const [warrantyTouched, setWarrantyTouched] = useState({ start: false, end: false });
+  // Seri no listesini daraltmak için seçili katalog modeli; makineye ayrıca yazılmaz.
+  const [modelProductId, setModelProductId] = useState("");
 
   const machineStockUsed = useMemo(
     () => new Set(machines.map((machine) => machine.stockItemId).filter(Boolean)),
@@ -7048,11 +7068,6 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
         })
       : [];
 
-  const companyStockCandidates = useMemo(
-    () => stockCandidatesForCustomer(form.customerId),
-    [form.customerId, stock, machineStockUsed],
-  );
-
   const addYears = (dateString: string, years: number) => {
     if (!dateString) return "";
     const [year, month, day] = dateString.split("-").map(Number);
@@ -7062,15 +7077,68 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
     return date.toISOString().slice(0, 10);
   };
 
-  const applyStock = (item: (typeof stock)[number], base = form) => ({
-    ...base,
-    stockItemId: item.id,
-    model: item.counterModel || item.counterType || base.model,
-    serialNumber: item.serialNumber || base.serialNumber,
-  });
+  const applyStock = (item: (typeof stock)[number], base = form) => {
+    const product = item.productId ? products.find((p) => p.id === item.productId) : undefined;
+    setModelProductId(product?.id ?? "");
+    return {
+      ...base,
+      stockItemId: item.id,
+      model: (product && catalogMachineLabel(product)) || item.counterModel || item.counterType || base.model,
+      serialNumber: item.serialNumber || base.serialNumber,
+    };
+  };
+
+  const modelOptions = useMemo<ComboboxOption[]>(() => {
+    const catalog = products
+      .filter((p) => (p.categoryCode ?? "").toLocaleUpperCase("en-US") === "TEZGAH" && p.status === "active")
+      .map((p) => ({ value: p.id, label: catalogMachineLabel(p), hint: [p.modelName, p.type, p.stockCode].filter(Boolean).join(" · ") }))
+      .sort((a, b) => a.label.localeCompare(b.label, "tr-TR"));
+    // Elle yazılan model tetikleyicide görünsün diye seçeneklere eklenir.
+    return !modelProductId && form.model ? [{ value: CUSTOM_OPTION, label: form.model, hint: "Elle giriş" }, ...catalog] : catalog;
+  }, [products, modelProductId, form.model]);
+
+  const serialOptions = useMemo<ComboboxOption[]>(() => {
+    const model = modelProductId ? products.find((p) => p.id === modelProductId) : undefined;
+    const statusLabel: Record<string, string> = { Sold: "Satıldı", Reserved: "Rezerve", InTransit: "Yolda", Available: "Depoda" };
+    const items = stock
+      .filter((item) => (item.categoryCode ?? "TEZGAH") === "TEZGAH" && item.status !== "Inactive" && !machineStockUsed.has(item.id))
+      .filter((item) => !model || item.productId === model.id || (!item.productId && foldTr(item.counterModel || "") === foldTr(model.model || "")))
+      // Bu firmaya rezerve kalemler önce gelir.
+      .sort((a, b) => Number(b.reservedCompanyId === form.customerId) - Number(a.reservedCompanyId === form.customerId))
+      .map((item) => ({
+        value: item.id,
+        label: item.serialNumber || item.stockCode || "Seri no yok",
+        hint: [
+          item.counterModel || item.counterType,
+          item.reservedCompanyId && item.reservedCompanyId === form.customerId ? "Bu firmaya rezerve" : statusLabel[item.status],
+        ].filter(Boolean).join(" · "),
+      }));
+    return !form.stockItemId && form.serialNumber ? [{ value: CUSTOM_OPTION, label: form.serialNumber, hint: "Elle giriş" }, ...items] : items;
+  }, [stock, products, machineStockUsed, modelProductId, form.customerId, form.stockItemId, form.serialNumber]);
+
+  const selectModel = (productId: string) => {
+    if (productId === CUSTOM_OPTION) return;
+    const product = products.find((p) => p.id === productId);
+    if (!product) return;
+    setModelProductId(product.id);
+    const linked = stock.find((item) => item.id === form.stockItemId);
+    const keepSerial = linked && linked.productId === product.id;
+    setForm({
+      ...form,
+      model: catalogMachineLabel(product),
+      ...(keepSerial ? {} : { stockItemId: "", serialNumber: form.stockItemId ? "" : form.serialNumber }),
+    });
+  };
+
+  const selectSerial = (itemId: string) => {
+    if (itemId === CUSTOM_OPTION) return;
+    const item = stock.find((candidate) => candidate.id === itemId);
+    if (item) setForm(applyStock(item));
+  };
 
   const resetForm = () => {
     setWarrantyTouched({ start: false, end: false });
+    setModelProductId("");
     setForm({
       customerId: "",
     contactId: "",
@@ -7086,6 +7154,7 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
   const selectCustomer = (value: string) => {
     const customerId = value === "none" ? "" : value;
     const candidates = stockCandidatesForCustomer(customerId);
+    setModelProductId("");
     const next = {
       ...form,
       customerId,
@@ -7095,15 +7164,6 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
       serialNumber: "",
     };
     setForm(candidates[0] ? applyStock(candidates[0], next) : next);
-  };
-
-  const selectStock = (value: string) => {
-    if (value === "none") {
-      setForm({ ...form, stockItemId: "", model: "", serialNumber: "" });
-      return;
-    }
-    const item = companyStockCandidates.find((candidate) => candidate.id === value);
-    if (item) setForm(applyStock(item));
   };
 
   const setInstallationDate = (installationDate: string) => {
@@ -7160,24 +7220,39 @@ export function CreateMachineDialog({ children }: { children: React.ReactNode })
               <Label className="text-xs">Kontak</Label>
               <RemoteContactCombobox className="mt-1.5" companyId={form.customerId} value={form.contactId} onValueChange={(contactId) => setForm((current) => ({ ...current, contactId }))} />
             </div>
-            {form.customerId && companyStockCandidates.length > 0 && (
-              <div className="sm:col-span-2">
-                <Label className="text-xs">Stok / Seri No</Label>
-                <Select value={form.stockItemId || "none"} onValueChange={selectStock}>
-                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Makine seçin" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Manuel giriş</SelectItem>
-                    {companyStockCandidates.map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {[item.counterModel || item.counterType, item.serialNumber].filter(Boolean).join(" · ")}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            <Field label="Model *" value={form.model} onChange={(v) => setForm({ ...form, model: v })} />
-            <Field label="Seri No *" value={form.serialNumber} onChange={(v) => setForm({ ...form, serialNumber: v })} />
+            <div>
+              <Label className="text-xs">Model <span className="text-destructive">*</span></Label>
+              <Combobox
+                className="mt-1.5"
+                ariaLabel="Model"
+                options={modelOptions}
+                value={modelProductId || (form.model ? CUSTOM_OPTION : "")}
+                onChange={selectModel}
+                onCreate={(model) => {
+                  setModelProductId("");
+                  setForm({ ...form, model });
+                }}
+                placeholder="Model seçin veya yazın"
+                searchPlaceholder="Marka, model, ürün kodu ara…"
+                emptyText="Katalogda eşleşen model yok."
+                createLabel={(q) => `“${q}” modelini kullan`}
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Seri No <span className="text-destructive">*</span></Label>
+              <Combobox
+                className="mt-1.5"
+                ariaLabel="Seri No"
+                options={serialOptions}
+                value={form.stockItemId || (form.serialNumber ? CUSTOM_OPTION : "")}
+                onChange={selectSerial}
+                onCreate={(serialNumber) => setForm({ ...form, stockItemId: "", serialNumber })}
+                placeholder={modelProductId ? "Stoktan seri no seçin" : "Seri no seçin veya yazın"}
+                searchPlaceholder="Seri no ara…"
+                emptyText="Bu modelde boşta seri no yok."
+                createLabel={(q) => `“${q}” seri numarasını kullan`}
+              />
+            </div>
             <Field label="Kurulum Tarihi" type="date" value={form.installationDate} onChange={setInstallationDate} />
             <div />
             <Field

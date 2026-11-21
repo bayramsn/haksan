@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, boolean, integer, bigint, timestamp, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, boolean, integer, bigint, timestamp, index, uniqueIndex, jsonb, numeric } from 'drizzle-orm/pg-core';
 import { auditColumns } from './_helpers';
 import type { NavigationVisibilityKey } from '@haksan/shared';
 
@@ -14,6 +14,9 @@ export const tenants = pgTable(
     hiddenNavigationKeys: jsonb('hidden_navigation_keys').$type<NavigationVisibilityKey[]>().notNull().default([]),
     /** Haftalık kullanıcı raporunun alıcıları; boşsa rapor süper adminlere gider. */
     userReportRecipients: jsonb('user_report_recipients').$type<string[]>().notNull().default([]),
+    /** Yeni servis kayıtlarının varsayılan saatlik ücreti (Servis Fiyat Listesi'nden düzenlenir). */
+    serviceHourlyRate: numeric('service_hourly_rate', { precision: 12, scale: 2 }).notNull().default('120'),
+    serviceCurrency: varchar('service_currency', { length: 8 }).notNull().default('USD'),
     isActive: boolean('is_active').notNull().default(true),
     ...auditColumns,
   },

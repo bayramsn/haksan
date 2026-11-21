@@ -22,7 +22,7 @@ import { salesOrders, salesOrderItems } from '../../db/schema/orders';
 import { brands, productModels, productSpecs } from '../../db/schema/products';
 import { quotes } from '../../db/schema/quotes';
 import { users as usersTable } from '../../db/schema/users';
-import { divisions } from '../../db/schema/tenants';
+import { divisions, tenants } from '../../db/schema/tenants';
 import { DB } from '../../shared/database/database.module';
 import {
   paginationSchema,
@@ -234,6 +234,10 @@ const validateTicketMetadata = (metadata: Record<string, unknown> | undefined, b
   return normalized;
 };
 const ticketStatus = z.object({ statusCode: z.string(), serviceStage: serviceStageSchema.optional() });
+const serviceSettingsUpdate = z.object({
+  serviceHourlyRate: z.coerce.number().finite().min(0).max(1_000_000),
+  serviceCurrency: z.enum(['USD', 'EUR', 'TRY']),
+});
 const salesLeadCreate = z.object({
   /** Teknisyenin gördüğü satış ihtiyacı: parça, bakım sözleşmesi, yeni makine vb. */
   need: z.string().trim().min(3, 'Satışa iletilecek ihtiyacı yazın').max(2000),
@@ -1655,6 +1659,45 @@ export class ServiceController {
     };
   }
 
+  private async serviceSettings(tenantId: string) {
+    const [row] = await this.db
+      .select({ serviceHourlyRate: tenants.serviceHourlyRate, serviceCurrency: tenants.serviceCurrency })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    return { serviceHourlyRate: Number(row?.serviceHourlyRate ?? 120), serviceCurrency: row?.serviceCurrency ?? 'USD' };
+  }
+
+  /** Saat ücreti gönderilmeyen yeni servis, şirketin Servis Fiyat Listesi'ndeki ücretiyle açılır. */
+  private async withDefaultServiceRate(metadata: Record<string, unknown> | undefined, tenantId: string) {
+    if (typeof metadata?.serviceHourlyRate === 'number') return metadata;
+    const settings = await this.serviceSettings(tenantId);
+    return {
+      ...(metadata ?? {}),
+      serviceHourlyRate: settings.serviceHourlyRate,
+      serviceCurrency: typeof metadata?.serviceCurrency === 'string' ? metadata.serviceCurrency : settings.serviceCurrency,
+    };
+  }
+
+  @RequirePermissions('price_lists.read')
+  @Get('service-settings')
+  getServiceSettings(@CurrentUser() user: AuthContext) {
+    return this.serviceSettings(user.tenantId);
+  }
+
+  @RequirePermissions('price_lists.update')
+  @Patch('service-settings')
+  async updateServiceSettings(
+    @Body(new ZodValidationPipe(serviceSettingsUpdate)) body: z.infer<typeof serviceSettingsUpdate>,
+    @CurrentUser() user: AuthContext,
+  ) {
+    await this.db
+      .update(tenants)
+      .set({ serviceHourlyRate: String(body.serviceHourlyRate), serviceCurrency: body.serviceCurrency })
+      .where(eq(tenants.id, user.tenantId));
+    return this.serviceSettings(user.tenantId);
+  }
+
   @RequirePermissions('service_tickets.create')
   @Post('service-tickets')
   async createTicket(@Body(new ZodValidationPipe(ticketCreate)) body: z.infer<typeof ticketCreate>, @CurrentUser() user: AuthContext) {
@@ -1694,7 +1737,7 @@ export class ServiceController {
         source: body.source,
         statusId: openStatus?.id ?? null,
         assignedToUserId: body.assignedToUserId ?? null,
-        metadata: validateTicketMetadata(body.metadata, businessLine) ?? null,
+        metadata: await this.withDefaultServiceRate(validateTicketMetadata(body.metadata, businessLine), user.tenantId),
       })
       .returning();
     if (row.ticketType === 'warranty_claim') {

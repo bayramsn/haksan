@@ -17,7 +17,7 @@ import { useStore } from "../../lib/store";
 import { useAuth } from "../../../lib/auth";
 import { ProductDetailDialog, ProductThumb } from "../dialogs/ProductDetailDialog";
 import { ProductDialog } from "../dialogs/CreateDialogs";
-import { productService } from "../../../lib/services";
+import { productService, serviceService } from "../../../lib/services";
 import { InsightStat } from "../shared/PremiumPrimitives";
 
 const fmtMoney = (n?: number | null, cur = "USD") =>
@@ -550,6 +550,75 @@ export function SalesPriceListPage() {
   );
 }
 
+const SERVICE_RATE_CURRENCIES = ["USD", "EUR", "TRY"] as const;
+
+/** Yeni servis kayıtlarının varsayılan saatlik ücreti (şirket ayarı). */
+function ServiceHourlyRateCard({ editable }: { editable: boolean }) {
+  const [saved, setSaved] = useState<{ serviceHourlyRate: number; serviceCurrency: string } | null>(null);
+  const [rate, setRate] = useState("");
+  const [currency, setCurrency] = useState("USD");
+  const [busy, setBusy] = useState(false);
+
+  const apply = (s: { serviceHourlyRate: number; serviceCurrency: string }) => {
+    setSaved(s);
+    setRate(String(s.serviceHourlyRate));
+    setCurrency(s.serviceCurrency);
+  };
+
+  useEffect(() => {
+    serviceService.serviceSettings().then(apply).catch(() => setSaved(null));
+  }, []);
+
+  const parsed = parsePriceInput(rate);
+  const dirty = !!saved && (parsed !== saved.serviceHourlyRate || currency !== saved.serviceCurrency);
+
+  const save = async () => {
+    if (parsed === null) {
+      toast.error("Geçerli bir saat ücreti girin");
+      return;
+    }
+    setBusy(true);
+    try {
+      apply(await serviceService.updateServiceSettings({ serviceHourlyRate: parsed, serviceCurrency: currency }));
+      toast.success("Servis saat ücreti güncellendi", { description: "Yeni açılan servis kayıtları bu ücretle başlar." });
+    } catch (err: any) {
+      toast.error("Saat ücreti güncellenemedi", { description: err?.message ?? "API isteği başarısız oldu." });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!saved) return null;
+  return (
+    <Card className="flex flex-col gap-3 border-border/60 p-4 shadow-sm sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p className="text-sm font-semibold">Servis saat ücreti</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Yeni açılan servis kayıtları bu saatlik ücretle başlar; mevcut kayıtlar değişmez.</p>
+      </div>
+      {editable ? (
+        <div className="flex items-end gap-2">
+          <Input
+            aria-label="Saatlik servis ücreti"
+            inputMode="decimal"
+            className="h-9 w-32 text-right tabular-nums"
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+          />
+          <Select value={currency} onValueChange={setCurrency}>
+            <SelectTrigger aria-label="Para birimi" className="h-9 w-24"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {SERVICE_RATE_CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button size="sm" className="h-9" disabled={!dirty || busy} onClick={save}>Kaydet</Button>
+        </div>
+      ) : (
+        <p className="text-lg font-semibold tabular-nums">{fmtMoney(saved.serviceHourlyRate, saved.serviceCurrency)} <span className="text-xs font-normal text-muted-foreground">/ saat</span></p>
+      )}
+    </Card>
+  );
+}
+
 /* =========================================================================
    SERVİS FİYAT LİSTESİ — kategori sekmeli servis kalemleri
    ========================================================================= */
@@ -558,6 +627,8 @@ export function ServicePriceListPage() {
   const { hasPermission, hasRole } = useAuth();
   const canEdit = hasPermission("price_lists.update") || hasPermission("price_lists.create");
   const canEditProduct = hasRole("super_admin") || hasRole("admin") || hasPermission("products.update");
+  const canCreateProduct = hasRole("super_admin") || hasRole("admin") || hasPermission("products.create");
+  const [creating, setCreating] = useState(false);
   const [tab, setTab] = useState<ServicePriceTab>("parts");
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<Product | null>(null);
@@ -670,6 +741,11 @@ export function ServicePriceListPage() {
             </Select>
           )}
           <SearchBox q={q} setQ={setQ} placeholder={isLabor ? "İşçilik kalemi ara..." : `${activeCategory.label}, marka ara...`} />
+          {canCreateProduct && (
+            <Button size="sm" className="h-9 gap-1.5" onClick={() => setCreating(true)}>
+              <Plus className="size-4" /> {activeCategory.label} ekle
+            </Button>
+          )}
         </div>
       </div>
 
@@ -681,6 +757,8 @@ export function ServicePriceListPage() {
       ) : (
         <ReadOnlyNote text="Servis fiyat listesi salt-okunur. Kalemler kategori sekmelerine ayrılmıştır." />
       )}
+
+      {isLabor && <ServiceHourlyRateCard editable={canEdit} />}
 
       <Card className="border-border/60 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
@@ -793,6 +871,16 @@ export function ServicePriceListPage() {
             : undefined
         }
       />
+      {creating && (
+        <ProductDialog
+          mode="create"
+          open={creating}
+          defaultCategoryCode={activeCategory.code}
+          onOpenChange={(open) => {
+            if (!open) setCreating(false);
+          }}
+        />
+      )}
       {editingProduct && (
         <ProductDialog
           mode="edit"
