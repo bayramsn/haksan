@@ -921,7 +921,8 @@ export function OfferDetailDialog({
     setDocumentAction(null);
     const loading = toast.loading("PDF alınıyor…");
     try {
-      await commercialPdfService.present('quote', offer.id, mode === 'download' ? 'download' : 'open', false);
+      // Yetkili kullanıcıda PDF eskiyse (ör. fotoğrafsız eski şablon) açmadan önce yenilenir; güncelse sunucu aynısını döndürür.
+      await commercialPdfService.present('quote', offer.id, mode === 'download' ? 'download' : 'open', canPreparePdf);
     } catch (error: unknown) {
       toast.error("Teklif dosyası hazırlanamadı", {
         description: error instanceof Error ? error.message : "Teklif ayrıntıları alınamadı.",

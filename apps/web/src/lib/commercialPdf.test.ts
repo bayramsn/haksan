@@ -55,6 +55,30 @@ describe('canonical web PDF', () => {
     expect(fetcher).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+  it('opens the preview tab during the tap (tablet popup blockers) and loads the PDF into it', async () => {
+    const tab = { opener: {}, document: { title: '', body: { textContent: '' } }, location: { href: '' }, close: vi.fn() };
+    const open = vi.fn(() => tab);
+    vi.stubGlobal('window', { open });
+    let openedBeforeFetch = false;
+    vi.stubGlobal('fetch', vi.fn(async () => { openedBeforeFetch = open.mock.calls.length === 1; return new Response('%PDF-ok', { headers: { 'content-type': 'application/pdf' } }); }));
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview');
+    vi.useFakeTimers();
+    const pending = commercialPdfService.present('quote', 'record-a', 'open');
+    expect(open).toHaveBeenCalledWith('', '_blank');
+    await pending;
+    expect(openedBeforeFetch).toBe(true);
+    expect(tab.opener).toBeNull();
+    expect(tab.location.href).toBe('blob:preview');
+    vi.runAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); create.mockRestore();
+  });
+  it('closes the pre-opened tab when the PDF cannot be shown', async () => {
+    api.get.mockResolvedValueOnce({ status: 'missing' });
+    const tab = { opener: {}, document: { title: '', body: null }, location: { href: '' }, close: vi.fn() };
+    vi.stubGlobal('window', { open: vi.fn(() => tab) });
+    await expect(commercialPdfService.present('quote', 'record-a', 'open')).rejects.toThrow('PDF Hazırla / Yenile');
+    expect(tab.close).toHaveBeenCalledOnce();
+    vi.unstubAllGlobals();
+  });
   it('rejects an HTML success response instead of presenting it as PDF', async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response('<html>login</html>', { headers: { 'content-type': 'text/html' } }));
     vi.stubGlobal('fetch', fetcher);

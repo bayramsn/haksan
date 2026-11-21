@@ -10,13 +10,17 @@ import { commercialPdfs } from '../../db/schema/commercial-pdfs';
 import { files } from '../../db/schema/files';
 import { StorageService } from '../../shared/storage/storage.service';
 import { HtmlPdfService } from '../../shared/pdf/html-pdf.service';
+import { inlineRemoteImages } from '../../shared/pdf/remote-image';
 import { AuditService } from '../../shared/database/audit.service';
 import type { AuthContext } from '../../shared/security/auth.types';
 import { AppError, ForbiddenError } from '../../shared/utils/errors';
 import { QuotesService } from './quotes.service';
 import { renderCommercialHtml } from './commercial-pdf-render';
 
-const TEMPLATE_VERSION = 'web-2026-10-v1';
+// v2: dış ürün fotoğrafları gömülüyor. v1 PDF'leri sunulmaya devam eder; "Hazırla" v2 üretir.
+const TEMPLATE_VERSION = 'web-2026-11-v2';
+const SERVED_TEMPLATE_VERSIONS = [TEMPLATE_VERSION, 'web-2026-10-v1'];
+const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 const resource = { quote: 'quotes', proforma: 'proformas', contract: 'contracts' } as const;
 
@@ -55,7 +59,7 @@ export class CommercialPdfService {
   async status(kind: CommercialPdfKind, id: string, actor: AuthContext): Promise<CommercialPdfStatus> {
     const source = await this.source(kind, id, actor);
     const artifact = await this.latest(kind, id, actor);
-    return { status: !artifact ? 'missing' : artifact.sourceHash === source.hash && artifact.templateVersion.startsWith(`${TEMPLATE_VERSION}:`) ? 'ready' : 'outdated', fileId: artifact?.fileId ?? null, revision: artifact?.sourceHash ?? null, documentRevision: artifact?.sourceHash ?? null, generatedAt: artifact?.generatedAt.toISOString() ?? null };
+    return { status: !artifact ? 'missing' : artifact.sourceHash === source.hash && SERVED_TEMPLATE_VERSIONS.some((v) => artifact.templateVersion.startsWith(`${v}:`)) ? 'ready' : 'outdated', fileId: artifact?.fileId ?? null, revision: artifact?.sourceHash ?? null, documentRevision: artifact?.sourceHash ?? null, generatedAt: artifact?.generatedAt.toISOString() ?? null };
   }
 
   /** Only records already authorized by the collection service are decorated.
@@ -88,7 +92,7 @@ export class CommercialPdfService {
     return { buffer, filename: file.originalFilename };
   }
 
-  /** No remote fetch: only packaged logos or tenant-owned storage images are embedded. */
+  /** Paket logoları ve kiracının depodaki görselleri doğrudan; dış https görseller `inlineRemoteImages` ile gömülür. */
   private async images(html: string, actor: AuthContext): Promise<string> {
     const sources = [...new Set([...html.matchAll(/<img[^>]+src="([^"]+)"/g)].map((m) => m[1]))];
     let result = html;
@@ -108,16 +112,21 @@ export class CommercialPdfService {
           }
         }
       }
-      // Omit unavailable external imagery; no arbitrary URL can reach Chromium or the API network.
-      const embedded = bytes && bytes.length <= MAX_IMAGE_BYTES ? `data:${mime};base64,${bytes.toString('base64')}` : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+      // Dış https görsel (ürün fotoğraflarının çoğu kurumsal sitede) aşağıda sunucuda indirilir.
+      if (!bytes && /^https:\/\//i.test(src)) continue;
+      const embedded = bytes && bytes.length <= MAX_IMAGE_BYTES ? `data:${mime};base64,${bytes.toString('base64')}` : BLANK_IMAGE;
       result = result.split(`src="${src}"`).join(`src="${embedded}"`);
     }
-    return result;
+    // İndirici yalnız https/443 ve iç ağ dışı adreslere gider; alınamayan görsel boş basılır,
+    // böylece Chromium'a hiçbir dış adres ulaşmaz.
+    result = await inlineRemoteImages(result);
+    return result.replace(/(<img[^>]+src=")https:\/\/[^"]*"/gi, `$1${BLANK_IMAGE}"`);
   }
 
   async prepare(kind: CommercialPdfKind, id: string, actor: AuthContext, options: { headerLogoMode?: 'haksan' | 'company' | 'none' } = {}): Promise<CommercialPdfStatus> {
     if (!actor.permissions.has(`${resource[kind]}.update`) && !actor.roles.includes('super_admin')) throw new ForbiddenError('PDF hazırlamak için belge düzenleme yetkisi gerekli.');
     let uploaded: { bucket: string; objectKey: string } | undefined;
+    let rendered = false;
     try {
       await this.db.transaction(async (tx) => {
         // Cross-process duplicate suppression without a new queue or worker service.
@@ -144,12 +153,13 @@ export class CommercialPdfService {
         uploaded = { bucket, objectKey };
         const [file] = await tx.insert(files).values({ tenantId: actor.tenantId, bucket, objectKey, originalFilename: filename, mimeType: 'application/pdf', extension: 'pdf', sizeBytes: buffer.length, sha256: this.storage.calculateChecksum(buffer), visibility: 'private', uploadStatus: 'linked', uploadedBy: actor.userId, uploadedAt: new Date() }).returning();
         await tx.insert(commercialPdfs).values({ tenantId: actor.tenantId, kind, documentId: id, sourceHash: source.hash, templateVersion, fileId: file.id, snapshot: source.snapshot, generatedBy: actor.userId });
+        rendered = true;
       });
     } catch (error) {
       if (uploaded) await this.storage.deleteFile(uploaded.bucket, uploaded.objectKey).catch(() => undefined);
       throw error;
     }
-    await this.audit.write({ tenantId: actor.tenantId, actorUserId: actor.userId, action: 'commercial_pdf.prepared', resourceType: kind, resourceId: id });
+    if (rendered) await this.audit.write({ tenantId: actor.tenantId, actorUserId: actor.userId, action: 'commercial_pdf.prepared', resourceType: kind, resourceId: id });
     return this.status(kind, id, actor);
   }
 }

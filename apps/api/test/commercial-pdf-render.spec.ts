@@ -1,6 +1,10 @@
 import { writeFile } from 'node:fs/promises';
 import { CommercialPdfService } from '../src/modules/quotes/commercial-pdf.service';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+// Gerçek ağa çıkmadan: indirici yalnız bilinen ürün fotoğrafını "alır".
+vi.mock('../src/shared/pdf/remote-image', () => ({
+  inlineRemoteImages: vi.fn(async (html: string) => html.split('https://www.haksanmakina.com.tr/a.png').join('data:image/png;base64,QQ==')),
+}));
 import { renderCommercialHtml } from '../src/modules/quotes/commercial-pdf-render';
 import { HtmlPdfService } from '../src/shared/pdf/html-pdf.service';
 const snapshot = {
@@ -26,6 +30,12 @@ describe('canonical commercial layout', () => {
     const without = await renderCommercialHtml('quote', record, snapshot, 'none');
     expect(withLogo).not.toBe(without);
     expect(withLogo).toContain('/print/haksan-letterhead');
+  });
+  it("dış ürün fotoğrafını gömer, alınamayan dış görseli Chromium'a ulaştırmadan boş basar", async () => {
+    const service = new CommercialPdfService({} as any, {} as any, {} as any, {} as any, {} as any);
+    const html = await (service as any).images('<img alt="a" src="https://www.haksanmakina.com.tr/a.png"><img src="https://unreachable.test/b.png">', {});
+    expect(html).toContain('src="data:image/png;base64,QQ=="');
+    expect(html).not.toContain('https://');
   });
   it('incomplete contracts return an actionable validation error', async () => {
     await expect(renderCommercialHtml('contract', record, { ...snapshot, company: {}, companyAddresses: [] }))
