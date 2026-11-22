@@ -1,7 +1,8 @@
 import { navigationMonth, navigationPreset } from '@/src/modules/navigationContext';
 import { useNavigationContext } from '@/src/modules/useNavigationContext';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { BottomSheetModal } from '@gorhom/bottom-sheet';
 import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -20,12 +21,12 @@ import { formatAmount, formatDate } from '@/src/lib/format';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { downloadAndShareFile } from '@/src/native/files';
 import { useTheme, type Tone } from '@/src/theme/theme';
-import { Card, Chip, EmptyState, ErrorState, Fab, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, SectionHeader } from '@/src/ui';
+import { Card, Chip, EmptyState, ErrorState, Fab, GroupedDivider, groupedRowClass, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, SectionHeader } from '@/src/ui';
 import { Tabs } from '@/src/ui/data';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { toast } from '@/src/ui/toast';
 import { filterLinksForFolder } from '@/src/ui/documents/document-logic';
-import { ChoiceChips } from '@/src/ui/documents/pickers';
+import { SalesSheet, SheetOption } from '@/src/ui/sales/Sheet';
 import { QuoteDistributionCard, QuoteKpis, QuoteTrendCard } from '@/src/ui/documents/QuoteOverview';
 import { businessLineForDivision, exportQueryForTab, QUOTE_TABS, statusCodesForTab, type BusinessLine, type QuoteTabKey } from '@/src/ui/documents/quote-logic';
 import { FileLinkCard, SalesOrderRow } from '@/src/ui/documents/rows';
@@ -53,19 +54,19 @@ const STATUS_TONE: Record<string, Tone> = {
 const PREVIEW_ROWS = 3;
 
 /** Belge kimliği, firma ve tutar ayrı satırlarda okunur. */
-function QuoteRow({ item, onPress }: { item: QuoteListItem; onPress: () => void }) {
+function QuoteRow({ item, onPress, first, last }: { item: QuoteListItem; onPress: () => void; first: boolean; last: boolean }) {
   const company = item.company?.shortName ?? item.company?.legalTitle;
   const tone = STATUS_TONE[item.status?.code ?? ''] ?? 'neutral';
   const followUpOverdue = !!item.followUpAt && Date.parse(item.followUpAt) < Date.now()
     && !['approved', 'rejected', 'cancelled', 'expired'].includes(item.status?.code ?? '');
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={item.documentNo}
-      className="gap-1 border-b border-border py-3 active:opacity-70">
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${company ?? ''} ${item.documentNo}, ${formatAmount(item.grandTotal, item.currency?.code ?? 'TRY')}, ${item.status?.name ?? ''}`}
+      className={`min-h-[60px] gap-1 py-3 active:bg-secondary ${groupedRowClass(first, last)}`} style={{ borderCurve: 'continuous' }}>
       <View className="flex-row items-center gap-2">
-        <Text className="min-w-0 flex-1 font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
+        <Text className="min-w-0 flex-1 font-inter-medium text-[15px] text-foreground" numberOfLines={1}>
           {company || item.documentNo}
         </Text>
-        <Text className="font-inter-semibold text-[14px] text-primary" style={{ fontVariant: ['tabular-nums'] }}>
+        <Text className="font-inter-semibold text-[14px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>
           {formatAmount(item.grandTotal, item.currency?.code ?? 'TRY')}
         </Text>
         {item.status ? <Chip tone={tone} label={item.status.name} /> : null}
@@ -79,6 +80,7 @@ function QuoteRow({ item, onPress }: { item: QuoteListItem; onPress: () => void 
             : formatDate(item.quoteDate),
         ].filter(Boolean).join(' · ')}
       </Text>
+      {last ? null : <GroupedDivider />}
     </Pressable>
   );
 }
@@ -173,6 +175,7 @@ export default function QuotesScreen() {
   const [tab, setTab] = useState<QuoteTabKey>('all');
   const [businessLine, setBusinessLine] = useState<BusinessLine | null>(null);
   const [exporting, setExporting] = useState(false);
+  const filterSheetRef = useRef<BottomSheetModal>(null);
   const [showOverview, setShowOverview] = useState(false);
   const [navigationFocus, setNavigationFocus] = useState<string | undefined>();
   const [navigationPeriod, setNavigationPeriod] = useState<{ from?: string; to?: string }>({});
@@ -244,7 +247,7 @@ export default function QuotesScreen() {
         data={list.error ? [] : items}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
-        renderItem={({ item }) => <QuoteRow item={item} onPress={() => router.push(`/modules/quotes/${item.id}`)} />}
+        renderItem={({ item, index }) => <QuoteRow item={item} first={index === 0} last={index === items.length - 1} onPress={() => router.push(`/modules/quotes/${item.id}`)} />}
         onEndReachedThreshold={0.5}
         onEndReached={() => {
           if (list.hasNextPage && !list.isFetchingNextPage) void list.fetchNextPage();
@@ -258,18 +261,11 @@ export default function QuotesScreen() {
         ListHeaderComponent={
           <View className="gap-3 pb-3 pt-2">
             <View className="gap-2 pt-1" style={{ marginHorizontal: -SCREEN_PAD }}>
-              <SearchBar value={search} onChange={setSearch} placeholder="Teklif no, firma veya ürün ara" />
+              <SearchBar value={search} onChange={setSearch} placeholder="Teklif no, firma veya ürün ara"
+                {...(divisionOptions.length > 1 ? { onFilterPress: () => filterSheetRef.current?.present(), filterActive: Boolean(businessLine) } : {})} />
               {(navigationFocus === 'expired' || navigationPeriod.from) && <Text accessibilityRole="button" onPress={() => { setNavigationFocus(undefined); setNavigationPeriod({}); setTab('all'); }} className="px-4 py-2 text-sm text-primary">{navigationFocus === 'expired' ? 'Süresi geçen teklifler' : `${navigationPeriod.from} – ${navigationPeriod.to}`} · Odağı temizle</Text>}
               <Tabs tabs={QUOTE_TABS.map((entry) => ({ value: entry.value, label: entry.label }))} value={tab} onChange={(value) => { setTab(value); setNavigationFocus(undefined); }} />
             </View>
-            {divisionOptions.length > 1 ? (
-              <ChoiceChips
-                label="İş alanı:"
-                options={[{ value: '', label: 'Tümü' }, ...divisionOptions]}
-                value={businessLine ?? ''}
-                onChange={(next) => setBusinessLine((next || null) as BusinessLine | null)}
-              />
-            ) : null}
             <Pressable accessibilityRole="button" accessibilityState={{ expanded: showOverview }} onPress={() => setShowOverview((value) => !value)} className="min-h-[44px] flex-row items-center justify-between">
               <Text className="font-inter text-[13px] text-muted-foreground">Özet, dış teklifler ve siparişler</Text>
               <Text className="font-inter-medium text-[13px] text-primary">{showOverview ? 'Gizle' : 'Göster'}</Text>
@@ -321,6 +317,12 @@ export default function QuotesScreen() {
         ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
       />
 
+      <SalesSheet ref={filterSheetRef} title="İş alanı" subtitle="Teklifleri iş alanına göre süz.">
+        {[{ value: '', label: 'Tümü' }, ...divisionOptions].map((option) => (
+          <SheetOption key={option.value || 'all'} label={option.label} selected={(businessLine ?? '') === option.value}
+            onPress={() => { setBusinessLine((option.value || null) as BusinessLine | null); filterSheetRef.current?.dismiss(); }} />
+        ))}
+      </SalesSheet>
       {canCreate ? <Fab label="Yeni Teklif" extended onPress={() => router.push('/modal/quote-form')} /> : null}
     </SafeAreaView>
   );
