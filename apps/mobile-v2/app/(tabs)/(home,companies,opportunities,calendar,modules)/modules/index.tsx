@@ -8,7 +8,7 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { canAccessModule, modules, type ModuleEntry } from '@/src/modules/catalog';
 import { buildModuleMenu } from '@/src/modules/module-menu';
-import { chipClass, toneColor, useTheme } from '@/src/theme/theme';
+import { useTheme } from '@/src/theme/theme';
 import { EmptyState, ScreenHeader, SearchBar } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
@@ -22,8 +22,8 @@ function ModuleRow({ entry, first, accessible, favorite, onFavorite, onOpen }: {
         accessibilityState={{ disabled: !accessible }} disabled={!accessible}
         onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onOpen(); router.push(entry.route); }}
         className="min-h-[60px] flex-1 flex-row items-center gap-3 py-3 active:opacity-70">
-        <View className={`h-10 w-10 items-center justify-center rounded-control border ${chipClass[entry.tone]}`}>
-          <Ionicons name={entry.icon} size={19} color={toneColor(colors, entry.tone)} />
+        <View className="h-10 w-10 items-center justify-center rounded-control bg-secondary">
+          <Ionicons name={entry.icon} size={19} color={colors.primary} />
         </View>
         <View className="min-w-0 flex-1 gap-1">
           <Text className="font-inter-medium text-[15px] leading-[21px] text-foreground" numberOfLines={2}>{entry.title}</Text>
@@ -103,14 +103,14 @@ export default function ModulesScreen() {
         </Pressable> : null}
       </View>
       <ScrollView ref={listRef} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32, gap: 16 }}>
-        {!narrowed && <View style={{ flexDirection: wide ? 'row' : 'column', flexWrap: 'wrap', gap: 16 }}>{quickGroups.length ? quickGroups.map(group => <View key={group.title} className="gap-1.5" style={{ width: wide ? (contentWidth - 52) / 2 : '100%' }}><Text accessibilityRole="header" className="font-inter-semibold text-[15px] text-foreground">{group.title}</Text><View className="overflow-hidden rounded-surface border border-border bg-card">{group.entries.map(renderRow)}</View></View>) : <View className="rounded-surface border border-border bg-card p-4"><Text className="font-inter-medium text-[15px] text-foreground">Favori ekleyin</Text><Text className="mt-1 font-inter text-[13px] leading-5 text-muted-foreground">Modül satırındaki yıldıza dokunun; burada sabitlensin.</Text></View>}</View>}
+        {!narrowed && <View style={{ flexDirection: wide ? 'row' : 'column', flexWrap: 'wrap', gap: 16 }}>{quickGroups.length ? quickGroups.map(group => <View key={group.title} className="gap-1.5" style={{ width: wide ? (contentWidth - 52) / 2 : '100%' }}><Text accessibilityRole="header" className="font-inter-semibold text-[15px] text-foreground">{group.title}</Text><View className="overflow-hidden rounded-surface bg-card">{group.entries.map(renderRow)}</View></View>) : <View className="rounded-surface border border-border bg-card p-4"><Text className="font-inter-medium text-[15px] text-foreground">Favori ekleyin</Text><Text className="mt-1 font-inter text-[13px] leading-5 text-muted-foreground">Modül satırındaki yıldıza dokunun; burada sabitlensin.</Text></View>}</View>}
         <View style={{ flexDirection: wide ? 'row' : 'column', flexWrap: 'wrap', gap: 16, alignItems: 'flex-start' }}>
         {groups.length === 0 ? <EmptyState icon="grid-outline" title="Modül bulunamadı"
           hint={narrowed ? 'Aramayı veya kategori seçimini değiştirin.' : 'Modül kataloğu boş.'}
           actionLabel={narrowed ? 'Seçimleri temizle' : undefined} onAction={narrowed ? reset : undefined} /> : groups.map((group) => (
           <View key={group.title} className="gap-1.5" style={{ width: wide ? (contentWidth - 52) / 2 : '100%' }}>
             <Text accessibilityRole="header" className="px-1 font-inter-semibold text-[15px] text-foreground">{group.title}</Text>
-            <View className="overflow-hidden rounded-surface border border-border bg-card">
+            <View className="overflow-hidden rounded-surface bg-card">
               {group.entries.map(renderRow)}
             </View>
           </View>

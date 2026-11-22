@@ -189,9 +189,9 @@ export default function DeliveriesScreen() {
           accessibilityRole="button"
           accessibilityState={{ expanded: overviewOpen }}
           onPress={() => setOverviewOpen((value) => !value)}
-          className="mx-4 min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+          className="mx-4 min-h-[44px] flex-row items-center justify-between active:opacity-70"
         >
-          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter text-[13px] text-muted-foreground">Özet</Text>
           <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
         </Pressable>
       </View>

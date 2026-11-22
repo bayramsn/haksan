@@ -20,7 +20,7 @@ import {
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { LinearTransition, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { chipClass, chipTextClass, SCREEN_PAD, toneColor, useTheme, type Tone } from '@/src/theme/theme';
 import { Enter, Skeleton } from '@/src/ui/motion';
 import { useUnreadCount } from '@/src/api/notifications.hooks';
@@ -371,10 +371,14 @@ export function EmptyState({
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const { colors } = useTheme();
   return (
     <View accessibilityLiveRegion="assertive" className="items-center gap-3 px-6 py-8" style={{ width: '100%', maxWidth: 560, alignSelf: 'center' }}>
-      <View className="rounded-full bg-destructive-soft p-3"><Text accessibilityElementsHidden className="font-inter-semibold text-lg text-destructive">!</Text></View>
-      <Text selectable className="text-center font-inter-semibold text-base text-destructive">{message}</Text>
+      {/* Boş durumla aynı nötr kutu: hata ekranı alarm gibi değil, sakin görünsün. */}
+      <View className="h-14 w-14 items-center justify-center rounded-surface border border-border bg-card-subtle">
+        <Ionicons name="alert-circle-outline" size={20} color={colors.mutedForeground} />
+      </View>
+      <Text selectable className="text-center font-inter-medium text-[15px] text-foreground">{message}</Text>
       {onRetry ? <Button label="Tekrar dene" variant="ghost" onPress={onRetry} /> : null}
     </View>
   );
@@ -486,10 +490,10 @@ export function ScreenHeader({
       numberOfLines={inline ? 1 : undefined}
       style={
         inline
-          ? { fontSize: compact ? 24 : 28, lineHeight: compact ? 30 : 34, letterSpacing: 0, color: colors.foreground }
+          ? { fontSize: compact ? 22 : 26, lineHeight: compact ? 28 : 32, letterSpacing: -0.2, color: colors.foreground }
           : compact
-            ? { fontSize: 22, lineHeight: 26, letterSpacing: 0, color: colors.primary, marginTop: 2 }
-            : { fontSize: 30, lineHeight: 36, letterSpacing: 0, color: colors.foreground, marginTop: 12 }
+            ? { fontSize: 22, lineHeight: 28, letterSpacing: -0.2, color: colors.foreground, marginTop: 2 }
+            : { fontSize: 26, lineHeight: 32, letterSpacing: -0.2, color: colors.foreground, marginTop: 8 }
       }
     >
       {title}
@@ -632,6 +636,52 @@ export function SearchBar({
   );
 }
 
+/**
+ * iOS segment denetimi (HIG): eşit genişlikli sekmeler, altta kayan beyaz başparmak
+ * ve seçim titreşimi. Hareket azaltma açıksa başparmak animasyonsuz atlar.
+ */
+export function SegmentedTabs<T extends string>({ items, value, onChange, labelFor, a11yLabelFor }: {
+  items: readonly T[];
+  value: T;
+  onChange: (next: T) => void;
+  labelFor: (item: T) => string;
+  a11yLabelFor?: (item: T) => string;
+}) {
+  const [width, setWidth] = useState(0);
+  const { colors } = useTheme();
+  const reduceMotion = useReducedMotion();
+  const segment = width / items.length;
+  const left = 4 + Math.max(0, items.indexOf(value)) * segment;
+  return (
+    <View className="flex-row rounded-control bg-secondary p-1" accessibilityRole="tablist" onLayout={(e) => setWidth(e.nativeEvent.layout.width - 8)}>
+      {segment > 0 ? (
+        <Animated.View
+          pointerEvents="none"
+          layout={reduceMotion ? undefined : LinearTransition.duration(220)}
+          style={{ position: 'absolute', top: 4, bottom: 4, left, width: segment, borderRadius: 10, backgroundColor: colors.card }}
+        />
+      ) : null}
+      {items.map((item) => {
+        const active = item === value;
+        return (
+          <Pressable
+            key={item}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={a11yLabelFor?.(item) ?? labelFor(item)}
+            onPress={() => { if (!active) { void Haptics.selectionAsync(); onChange(item); } }}
+            className={`min-h-9 flex-1 items-center justify-center rounded-[10px] ${active && !segment ? "bg-card" : ""}`}
+          >
+            <Text className={`text-[13px] ${active ? 'font-inter-semibold text-foreground' : 'font-inter-medium text-muted-foreground'}`}>
+              {labelFor(item)}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export type FilterOption<T extends string> = { value: T; label: string; count?: number };
 
 /**
@@ -669,8 +719,8 @@ export function FilterChips<T extends string>({
       showsHorizontalScrollIndicator={false}
       // Yatay ScrollView dikey sütun içinde büyüyüp altındaki listeyi aşağı
       // itiyordu; yüksekliği pil boyuna sabitlenmeli.
-      style={{ height: Math.max(46, Math.ceil(22 * fontScale + 24)), flexGrow: 0, flexShrink: 0 }}
-      contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: dense ? 8 : 10 }}
+      style={{ height: Math.max(40, Math.ceil(18 * fontScale + 22)), flexGrow: 0, flexShrink: 0 }}
+      contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 8, alignItems: 'center' }}
       keyboardShouldPersistTaps="handled"
     >
       {rows.map((row) => (
@@ -678,13 +728,14 @@ export function FilterChips<T extends string>({
           key={row.key}
           accessibilityRole="button"
           accessibilityState={{ selected: row.active }}
-          onPress={row.press}
-          className={`${dense ? 'min-h-[44px] px-3.5' : 'min-h-[46px] px-5'} flex-row items-center gap-1.5 rounded-full border ${
+          onPress={() => { void Haptics.selectionAsync(); row.press(); }}
+          hitSlop={{ top: 4, bottom: 4 }}
+          className={`min-h-[36px] flex-row items-center gap-1.5 rounded-full border px-3.5 ${
             row.active ? 'border-primary bg-primary' : 'border-border bg-card'
           }`}
         >
           <Text
-            className={`${dense ? 'text-[13px]' : 'text-[15px]'} font-inter-medium ${row.active ? 'text-primary-foreground' : 'text-foreground'}`}
+            className={`text-[13px] font-inter-medium ${row.active ? 'text-primary-foreground' : 'text-foreground'}`}
           >
             {row.label}
           </Text>
@@ -808,7 +859,7 @@ export function ListRow({
   const body = (
     <View className="gap-2 border-b border-border py-3">
       <View className="min-h-[44px] flex-row items-start gap-3">
-        {icon ? <View className={`h-10 w-10 items-center justify-center rounded-control border ${chipClass[iconTone]}`}>
+        {icon ? <View className="h-10 w-10 items-center justify-center rounded-control bg-secondary">
           <Ionicons name={icon} size={19} color={toneColor(colors, iconTone)} />
         </View> : null}
         <View className="min-w-0 flex-1 gap-1">

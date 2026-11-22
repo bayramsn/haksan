@@ -279,6 +279,8 @@ function safeJson(text: string): unknown {
 
 function messageFor(status: number, body: unknown): string {
   const fromBody = serverMessage(body);
+  // Sunucuda olmayan uç ("Cannot GET /api/v1/...") iç yolu ekrana sızdırmasın.
+  if (fromBody && /^Cannot [A-Z]+ \//.test(fromBody)) return 'Bu özellik sunucuda henüz etkin değil.';
   if (fromBody) return fromBody;
   if (status === 401) return 'Oturumunuz sona erdi, lütfen yeniden giriş yapın.';
   if (status === 403) return 'Bu işlem için yetkiniz yok.';

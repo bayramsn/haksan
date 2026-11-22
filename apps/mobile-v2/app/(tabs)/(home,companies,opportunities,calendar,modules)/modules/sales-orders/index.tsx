@@ -85,7 +85,7 @@ export default function SalesOrdersScreen() {
           ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
         />
       )}
-      {canCreate ? <Fab icon="add" label="Yeni satış siparişi" onPress={() => router.push('/modal/sales-order-form')} /> : null}
+      {canCreate ? <Fab extended icon="add" label="Yeni sipariş" onPress={() => router.push('/modal/sales-order-form')} /> : null}
     </SafeAreaView>
   );
 }

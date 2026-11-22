@@ -300,8 +300,8 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
 
 
       <Pressable accessibilityRole="button" accessibilityState={{ expanded: showOverview }} onPress={() => setShowOverview((current) => !current)}
-        className="min-h-11 flex-row items-center justify-between gap-3 rounded-control border border-border bg-card px-3 py-2">
-        <Text className="flex-1 font-inter-medium text-[13px] text-foreground">Belge özeti ve süreç</Text>
+        className="min-h-11 flex-row items-center justify-between gap-3">
+        <Text className="flex-1 font-inter text-[13px] text-muted-foreground">Belge özeti ve süreç</Text>
         <Ionicons name={showOverview ? 'chevron-up' : 'chevron-down'} size={18} color={colors.mutedForeground} />
       </Pressable>
       {showOverview ? <View className="gap-3">
@@ -353,11 +353,13 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
       </View> : null}
 
       {createActions.length ? (
-        <View className="flex-row flex-wrap gap-2">
+        <View className="flex-row flex-wrap gap-x-4">
           {createActions.map((action) => (
-            <View key={action.label} className="w-full">
-              <Button label={action.label} variant="ghost" trailingIcon={action.icon} onPress={action.onPress} />
-            </View>
+            <Pressable key={action.label} accessibilityRole="button" accessibilityLabel={action.label} onPress={action.onPress}
+              className="min-h-11 flex-row items-center gap-1.5 active:opacity-60">
+              <Ionicons name={action.icon} size={16} color={colors.primary} />
+              <Text className="font-inter-medium text-[13px] text-primary">{action.label.replace("CRM'de ", '')}</Text>
+            </Pressable>
           ))}
         </View>
       ) : null}
@@ -452,8 +454,9 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
       />
       {canUpload ? (
         <Fab
+          extended
           icon="cloud-upload-outline"
-          label="Kaynağa bağlı dosya yükle"
+          label="Dosya yükle"
           onPress={() =>
             router.push({ pathname: '/modal/quote-document-upload', params: folder === 'all' ? {} : { type: folder } })
           }

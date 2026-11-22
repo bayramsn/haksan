@@ -4,6 +4,7 @@ import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, Text, Vi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { chipClass, SCREEN_PAD, toneColor, useTheme, type Tone } from '@/src/theme/theme';
 import { Button } from '@/src/ui';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
@@ -118,7 +119,7 @@ export function Segmented<T extends string>({
               accessibilityState={{ selected, disabled }}
               accessibilityLabel={label ? `${label}: ${option.label}` : option.label}
               disabled={disabled}
-              onPress={() => onChange(option.value)}
+              onPress={() => { void Haptics.selectionAsync(); onChange(option.value); }}
               className={`min-h-[44px] items-center justify-center rounded-control border px-3.5 ${selected ? 'border-primary bg-primary' : 'border-border bg-card'} ${disabled ? 'opacity-50' : ''}`}
             >
               <Text className={`font-inter-semibold text-[13px] ${selected ? 'text-primary-foreground' : 'text-foreground'}`}>

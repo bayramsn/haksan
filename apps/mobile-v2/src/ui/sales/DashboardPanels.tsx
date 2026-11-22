@@ -835,7 +835,7 @@ export function SignalList({ title, hint, signals, empty, limit }: { title: stri
   const { colors } = useTheme();
   const list = limit ? signals.slice(0, limit) : signals;
   return (
-    <Card className="gap-2">
+    <View className="gap-1">
       <SectionTitle title={title} hint={hint} />
       {list.length === 0 ? (
         <Text className="font-inter text-[13px] text-muted-foreground">{empty}</Text>
@@ -848,7 +848,7 @@ export function SignalList({ title, hint, signals, empty, limit }: { title: stri
               accessibilityRole="button"
               accessibilityLabel={`${meta.label}: ${signal.title}, ${signal.detail}`}
               onPress={() => push(signalHref(signal))}
-              className="min-h-[52px] flex-row items-center gap-3 border-t border-border py-2 active:opacity-70"
+              className="min-h-[52px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
             >
               <Ionicons name={meta.icon} size={20} color={toneColor(colors, meta.tone)} />
               <View className="min-w-0 flex-1">
@@ -860,7 +860,7 @@ export function SignalList({ title, hint, signals, empty, limit }: { title: stri
           );
         })
       )}
-    </Card>
+    </View>
   );
 }
 

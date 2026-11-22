@@ -1,6 +1,6 @@
 import { Pressable, Switch, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { chipClass, toneColor, useTheme, type Tone } from '@/src/theme/theme';
+import { useTheme, type Tone } from '@/src/theme/theme';
 import { Eyebrow } from '@/src/ui';
 
 /** Ayar/menü grubu: başlık + kart içinde ayraçlı satırlar. */
@@ -12,7 +12,7 @@ export function SettingsGroup({ title, children }: { title?: string; children: R
           <Eyebrow>{title}</Eyebrow>
         </View>
       ) : null}
-      <View className="overflow-hidden rounded-surface border border-border bg-card">{children}</View>
+      <View className="overflow-hidden rounded-surface bg-card">{children}</View>
     </View>
   );
 }
@@ -34,13 +34,12 @@ type RowProps =
 
 export function SettingsRow(props: RowProps) {
   const { colors } = useTheme();
-  const tone: Tone = props.tone ?? 'neutral';
   const danger = (props.kind === undefined || props.kind === 'link') && props.danger === true;
 
   const content = (
     <View className={`min-h-12 flex-row flex-wrap items-center gap-2.5 px-3.5 py-2 ${props.first ? '' : 'border-t border-border'}`}>
-      <View className={`h-8 w-8 items-center justify-center rounded-control border ${chipClass[danger ? 'destructive' : tone]}`}>
-        <Ionicons name={props.icon} size={16} color={toneColor(colors, danger ? 'destructive' : tone)} />
+      <View className={`h-8 w-8 items-center justify-center rounded-control ${danger ? 'bg-destructive-soft' : 'bg-secondary'}`}>
+        <Ionicons name={props.icon} size={16} color={danger ? colors.destructive : colors.primary} />
       </View>
 
       <View className="min-w-[120px] flex-1 gap-0.5">

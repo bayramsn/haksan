@@ -70,7 +70,7 @@ export function FileLinkCard({
   const { colors } = useTheme();
   const folder = folderForDocumentType(link.documentType?.code);
   return (
-    <View className="my-[5px] gap-2 rounded-[16px] border border-border bg-card px-3.5 py-3" style={{ borderCurve: 'continuous' }}>
+    <View className="gap-2 border-b border-border py-3">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${link.file.originalFilename} dosyasını aç`}

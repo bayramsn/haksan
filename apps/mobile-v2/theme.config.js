@@ -118,14 +118,14 @@ const themes = { light: withChipBorders(light), dark: withChipBorders(dark) };
 /** Mockup'lardaki yumuşak köşeler: buton/input 12, kart 16, tabaka 20. */
 const radius = { control: 12, surface: 16, overlay: 20, pill: 999 };
 
-/** Web h1/h2 'Barlow Condensed', gövde 'Inter Variable'. */
+/** Mobilde başlık da gövde de Inter: üç ayrı başlık stili tek aileye indi (web h1/h2 Barlow Condensed). */
 const fonts = {
   sans: 'Inter_400Regular',
   sansMedium: 'Inter_500Medium',
   sansSemibold: 'Inter_600SemiBold',
   sansBold: 'Inter_700Bold',
-  display: 'BarlowCondensed_700Bold',
-  displaySemibold: 'BarlowCondensed_600SemiBold',
+  display: 'Inter_700Bold',
+  displaySemibold: 'Inter_600SemiBold',
 };
 
 const kebab = (key) => key.replace(/[A-Z0-9]/g, (c) => `-${c.toLowerCase()}`);

@@ -10,7 +10,7 @@ import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { formatTime } from '@/src/lib/format';
 import { presentCalendarEditor } from '@/src/native/calendar';
 import { toneColor, useTheme } from '@/src/theme/theme';
-import { Chip, EmptyState, ErrorState, Eyebrow, FilterChips, ListRow, Loading, SCREEN_PAD, ScreenHeader } from '@/src/ui';
+import { EmptyState, ErrorState, Eyebrow, Fab, FilterChips, ListRow, Loading, SCREEN_PAD, ScreenHeader, SegmentedTabs } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { toast } from '@/src/ui/toast';
@@ -33,13 +33,13 @@ import {
   normalizeEventType,
   periodLabel,
   upcomingEvents,
-  type CalendarEventType,
   type CalendarView,
 } from '@/src/ui/crm/calendar-logic';
 import { CALENDAR_TYPE_STYLE } from '@/src/ui/crm/calendar-style';
 
 const GRID_WEEKDAYS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
-const VIEWS: CalendarView[] = ['month', 'week', 'day', 'list'];
+// Gün görünümü kalktı: Ay'da güne dokunmak aynı listeyi veriyordu.
+const VIEWS: CalendarView[] = ['month', 'week', 'list'];
 
 const styleOf = (event: CalendarEventFull) => CALENDAR_TYPE_STYLE[normalizeEventType(event.eventType)];
 
@@ -229,7 +229,8 @@ export default function CalendarScreen() {
   const gridDays = view === 'month' ? Array.from({ length: 42 }, (_, index) => addDays(range.from, index)) : [];
   const selectedEvents = byDay.get(dateKey(selected)) ?? [];
   const sections = view === 'list' ? listSections(events) : [];
-  const agendaDays = view === 'week' || view === 'day' ? daysInRange(range.from, range.to) : [];
+  // Haftada boş günler tek tek "etkinlik yok" yazıyordu; yalnız dolu günler.
+  const agendaDays = view === 'week' ? daysInRange(range.from, range.to).filter((day) => byDay.has(dateKey(day))) : [];
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
@@ -237,10 +238,7 @@ export default function CalendarScreen() {
         title="Takvim"
         actions={
           canCreate
-            ? [
-                { icon: 'cloud-upload-outline' as const, label: 'İçe aktar', onPress: () => router.push('/modal/calendar-import' as Href) },
-                { icon: 'add' as const, label: 'Yeni etkinlik', onPress: () => openCreate() },
-              ]
+            ? [{ icon: 'cloud-upload-outline' as const, label: 'İçe aktar', onPress: () => router.push('/modal/calendar-import' as Href) }]
             : []
         }
         compact/>
@@ -251,68 +249,43 @@ export default function CalendarScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.primary} />}
       >
         <View style={{ paddingHorizontal: SCREEN_PAD }} className="gap-3">
-          <View className="flex-row rounded-control border border-border bg-card p-1" accessibilityRole="tablist">
-            {VIEWS.map((item) => {
-              const active = view === item;
-              return (
-                <Pressable
-                  key={item}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: active }}
-                  accessibilityLabel={`${CALENDAR_VIEW_LABELS[item]} görünümü`}
-                  onPress={() => setView(item)}
-                  className={`min-h-11 flex-1 items-center justify-center rounded-control ${active ? 'bg-primary' : ''}`}
-                >
-                  <Text className={`font-inter-semibold text-sm ${active ? 'text-primary-foreground' : 'text-foreground'}`}>
-                    {CALENDAR_VIEW_LABELS[item]}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <SegmentedTabs
+            items={VIEWS}
+            value={view}
+            onChange={setView}
+            labelFor={(item) => CALENDAR_VIEW_LABELS[item]}
+            a11yLabelFor={(item) => `${CALENDAR_VIEW_LABELS[item]} görünümü`}
+          />
 
-          <View className="flex-row items-center gap-2">
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Önceki dönem"
-              onPress={() => move(-1)}
-              className="h-11 w-11 items-center justify-center rounded-full border border-border bg-card active:opacity-60"
-            >
-              <Ionicons name="chevron-back" size={18} color={colors.foreground} />
-            </Pressable>
-            <Text className="flex-1 text-center font-inter-semibold text-lg text-foreground" numberOfLines={1}>
-              {periodLabel(view, cursor)}
+          {/* Dönem, gezinme ve filtre tek satırda: önceden üç ayrı kutulu satırdı. */}
+          <View className="flex-row items-center">
+            <Text className="flex-1 font-inter-semibold text-[17px] text-foreground" numberOfLines={1}>
+              {view === 'list' ? 'Tüm etkinlikler' : periodLabel(view, cursor)}
             </Text>
+            {view !== 'list' ? (
+              <>
+                <Pressable accessibilityRole="button" accessibilityLabel="Bugüne git" onPress={goToday} className="h-11 justify-center px-2 active:opacity-60">
+                  <Text className="font-inter-medium text-[14px] text-primary">Bugün</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Önceki dönem" onPress={() => move(-1)} className="h-11 w-10 items-center justify-center active:opacity-60">
+                  <Ionicons name="chevron-back" size={20} color={colors.foreground} />
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel="Sonraki dönem" onPress={() => move(1)} className="h-11 w-10 items-center justify-center active:opacity-60">
+                  <Ionicons name="chevron-forward" size={20} color={colors.foreground} />
+                </Pressable>
+              </>
+            ) : null}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Sonraki dönem"
-              onPress={() => move(1)}
-              className="h-11 w-11 items-center justify-center rounded-full border border-border bg-card active:opacity-60"
+              accessibilityState={{ expanded: filtersOpen }}
+              accessibilityLabel={activeFilterCount ? `Filtreler, ${activeFilterCount} etkin` : 'Filtreler'}
+              onPress={() => setFiltersOpen((open) => !open)}
+              className={`h-11 w-11 items-center justify-center rounded-full active:opacity-60 ${filtersOpen ? 'bg-secondary' : ''}`}
             >
-              <Ionicons name="chevron-forward" size={18} color={colors.foreground} />
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Bugüne git"
-              onPress={goToday}
-              className="h-11 items-center justify-center rounded-full border border-border bg-card px-4 active:opacity-60"
-            >
-              <Text className="font-inter-semibold text-sm text-foreground">Bugün</Text>
+              <Ionicons name="options-outline" size={20} color={activeFilterCount ? colors.primary : colors.foreground} />
+              {activeFilterCount ? <View className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary" /> : null}
             </Pressable>
           </View>
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: filtersOpen }}
-            accessibilityLabel="Filtreler"
-            onPress={() => setFiltersOpen((open) => !open)}
-            className="min-h-11 flex-row items-center gap-2 rounded-control border border-border bg-card px-3 active:opacity-70"
-          >
-            <Ionicons name="options-outline" size={18} color={colors.foreground} />
-            <Text className="flex-1 font-inter-medium text-sm text-foreground">Filtreler</Text>
-            {activeFilterCount ? <Chip tone="info" label={String(activeFilterCount)} /> : null}
-            <Ionicons name={filtersOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.mutedForeground} />
-          </Pressable>
 
           {filtersOpen ? (
             <>
@@ -327,7 +300,7 @@ export default function CalendarScreen() {
               />
             ) : null}
 
-            <View className="min-h-11 flex-row items-center justify-between rounded-control border border-border bg-card px-3">
+            <View className="min-h-11 flex-row items-center justify-between">
               <Text className="font-inter text-sm text-foreground">Arşivi göster</Text>
               <Switch
                 accessibilityLabel="Arşivi göster"
@@ -340,18 +313,8 @@ export default function CalendarScreen() {
           ) : null}
         </View>
 
+        {/* Tür çipleri renk açıklamasını da taşıyor; ayrı nokta açıklaması tekrardı. */}
         {filtersOpen ? <FilterChips options={typeOptions} value={typeFilter} onChange={setTypeFilter} allLabel="Tümü" /> : null}
-
-        {filtersOpen ? (
-          <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row flex-wrap gap-x-3 gap-y-1">
-            {CALENDAR_EVENT_TYPES.map((type: CalendarEventType) => (
-              <View key={type} className="flex-row items-center gap-1">
-                <View className="h-2 w-2 rounded-full" style={{ backgroundColor: toneColor(colors, CALENDAR_TYPE_STYLE[type].tone) }} />
-                <Text className="font-inter text-xs text-muted-foreground">{CALENDAR_TYPE_LABELS[type]}</Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
 
         {query.isPending ? (
           <Loading />
@@ -361,7 +324,7 @@ export default function CalendarScreen() {
           <View style={{ paddingHorizontal: SCREEN_PAD }} className="gap-3">
             {view === 'month' ? (
               <>
-                <View className="rounded-[16px] border border-border bg-card p-2">
+                <View className="py-1">
                   <View className="flex-row pb-1">
                     {GRID_WEEKDAYS.map((label) => (
                       <Text key={label} className="flex-1 text-center font-inter-medium text-[11px] uppercase text-muted-foreground">
@@ -415,30 +378,22 @@ export default function CalendarScreen() {
                   <Text className="font-inter text-[13px] text-muted-foreground">{selectedEvents.length} etkinlik</Text>
                 </View>
                 {selectedEvents.length === 0 ? (
-                  <EmptyState
-                    title="Planlanmış etkinlik yok."
-                    actionLabel={canCreate ? 'Yeni etkinlik' : undefined}
-                    onAction={canCreate ? () => openCreate(selected) : undefined}
-                  />
+                  <Text className="py-2 font-inter text-sm text-muted-foreground">Bu gün için planlanmış etkinlik yok.</Text>
                 ) : (
                   selectedEvents.map((event) => renderEvent(event))
                 )}
               </>
             ) : null}
 
-            {agendaDays.map((day) => {
-              const rows = byDay.get(dateKey(day)) ?? [];
-              return (
-                <View key={dateKey(day)} className="gap-1">
-                  <Eyebrow>{dayTitle(day)}</Eyebrow>
-                  {rows.length === 0 ? (
-                    <Text className="py-2 font-inter text-sm text-muted-foreground">Planlanmış etkinlik yok.</Text>
-                  ) : (
-                    rows.map((event) => renderEvent(event))
-                  )}
-                </View>
-              );
-            })}
+            {view === 'week' && agendaDays.length === 0 ? (
+              <Text className="py-2 font-inter text-sm text-muted-foreground">Bu hafta planlanmış etkinlik yok.</Text>
+            ) : null}
+            {agendaDays.map((day) => (
+              <View key={dateKey(day)} className="gap-1">
+                <Eyebrow>{dayTitle(day)}</Eyebrow>
+                {(byDay.get(dateKey(day)) ?? []).map((event) => renderEvent(event))}
+              </View>
+            ))}
 
             {view === 'list' ? (
               sections.length === 0 ? (
@@ -466,6 +421,8 @@ export default function CalendarScreen() {
           </View>
         )}
       </ScrollView>
+
+      {canCreate ? <Fab extended label="Yeni etkinlik" onPress={() => openCreate()} /> : null}
 
       <SheetMenu
         ref={menu}

@@ -15,7 +15,6 @@ import type { ContactListRow } from '@/src/api/crm-general.api';
 import { exportService } from '@/src/api/exports';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import {
-  Button,
   Chip,
   EmptyState,
   ErrorState,
@@ -76,8 +75,10 @@ function ContactRow({
       <View className="flex-row items-stretch">
         <Pressable
           onPress={onPress}
+          onLongPress={onDelete}
           accessibilityRole="button"
           accessibilityLabel={item.fullName}
+          accessibilityHint={onDelete ? 'Silmek için basılı tutun' : undefined}
           className="min-w-0 flex-1 flex-row gap-3 py-3 active:opacity-70"
         >
           <View className="h-9 w-9 items-center justify-center rounded-control bg-secondary">
@@ -99,7 +100,7 @@ function ContactRow({
           </View>
         </Pressable>
       </View>
-      {(onCall || onMail || onEdit || onDelete) ? (
+      {(onCall || onMail || onEdit) ? (
         <View className="-mt-1 flex-row pb-1">
           {onCall ? (
             <Pressable accessibilityRole="button" accessibilityLabel="Ara" onPress={onCall}
@@ -117,12 +118,6 @@ function ContactRow({
             <Pressable accessibilityRole="button" accessibilityLabel="Düzenle" onPress={onEdit}
               className="min-h-11 flex-1 items-center justify-center active:opacity-70">
               <Ionicons name="create-outline" size={18} color={colors.primary} />
-            </Pressable>
-          ) : null}
-          {onDelete ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Sil" onPress={onDelete}
-              className="min-h-11 flex-1 items-center justify-center active:opacity-70">
-              <Ionicons name="trash-outline" size={18} color={colors.destructive} />
             </Pressable>
           ) : null}
         </View>
@@ -240,12 +235,15 @@ export default function ContactsScreen() {
           filterActive={filterCount > 0}
         />
         <View style={{ paddingHorizontal: SCREEN_PAD }}>
-          <Button
-            variant="ghost"
-            label={showSummary ? 'Özeti gizle' : 'Özet'}
-            trailingIcon={showSummary ? 'chevron-up' : 'analytics-outline'}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: showSummary }}
             onPress={() => setShowSummary((value) => !value)}
-          />
+            className="min-h-[44px] flex-row items-center justify-between"
+          >
+            <Text className="font-inter text-[13px] text-muted-foreground">Özet</Text>
+            <Text className="font-inter-medium text-[13px] text-primary">{showSummary ? 'Gizle' : 'Göster'}</Text>
+          </Pressable>
         </View>
         {showSummary ? (
           <StatStrip
@@ -330,7 +328,7 @@ export default function ContactsScreen() {
         />
       )}
 
-      {canCreate ? <Fab label="Yeni Kontak" onPress={() => router.push('/modal/contact')} /> : null}
+      {canCreate ? <Fab extended label="Yeni Kontak" onPress={() => router.push('/modal/contact')} /> : null}
 
       <SheetMenu
         ref={sortSheetRef}

@@ -5,7 +5,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
 import { useAdminDepartments, useDeleteDepartment, useDepartmentTargets } from '@/src/api/admin.hooks';
 import type { AdminDepartment } from '@/src/api/admin.api';
-import { Card, Chip, EmptyState, ErrorState, ListSkeleton, SCREEN_PAD, SearchBar, StatStrip } from '@/src/ui';
+import { Chip, EmptyState, ErrorState, ListSkeleton, SCREEN_PAD, SearchBar, StatStrip } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 import { useAdminAccess } from './access';
 import { filterByText } from './admin-model';
@@ -76,9 +76,9 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
             accessibilityRole="button"
             accessibilityState={{ expanded: overviewOpen }}
             onPress={() => setOverviewOpen((value) => !value)}
-            className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+            className="min-h-11 flex-row items-center justify-between active:opacity-70"
           >
-            <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+            <Text className="font-inter text-[13px] text-muted-foreground">Özet</Text>
             <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
           </Pressable>
           {overviewOpen && list.data ? (
@@ -110,7 +110,7 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
       renderItem={({ item }) => {
         const targetExists = targetSet.has(item.id);
         return (
-          <Card className="my-1.5 gap-2 p-3.5">
+          <View className="gap-2 border-b border-border py-3">
             <View className="flex-row items-start justify-between gap-2">
               <View className="flex-1">
                 <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>{item.name}</Text>
@@ -121,7 +121,7 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
             <Text className="font-inter text-[12px] leading-[18px] text-muted-foreground" numberOfLines={3}>
               {item.description || 'Bu departman için henüz açıklama eklenmemiş.'}
             </Text>
-            <View className="flex-row flex-wrap items-center gap-2 border-t border-border pt-2.5">
+            <View className="flex-row flex-wrap items-center gap-1">
               {canSetTargets ? (
                 <>
                   <Text className="flex-1 font-inter text-[11px] text-muted-foreground">Dönem · {formatPeriodLabel(period)}</Text>
@@ -138,7 +138,7 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
                 <ActionPill icon="trash-outline" tone="destructive" label="Listeden Çıkar" disabled={remove.isPending} onPress={() => askRemove(item)} />
               ) : null}
             </View>
-          </Card>
+          </View>
         );
       }}
       refreshing={list.isRefetching}

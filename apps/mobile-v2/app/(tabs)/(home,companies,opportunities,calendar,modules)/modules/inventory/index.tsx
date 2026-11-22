@@ -89,12 +89,12 @@ function StockCard({
     .filter(Boolean)
     .join(' · ');
   return (
-    <View className="my-1 rounded-[8px] border border-border bg-card">
+    <View className="border-b border-border">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title}, seri no ${item.serialNumber}`}
         onPress={() => onPress(item.id)}
-        className="gap-2 p-3 active:opacity-70"
+        className="gap-2 py-3 active:opacity-70"
       >
         <View className="flex-row items-center gap-3">
           <ProductThumb imageUrl={product?.imageUrl} label={title} size={48} />
@@ -208,9 +208,9 @@ export default function InventoryScreen() {
         accessibilityRole="button"
         accessibilityState={{ expanded: overviewOpen }}
         onPress={() => setOverviewOpen((value) => !value)}
-        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3"
+        className="min-h-[44px] flex-row items-center justify-between"
       >
-        <Text className="font-inter-medium text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter text-[13px] text-muted-foreground">Özet</Text>
         <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
       </Pressable>
       {overviewOpen ? (

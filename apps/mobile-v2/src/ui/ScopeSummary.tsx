@@ -11,7 +11,8 @@ export function ScopeSummary() {
   const { user, scope } = useAuth();
   const pathname = usePathname(), router = useRouter();
   const { colors } = useTheme();
-  if (!user || pathname.includes('/more/scope')) return null;
+  // Profil/Ayarlar/Hakkında veri listelemiyor; kapsam çipi orada yalnız gürültü.
+  if (!user || pathname.includes('/more')) return null;
   const resource = scopeResourceForPath(pathname);
   const options = resource ? scopeOptions(user, scope.departmentId, resource) : null;
   const compatible = !resource || isScopeCompatible(user, scope, resource);

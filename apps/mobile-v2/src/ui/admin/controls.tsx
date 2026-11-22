@@ -214,7 +214,7 @@ export function ActionPill({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      className={`min-h-11 flex-row items-center gap-1.5 rounded-control border px-3 ${chipClass[tone]} ${disabled ? 'opacity-40' : ''} active:opacity-60`}
+      className={`min-h-11 flex-row items-center gap-1.5 px-2 ${disabled ? 'opacity-40' : ''} active:opacity-60`}
     >
       <Ionicons name={icon} size={15} color={toneColor(colors, tone)} />
       <Text className={`font-inter-medium text-[13px] ${chipTextClass[tone]}`}>{label}</Text>

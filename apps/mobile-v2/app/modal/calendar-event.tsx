@@ -265,7 +265,8 @@ export default function CalendarEventScreen() {
 
           <View className="gap-2">
             <Text className="font-inter-medium text-sm text-foreground">Etkinlik türü</Text>
-            <View className="flex-row flex-wrap gap-2">
+            {/* Tek satır kaydırmalı: sarınca "Diğer" tek başına alt satıra düşüyordu. */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 8 }}>
               {CALENDAR_EVENT_TYPES.map((type) => {
                 const style = CALENDAR_TYPE_STYLE[type];
                 const active = eventType === type;
@@ -285,7 +286,7 @@ export default function CalendarEventScreen() {
                   </Pressable>
                 );
               })}
-            </View>
+            </ScrollView>
           </View>
 
           {isSuperAdmin && !editing ? (
@@ -321,6 +322,16 @@ export default function CalendarEventScreen() {
             error={errors.title}
           />
 
+          {/* Tüm gün tarih alanlarının biçimini değiştirdiği için onlardan önce. */}
+          <View className="min-h-11 flex-row items-center justify-between">
+            <Text className="font-inter text-sm text-foreground">Tüm gün</Text>
+            <Switch
+              accessibilityLabel="Tüm gün"
+              value={allDay}
+              onValueChange={setAllDay}
+              trackColor={{ true: colors.primary, false: colors.border }}
+            />
+          </View>
           <DateTimeField
             label="Başlangıç *"
             mode={allDay ? 'date' : 'datetime'}
@@ -353,15 +364,6 @@ export default function CalendarEventScreen() {
             className="min-h-[80px] rounded-control border border-border bg-card px-3.5 py-3 text-base text-foreground"
           />
 
-          <View className="min-h-11 flex-row items-center justify-between">
-            <Text className="font-inter text-sm text-foreground">Tüm gün</Text>
-            <Switch
-              accessibilityLabel="Tüm gün"
-              value={allDay}
-              onValueChange={setAllDay}
-              trackColor={{ true: colors.primary, false: colors.border }}
-            />
-          </View>
           {editing ? (
             <View className="min-h-11 flex-row items-center justify-between">
               <Text className="font-inter text-sm text-foreground">Tamamlandı</Text>

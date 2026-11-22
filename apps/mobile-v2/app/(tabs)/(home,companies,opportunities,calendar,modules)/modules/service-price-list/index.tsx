@@ -103,9 +103,9 @@ export default function ServicePriceListScreen() {
         accessibilityRole="button"
         accessibilityState={{ expanded: overviewOpen }}
         onPress={() => setOverviewOpen((value) => !value)}
-        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        className="min-h-[44px] flex-row items-center justify-between active:opacity-70"
       >
-        <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter text-[13px] text-muted-foreground">Özet</Text>
         <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
       </Pressable>
       {overviewOpen ? (
@@ -161,7 +161,7 @@ export default function ServicePriceListScreen() {
             const title = product.modelName?.trim() || product.fullName || product.modelCode;
             return (
               <View style={{ paddingHorizontal: SCREEN_PAD }}>
-                <View className="my-[5px] gap-2.5 rounded-[16px] border border-border bg-card p-3.5">
+                <View className="gap-2.5 border-b border-border py-3">
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`${title} ürün detayı`}

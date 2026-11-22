@@ -270,8 +270,8 @@ export default function QuotesScreen() {
                 onChange={(next) => setBusinessLine((next || null) as BusinessLine | null)}
               />
             ) : null}
-            <Pressable accessibilityRole="button" accessibilityState={{ expanded: showOverview }} onPress={() => setShowOverview((value) => !value)} className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3">
-              <Text className="font-inter-medium text-[14px] text-foreground">Özet, dış teklifler ve siparişler</Text>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: showOverview }} onPress={() => setShowOverview((value) => !value)} className="min-h-[44px] flex-row items-center justify-between">
+              <Text className="font-inter text-[13px] text-muted-foreground">Özet, dış teklifler ve siparişler</Text>
               <Text className="font-inter-medium text-[13px] text-primary">{showOverview ? 'Gizle' : 'Göster'}</Text>
             </Pressable>
             {showOverview ? <View className="gap-3">

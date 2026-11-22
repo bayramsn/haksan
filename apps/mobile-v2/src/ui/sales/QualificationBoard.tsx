@@ -99,14 +99,14 @@ function BoardCard({
           <Ionicons name="hardware-chip-outline" size={16} color={colors.mutedForeground} />
           <Text className="flex-1 font-inter text-[13px] leading-[18px] text-foreground" numberOfLines={2}>Makina: {machine}</Text>
         </View>
-        <View className={`gap-2 rounded-control border p-3 ${overdue ? 'border-warning-border bg-warning-soft' : 'border-border bg-muted'}`}>
+        <View className="gap-0.5">
           <View className="flex-row items-center gap-2">
             <Ionicons name={overdue ? 'alert-circle-outline' : 'calendar-outline'} size={16} color={overdue ? colors.warning : colors.mutedForeground} />
-            <Text className={`flex-1 font-inter-medium text-[12px] ${overdue ? 'text-warning' : 'text-muted-foreground'}`}>
+            <Text className={`flex-1 font-inter text-[12px] ${overdue ? 'text-warning' : 'text-muted-foreground'}`}>
               {overdue ? 'Takip gecikti' : 'Sonraki adım'}
             </Text>
           </View>
-          <Text className="font-inter text-[13px] leading-[18px] text-foreground" numberOfLines={2}>{item.nextAction || 'Aktivite planlanmamış'}</Text>
+          <Text className="font-inter text-[14px] leading-[20px] text-foreground" numberOfLines={2}>{item.nextAction || 'Aktivite planlanmamış'}</Text>
           {item.nextActionAt ? <Text className={`font-inter-medium text-[12px] ${overdue ? 'text-warning' : 'text-muted-foreground'}`} style={{ fontVariant: ['tabular-nums'] }}>{formatDate(item.nextActionAt)}</Text> : null}
         </View>
         {expanded ? <View>

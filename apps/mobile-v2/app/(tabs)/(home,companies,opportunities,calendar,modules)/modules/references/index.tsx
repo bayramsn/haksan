@@ -157,9 +157,9 @@ export default function ReferencesScreen() {
           accessibilityRole="button"
           accessibilityState={{ expanded: overviewOpen }}
           onPress={() => setOverviewOpen((value) => !value)}
-          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+          className="min-h-[44px] flex-row items-center justify-between active:opacity-70"
         >
-          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter text-[13px] text-muted-foreground">Özet</Text>
           <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
         </Pressable>
         {overviewOpen ? (
@@ -211,7 +211,7 @@ export default function ReferencesScreen() {
           contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
           ListHeaderComponent={header}
           renderItem={({ item }) => (
-            <Card className="mb-2 gap-1.5 px-3 py-2.5">
+            <View className="gap-1.5 border-b border-border py-3">
               <View className="flex-row items-start gap-2">
                 <View className="min-w-0 flex-1 gap-0.5">
                   <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
@@ -223,7 +223,7 @@ export default function ReferencesScreen() {
                 </View>
                 <RowActions row={item} canUpdate={canUpdate} canDelete={canDelete} onEdit={openEdit} onDelete={confirmDelete} />
               </View>
-            </Card>
+            </View>
           )}
           refreshing={refreshing}
           onRefresh={refresh}

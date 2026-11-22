@@ -392,15 +392,8 @@ export default function DashboardScreen() {
 
         {section === 'bugun' ? (
           <>
-            <SignalList
-              title="Öncelikli İşler"
-              signals={signals}
-              limit={5}
-              empty="Takip gerektiren öncelikli kayıt yok."
-            />
-
-            {quickActions.length ? <View className="gap-2 py-1">
-              <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Hızlı oluştur</Text>
+            {/* Hızlı oluştur üstte: altta Sohbet düğmesi dördüncü karonun üstüne biniyordu. */}
+            {quickActions.length ? <View accessibilityLabel="Hızlı oluştur">
               <View className="flex-row flex-wrap gap-2">
                 {quickActions.map(item => <Pressable key={item.href} accessibilityRole="button" accessibilityLabel={`Yeni ${item.label.toLocaleLowerCase('tr-TR')} oluştur`} onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(toHref(item.href)); }} style={{ flexBasis: width < 380 || fontScale >= 1.4 ? '47%' : '22%', flexGrow: 1 }} className="min-h-[64px] items-center justify-center gap-1.5 rounded-[12px] px-1 py-2 active:bg-secondary">
                   <Ionicons name={item.icon} size={21} color={colors.primary} />
@@ -408,6 +401,13 @@ export default function DashboardScreen() {
                 </Pressable>)}
               </View>
             </View> : null}
+
+            <SignalList
+              title="Öncelikli İşler"
+              signals={signals}
+              limit={5}
+              empty="Takip gerektiren öncelikli kayıt yok."
+            />
 
             {canOpen('/calendar') ? <Card className="gap-2">
               <View className="flex-row items-center justify-between gap-2">
