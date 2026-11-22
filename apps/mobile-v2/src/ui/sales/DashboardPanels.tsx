@@ -12,7 +12,7 @@ import type { SalesOpportunityRow, TeamActivityMetric, TeamActivityPeriod, TeamA
 import { useMyTargetProgress } from '@/src/api/targets.hooks';
 import { formatAmount, formatDate } from '@/src/lib/format';
 import { toneColor, useTheme, type Tone } from '@/src/theme/theme';
-import { Button, Card, Chip, ErrorState, Loading } from '@/src/ui';
+import { Button, Card, Chip, ErrorState, GroupedDivider, groupedRowClass, Loading } from '@/src/ui';
 import { SalesSheet } from '@/src/ui/sales/Sheet';
 import { STAGE_TONE } from '@/src/ui/sales/QualificationBoard';
 import {
@@ -840,15 +840,17 @@ export function SignalList({ title, hint, signals, empty, limit }: { title: stri
       {list.length === 0 ? (
         <Text className="font-inter text-[13px] text-muted-foreground">{empty}</Text>
       ) : (
-        list.map((signal) => {
+        <View>{list.map((signal, index) => {
           const meta = SEVERITY_META[signal.severity];
+          const last = index === list.length - 1;
           return (
             <Pressable
               key={signal.id}
               accessibilityRole="button"
               accessibilityLabel={`${meta.label}: ${signal.title}, ${signal.detail}`}
               onPress={() => push(signalHref(signal))}
-              className="min-h-[52px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
+              className={`min-h-[56px] flex-row items-center gap-3 py-2.5 active:bg-secondary ${groupedRowClass(index === 0, last)}`}
+              style={{ borderCurve: 'continuous' }}
             >
               <Ionicons name={meta.icon} size={20} color={toneColor(colors, meta.tone)} />
               <View className="min-w-0 flex-1">
@@ -856,9 +858,10 @@ export function SignalList({ title, hint, signals, empty, limit }: { title: stri
                 <Text className="font-inter text-[12px] text-muted-foreground">{signal.detail}</Text>
               </View>
               <Chip tone={meta.tone} label={meta.label} />
+              {last ? null : <GroupedDivider inset={48} />}
             </Pressable>
           );
-        })
+        })}</View>
       )}
     </View>
   );

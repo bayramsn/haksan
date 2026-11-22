@@ -1,6 +1,6 @@
 import { ScopeSummary } from '@/src/ui/ScopeSummary';
 import { ProfileButton } from '@/src/ui/ProfileButton';
-import { HomeChatBubble } from '@/src/ui/HomeChatBubble';
+import { HomeChatButton } from '@/src/ui/HomeChatBubble';
 import { Children, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { LayoutAnimation, Platform, Pressable, RefreshControl, ScrollView, Text, UIManager, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,7 +21,7 @@ import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { useCanAccessModule, useCanOpenHref } from '@/src/modules/useModuleAccess';
 import { useTheme } from '@/src/theme/theme';
 import { formatAmount, formatCompact, formatDate, formatTime } from '@/src/lib/format';
-import { Card, Chip, ErrorState, SCREEN_PAD } from '@/src/ui';
+import { Card, Chip, ErrorState, GroupedDivider, groupedRowClass, SCREEN_PAD, SegmentedTabs } from '@/src/ui';
 import { Tabs } from '@/src/ui/data';
 import { KpiCard, PanelCard, PanelRow } from '@/src/ui/dashboard';
 import { GlassNavigationControl } from '@/src/ui/NavigationGlass';
@@ -161,6 +161,7 @@ export default function DashboardScreen() {
   const homeHeader = <View style={{ paddingHorizontal: SCREEN_PAD, paddingTop: 4, paddingBottom: 8 }} className="flex-row items-center justify-between">
     <Logo width={120} />
     <View className="flex-row items-center gap-2">
+      <HomeChatButton />
       <GlassNavigationControl>
         <Pressable accessibilityRole="button" accessibilityLabel="Bildirimler" onPress={() => router.push('/notifications')}
           className="h-11 w-11 items-center justify-center active:opacity-60">
@@ -307,7 +308,6 @@ export default function DashboardScreen() {
           </View>
           <Skeleton height={230} rounded={16} />
         </ScrollView>
-        <HomeChatBubble />
       </SafeAreaView>
     );
   }
@@ -317,7 +317,6 @@ export default function DashboardScreen() {
         {homeHeader}
       <View className="px-4"><ScopeSummary /></View>
         <ErrorState message={error?.message ?? 'Panel yüklenemedi.'} onRetry={() => void refetch()} />
-        <HomeChatBubble />
       </SafeAreaView>
     );
   }
@@ -381,13 +380,11 @@ export default function DashboardScreen() {
           {section === 'bugun' && counts.total ? <Text className="font-inter text-[14px] text-muted-foreground">{`${counts.total} öncelikli iş · ${counts.critical} kritik · ${counts.warning} yakın takip`}</Text> : null}
         </View>
 
-        <Tabs<Section>
-          tabs={[
-            { value: 'bugun', label: 'Bugün', icon: 'today-outline', badge: counts.total || undefined },
-            { value: 'rapor', label: 'Rapor', icon: 'stats-chart-outline' },
-          ]}
+        <SegmentedTabs<Section>
+          items={['bugun', 'rapor']}
           value={section}
           onChange={setSection}
+          labelFor={(item) => (item === 'bugun' ? 'Bugün' : 'Rapor')}
         />
 
         {section === 'bugun' ? (
@@ -409,23 +406,24 @@ export default function DashboardScreen() {
               empty="Takip gerektiren öncelikli kayıt yok."
             />
 
-            {canOpen('/calendar') ? <Card className="gap-2">
+            {canOpen('/calendar') ? <View className="gap-1">
               <View className="flex-row items-center justify-between gap-2">
                 <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Ajandam</Text>
                 <Pressable accessibilityRole="button" accessibilityLabel="Takvimin tamamını aç" onPress={() => go('/calendar')} className="min-h-11 justify-center px-2"><Text className="font-inter-medium text-[13px] text-primary">Tümü</Text></Pressable>
               </View>
-              {todayEvents.isPending || upcomingEvents.isPending ? <Skeleton height={64} rounded={12} /> : todayEvents.error || upcomingEvents.error ? <ErrorState message="Ajanda yüklenemedi." onRetry={() => { void todayEvents.refetch(); void upcomingEvents.refetch(); }} /> : !agenda.length ? <View className="gap-0.5 py-1"><Text className="font-inter-medium text-[14px] text-foreground">Ajandanızda boşluk var</Text><Text className="font-inter text-[13px] text-muted-foreground">Yeni ziyaret için takvimi açın.</Text></View> : agenda.slice(0, 3).map(event => {
+              {todayEvents.isPending || upcomingEvents.isPending ? <Skeleton height={64} rounded={12} /> : todayEvents.error || upcomingEvents.error ? <ErrorState message="Ajanda yüklenemedi." onRetry={() => { void todayEvents.refetch(); void upcomingEvents.refetch(); }} /> : !agenda.length ? <View className={`gap-0.5 py-3 ${groupedRowClass(true, true)}`}><Text className="font-inter-medium text-[14px] text-foreground">Ajandanızda boşluk var</Text><Text className="font-inter text-[13px] text-muted-foreground">Yeni ziyaret için takvimi açın.</Text></View> : <View>{agenda.slice(0, 3).map((event, index, shown) => {
                 const today = new Date(event.startsAt).toDateString() === new Date().toDateString();
-                return <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${event.title}, ${formatDate(event.startsAt)}, ${formatTime(event.startsAt)}`} onPress={() => go('/calendar')} className="min-h-[64px] flex-row items-center gap-3 border-t border-border py-2.5 active:opacity-70">
+                return <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${event.title}, ${formatDate(event.startsAt)}, ${formatTime(event.startsAt)}`} onPress={() => go('/calendar')} className={`min-h-[64px] flex-row items-center gap-3 py-2.5 active:bg-secondary ${groupedRowClass(index === 0, index === shown.length - 1)}`}>
                   <View className="w-14 items-center gap-1 rounded-control bg-primary/10 py-2"><Text className="font-inter-semibold text-[14px] text-primary">{event.allDay ? 'Gün boyu' : formatTime(event.startsAt)}</Text><Text className="font-inter text-[11px] text-muted-foreground">{today ? 'Bugün' : new Date(event.startsAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}</Text></View>
                   <View className="flex-1 gap-1"><Text className="font-inter-medium text-[14px] text-foreground" numberOfLines={2}>{event.title}</Text><Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>{event.company?.shortName || event.company?.legalTitle || event.location || 'Takvim etkinliği'}</Text></View>
                   <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+                  {index === shown.length - 1 ? null : <GroupedDivider inset={84} />}
                 </Pressable>;
-              })}
-            </Card> : null}
+              })}</View>}
+            </View> : null}
 
             {canReadOpps ? (
-              <Card className="gap-2">
+              <View className="gap-1">
                 <View className="flex-row items-center justify-between gap-2">
                   <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Açık fırsatlar</Text>
                   <Pressable accessibilityRole="button" accessibilityLabel="Tüm fırsatları aç" onPress={() => go(opportunitiesHref({ focus: 'open' }))} className="min-h-11 justify-center px-2">
@@ -435,7 +433,7 @@ export default function DashboardScreen() {
                 {analytics.isPending ? <Skeleton height={64} rounded={12} /> : openSalesCards.length === 0 ? (
                   <Text className="font-inter text-[13px] text-muted-foreground">Açık satış kartı yok</Text>
                 ) : (
-                  openSalesCards.slice(0, 4).map((row) => {
+                  <View>{openSalesCards.slice(0, 4).map((row, index, shown) => {
                     const stage = asQualification(row.qualificationStage);
                     return (
                       <Pressable
@@ -443,7 +441,7 @@ export default function DashboardScreen() {
                         accessibilityRole="button"
                         accessibilityLabel={`${partyName(row)} fırsat detayını aç`}
                         onPress={() => openCard(row.id)}
-                        className="min-h-[52px] flex-row items-center gap-2 border-t border-border py-2 active:opacity-70"
+                        className={`min-h-[56px] flex-row items-center gap-2 py-2.5 active:bg-secondary ${groupedRowClass(index === 0, index === shown.length - 1)}`}
                       >
                         <View className="min-w-0 flex-1">
                           <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={1}>
@@ -454,11 +452,12 @@ export default function DashboardScreen() {
                           </Text>
                         </View>
                         <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
+                        {index === shown.length - 1 ? null : <GroupedDivider />}
                       </Pressable>
                     );
-                  })
+                  })}</View>
                 )}
-              </Card>
+              </View>
             ) : null}
 
             <ReportSection title="Daha fazla" open={operationsOpen} onToggle={() => setOperationsOpen(value => !value)}>
@@ -606,7 +605,6 @@ export default function DashboardScreen() {
           </>
         ) : null}
       </ScrollView>
-      <HomeChatBubble />
     </SafeAreaView>
   );
 }

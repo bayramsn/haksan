@@ -640,6 +640,19 @@ export function SearchBar({
  * iOS segment denetimi (HIG): eşit genişlikli sekmeler, altta kayan beyaz başparmak
  * ve seçim titreşimi. Hareket azaltma açıksa başparmak animasyonsuz atlar.
  */
+/**
+ * iOS "inset grouped" satırı: gri zeminde beyaz blok, ilk/son satır köşeyi yuvarlar.
+ * Sade ama düz değil — derinliği yüzey verir (2026-11-22 geri bildirimi).
+ */
+export function groupedRowClass(first: boolean, last: boolean) {
+  return `border-x border-border bg-card px-4 ${first ? 'rounded-t-2xl border-t' : ''} ${last ? 'rounded-b-2xl border-b' : ''}`;
+}
+
+/** Gruplu satırlar arası iç çizgi; `inset` öndeki simge/avatar genişliği kadar. Son satırda çizme. */
+export function GroupedDivider({ inset = 16 }: { inset?: number }) {
+  return <View pointerEvents="none" className="absolute bottom-0 right-0 h-px bg-border" style={{ left: inset }} />;
+}
+
 export function SegmentedTabs<T extends string>({ items, value, onChange, labelFor, a11yLabelFor }: {
   items: readonly T[];
   value: T;
