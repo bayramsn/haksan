@@ -10,7 +10,7 @@ import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { formatTime } from '@/src/lib/format';
 import { presentCalendarEditor } from '@/src/native/calendar';
 import { toneColor, useTheme } from '@/src/theme/theme';
-import { EmptyState, ErrorState, Eyebrow, Fab, FilterChips, ListRow, Loading, SCREEN_PAD, ScreenHeader, SegmentedTabs } from '@/src/ui';
+import { EmptyState, ErrorState, Eyebrow, Fab, FilterChips, Loading, SCREEN_PAD, ScreenHeader, SegmentedTabs } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { toast } from '@/src/ui/toast';
@@ -197,32 +197,40 @@ export default function CalendarScreen() {
     const at = new Date(event.startsAt);
     const time = event.allDay ? 'Tüm gün' : `${formatTime(event.startsAt)} – ${formatTime(event.endsAt)}`;
     const dimmed = Boolean(event.deletedAt || event.completedAt);
+    // Ajanda satırı tipografi öncelikli (Apple Takvim / Fantastical kalıbı): solda saat
+    // sütunu, tür rengini taşıyan ince çubuk, sonra başlık ve tek satır bağlam.
+    const meta = [
+      // Liste görünümünde tarih zaten grup başlığında; yalnız "Yaklaşanlar"da gerekli.
+      keyPrefix ? `${at.getDate()} ${TR_MONTHS[at.getMonth()]}` : null,
+      event.deletedAt ? 'Arşivde' : event.completedAt ? 'Tamamlandı' : CALENDAR_TYPE_LABELS[type],
+      event.company?.shortName ?? event.company?.legalTitle,
+      event.location,
+      isSuperAdmin && ownerUserId === 'all' ? event.owner?.fullName ?? null : null,
+    ].filter(Boolean).join(' · ');
     return (
-      <View key={`${keyPrefix}${event.id}`} className={dimmed ? 'opacity-50' : ''}>
-        <ListRow
-          title={event.title}
-          lines={[
-            view === 'list' || keyPrefix ? `${at.getDate()} ${TR_MONTHS[at.getMonth()]} · ${time}` : time,
-            [
-              event.company?.shortName ?? event.company?.legalTitle,
-              event.location,
-              isSuperAdmin && ownerUserId === 'all' ? event.owner?.fullName ?? null : null,
-            ]
-              .filter(Boolean)
-              .join(' · ') || null,
-          ]}
-          icon={event.completedAt ? 'checkmark-circle-outline' : style.icon}
-          iconTone={event.completedAt ? 'success' : style.tone}
-          chip={
-            event.deletedAt
-              ? { label: 'Arşivde', tone: 'neutral' }
-              : event.completedAt
-                ? { label: 'Tamamlandı', tone: 'success' }
-                : { label: CALENDAR_TYPE_LABELS[type], tone: style.tone }
-          }
-          onPress={() => openEvent(event)}
-        />
-      </View>
+      <Pressable
+        key={`${keyPrefix}${event.id}`}
+        accessibilityRole="button"
+        accessibilityLabel={`${event.title}, ${time}, ${meta}`}
+        onPress={() => openEvent(event)}
+        className={`min-h-[56px] flex-row gap-3 border-b border-border py-3 active:opacity-70 ${dimmed ? 'opacity-50' : ''}`}
+      >
+        <View className="w-14 items-end pt-0.5">
+          {event.allDay ? (
+            <Text className="font-inter-medium text-[12px] text-muted-foreground">Tüm gün</Text>
+          ) : (
+            <>
+              <Text className="font-inter-semibold text-[13px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>{formatTime(event.startsAt)}</Text>
+              <Text className="font-inter text-[12px] text-muted-foreground" style={{ fontVariant: ['tabular-nums'] }}>{formatTime(event.endsAt)}</Text>
+            </>
+          )}
+        </View>
+        <View className="w-[3px] self-stretch rounded-full" style={{ backgroundColor: toneColor(colors, event.completedAt ? 'success' : style.tone) }} />
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text className={`font-inter-semibold text-[15px] leading-[20px] text-foreground ${event.completedAt ? 'line-through' : ''}`} numberOfLines={2}>{event.title}</Text>
+          {meta ? <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground" numberOfLines={2}>{meta}</Text> : null}
+        </View>
+      </Pressable>
     );
   }
 
