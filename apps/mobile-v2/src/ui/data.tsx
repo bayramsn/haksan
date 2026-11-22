@@ -278,7 +278,8 @@ export type InfoItem = { label: string; value: string | null | undefined; tone?:
 export function InfoRows({ items, showEmpty = false }: { items: InfoItem[]; showEmpty?: boolean }) {
   const { colors } = useTheme();
   const { width, fontScale } = useWindowDimensions();
-  const narrow = width < 430 || fontScale >= 1.3;
+  // Telefonda da etiket solda/değer sağda: alt alta dizmek sayfayı iki katı uzatıyordu.
+  const narrow = width < 360 || fontScale >= 1.3;
   const rows = showEmpty ? items : items.filter((item) => Boolean(item.value));
   if (rows.length === 0) return null;
 

@@ -35,18 +35,9 @@ export { Enter, Stagger, Skeleton, ListSkeleton, DetailSkeleton, TextSkeleton, t
 
 /* ------------------------------------------------------------- yüzeyler ---- */
 
-/** Web'deki .ui-data-frame / [data-slot=card]: border + surface-radius + shadow-sm. */
+/** Düz beyaz yüzey: çerçeve ve gölge yok, zeminden yalnız renkle ayrılır (sade tasarım). */
 export function Card({ className = '', ...rest }: ViewProps & { className?: string }) {
-  return (
-    <View
-      className={`rounded-surface border border-border bg-card p-4 ${className}`}
-      style={{
-        boxShadow: '0 1px 4px rgba(15, 23, 42, 0.06)',
-        borderCurve: 'continuous',
-      }}
-      {...rest}
-    />
-  );
+  return <View className={`rounded-surface bg-card p-4 ${className}`} style={{ borderCurve: 'continuous' }} {...rest} />;
 }
 
 /** Web'deki .crm-filter-surface: aynı kart, daha az gölge. */
@@ -90,10 +81,10 @@ export function H2({ children, className = '' }: { children: React.ReactNode; cl
   );
 }
 
-/** Web .ui-eyebrow: mono, uppercase, geniş harf aralığı, operation-blue. */
+/** Bölüm başlığı. Büyük harfe çevrilmez: CSS uppercase Türkçe i'yi "I" yapıyordu ("FIRMA KÜNYESI"). */
 export function Eyebrow({ children }: { children: React.ReactNode }) {
   return (
-    <Text className="text-[11px] font-inter-semibold uppercase tracking-[1.2px] text-operation-blue">{children}</Text>
+    <Text accessibilityRole="header" className="font-inter-semibold text-[15px] text-foreground">{children}</Text>
   );
 }
 

@@ -185,7 +185,7 @@ function QuickAction({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      className="min-h-[72px] flex-1 items-center justify-center gap-2 rounded-[12px] bg-secondary px-2 py-3 active:opacity-70"
+      className="min-h-[64px] flex-1 items-center justify-center gap-1.5 rounded-[12px] px-2 py-2 active:bg-secondary"
       style={[{ borderCurve: 'continuous' }, disabled ? { opacity: 0.4 } : null]}
     >
       <Ionicons name={icon} size={21} color={disabled ? colors.mutedForeground : colors.primary} />

@@ -412,7 +412,7 @@ export default function CompanyMapScreen() {
       ) : null}
 
       {routePlan.ordered.length > 0 ? (
-        <Card className="gap-2 border-primary">
+        <Card className="gap-2 border border-primary">
           <View className="flex-row items-center gap-2">
             <Ionicons name="git-branch-outline" size={16} color={colors.primary} />
             <Text className="font-inter-semibold text-sm text-foreground">Ziyaret rotası</Text>
