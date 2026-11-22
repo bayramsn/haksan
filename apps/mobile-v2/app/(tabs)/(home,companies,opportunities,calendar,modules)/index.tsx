@@ -31,7 +31,6 @@ import { SyncStatus } from '@/src/ui/SyncStatus';
 import {
   BarList,
   buildMobileManagementInsights,
-  DashboardBriefing,
   DashboardTasksPanel,
   ManagementOpsSummary,
   MonthlySalesChart,
@@ -103,7 +102,7 @@ function ReportSection({
 }) {
   const { colors } = useTheme();
   return (
-    <View className="overflow-hidden rounded-surface border border-border bg-card">
+    <View className="overflow-hidden rounded-surface bg-card" style={{ borderCurve: 'continuous' }}>
       <Pressable
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
@@ -379,6 +378,7 @@ export default function DashboardScreen() {
         <View className="gap-1 pb-1">
           <Text className="font-inter text-[12px] text-muted-foreground">{new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
           <Text accessibilityRole="header" className="font-inter-semibold text-[24px] leading-[32px] text-foreground">{section === 'bugun' ? `Merhaba, ${user?.fullName?.split(' ')[0] || 'ekip'}` : 'Raporlar'}</Text>
+          {section === 'bugun' && counts.total ? <Text className="font-inter text-[14px] text-muted-foreground">{`${counts.total} öncelikli iş · ${counts.critical} kritik · ${counts.warning} yakın takip`}</Text> : null}
         </View>
 
         <Tabs<Section>
@@ -392,20 +392,6 @@ export default function DashboardScreen() {
 
         {section === 'bugun' ? (
           <>
-            <DashboardBriefing
-              compact
-              firstName={user?.fullName?.split(' ')[0] || 'ekip'}
-              counts={counts}
-              onToday={canOpen('/calendar') ? () => go('/calendar') : undefined}
-              onOverdue={
-                canOpen(toHref('/modules/receivables')) && (data.overdueReceivables?.count ?? 0) > 0
-                  ? () => go(toHref('/modules/receivables'))
-                  : canReadTasks && canOpen(toHref('/modules/tasks?view=overdue')) && (taskCounts.data?.overdue ?? 0) > 0
-                    ? () => go(toHref('/modules/tasks?view=overdue'))
-                    : undefined
-              }
-            />
-
             <SignalList
               title="Öncelikli İşler"
               signals={signals}
@@ -416,9 +402,9 @@ export default function DashboardScreen() {
             {quickActions.length ? <View className="gap-2 py-1">
               <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Hızlı oluştur</Text>
               <View className="flex-row flex-wrap gap-2">
-                {quickActions.map(item => <Pressable key={item.href} accessibilityRole="button" accessibilityLabel={`Yeni ${item.label.toLocaleLowerCase('tr-TR')} oluştur`} onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(toHref(item.href)); }} style={{ flexBasis: width < 380 || fontScale >= 1.4 ? '47%' : '22%', flexGrow: 1 }} className="min-h-[72px] items-center justify-center gap-1.5 rounded-surface border border-border bg-card px-2 py-2.5 active:opacity-70">
-                  <View className="h-9 w-9 items-center justify-center rounded-full bg-primary/10"><Ionicons name={item.icon} size={20} color={colors.primary} /></View>
-                  <Text className="font-inter-medium text-[12px] text-center text-foreground" numberOfLines={2}>{item.label}</Text>
+                {quickActions.map(item => <Pressable key={item.href} accessibilityRole="button" accessibilityLabel={`Yeni ${item.label.toLocaleLowerCase('tr-TR')} oluştur`} onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(toHref(item.href)); }} style={{ flexBasis: width < 380 || fontScale >= 1.4 ? '47%' : '22%', flexGrow: 1 }} className="min-h-[64px] items-center justify-center gap-1.5 rounded-[12px] px-1 py-2 active:bg-secondary">
+                  <Ionicons name={item.icon} size={21} color={colors.primary} />
+                  <Text className="font-inter-medium text-[13px] text-center text-primary" numberOfLines={2}>{item.label}</Text>
                 </Pressable>)}
               </View>
             </View> : null}
@@ -428,7 +414,7 @@ export default function DashboardScreen() {
                 <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Ajandam</Text>
                 <Pressable accessibilityRole="button" accessibilityLabel="Takvimin tamamını aç" onPress={() => go('/calendar')} className="min-h-11 justify-center px-2"><Text className="font-inter-medium text-[13px] text-primary">Tümü</Text></Pressable>
               </View>
-              {todayEvents.isPending || upcomingEvents.isPending ? <Skeleton height={64} rounded={12} /> : todayEvents.error || upcomingEvents.error ? <ErrorState message="Ajanda yüklenemedi." onRetry={() => { void todayEvents.refetch(); void upcomingEvents.refetch(); }} /> : !agenda.length ? <View className="gap-1 rounded-control bg-canvas p-4"><Text className="font-inter-medium text-[14px] text-foreground">Ajandanızda boşluk var</Text><Text className="font-inter text-[13px] text-muted-foreground">Yeni ziyaret için takvimi açın.</Text></View> : agenda.slice(0, 3).map(event => {
+              {todayEvents.isPending || upcomingEvents.isPending ? <Skeleton height={64} rounded={12} /> : todayEvents.error || upcomingEvents.error ? <ErrorState message="Ajanda yüklenemedi." onRetry={() => { void todayEvents.refetch(); void upcomingEvents.refetch(); }} /> : !agenda.length ? <View className="gap-0.5 py-1"><Text className="font-inter-medium text-[14px] text-foreground">Ajandanızda boşluk var</Text><Text className="font-inter text-[13px] text-muted-foreground">Yeni ziyaret için takvimi açın.</Text></View> : agenda.slice(0, 3).map(event => {
                 const today = new Date(event.startsAt).toDateString() === new Date().toDateString();
                 return <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${event.title}, ${formatDate(event.startsAt)}, ${formatTime(event.startsAt)}`} onPress={() => go('/calendar')} className="min-h-[64px] flex-row items-center gap-3 border-t border-border py-2.5 active:opacity-70">
                   <View className="w-14 items-center gap-1 rounded-control bg-primary/10 py-2"><Text className="font-inter-semibold text-[14px] text-primary">{event.allDay ? 'Gün boyu' : formatTime(event.startsAt)}</Text><Text className="font-inter text-[11px] text-muted-foreground">{today ? 'Bugün' : new Date(event.startsAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}</Text></View>
