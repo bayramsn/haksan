@@ -10,6 +10,15 @@ import type { CommercialInvoiceDetail, ContractDetail, ProformaDetail } from './
 
 export type DocumentPriceItem = { quoteItemId: string; unitPrice: number; discountAmount?: number };
 
+/** Sözleşmenin isteğe bağlı maddeleri — shared `contractClausesSchema`. */
+export type ContractClausesInput = {
+  inStock?: boolean;
+  leasingDelivery?: boolean;
+  investmentIncentive?: boolean;
+  exchangeRateDifference?: boolean;
+  tradeIn?: { description: string; amount: number; plusVat?: boolean; pickupLocation?: string } | null;
+};
+
 export type DocumentTermsInput = {
   paymentTermsText?: string;
   deliveryTermsText?: string;
@@ -20,6 +29,7 @@ export type DocumentTermsInput = {
   deliveryLocation?: string;
   estimatedDeliveryDaysMin?: number;
   estimatedDeliveryDaysMax?: number;
+  contractClauses?: ContractClausesInput;
 };
 
 export type ProformaInput = {
@@ -122,6 +132,7 @@ export type StandaloneContractInput = StandalonePartyInput & {
   importCostsExcluded?: boolean;
   vatIncluded?: boolean;
   freightPaidBySeller?: boolean;
+  contractClauses?: ContractClausesInput;
   installments?: ContractInstallmentInput[];
 };
 

@@ -28,6 +28,8 @@ import {
   DocumentTermsFields,
   DocumentTotalsCard,
   emptyContractTermsMeta,
+  contractClausesPayload,
+  contractClausesToMeta,
   parseDeliveryDays,
   type ContractTermsMeta,
 } from './DocumentFormParts';
@@ -231,6 +233,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
       deliveryLocation: str(terms.deliveryLocation),
       estimatedDeliveryDaysMin: typeof terms.estimatedDeliveryDaysMin === 'number' ? String(terms.estimatedDeliveryDaysMin) : '',
       estimatedDeliveryDaysMax: typeof terms.estimatedDeliveryDaysMax === 'number' ? String(terms.estimatedDeliveryDaysMax) : '',
+      ...contractClausesToMeta(terms.contractClauses),
     });
     setInstallments(
       quickInstallmentsFromSnapshot(snapshot)
@@ -385,6 +388,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
         importCostsExcluded: meta.importCostsExcluded,
         vatIncluded: meta.vatIncluded,
         freightPaidBySeller: meta.freightPaidBySeller,
+        contractClauses: contractClausesPayload(meta),
         ...(isEdit || installmentPayload.length ? { installments: installmentPayload } : {}),
       };
       if (isEdit && documentId) updateContract.mutate({ id: documentId, body }, { onSuccess: done('CRM sözleşmesi güncellendi'), onError: fail });

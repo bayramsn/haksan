@@ -5,6 +5,7 @@ import { Eyebrow, Field, SubtleCard } from '@/src/ui';
 import { TotalLine, ToggleRow } from './pickers';
 import { priceRowError, type DocumentTotals, type PriceRow } from './document-logic';
 import { parseDecimal } from './quote-logic';
+import type { ContractClausesInput } from '@/src/api/commercial-docs.api';
 
 /** Düzenlenen fiyat satırının metin hâli (girdi sırasında "12," gibi ara değerler korunur). */
 export type PriceDraft = { unitPrice: string; discountAmount: string };
@@ -150,7 +151,55 @@ export type ContractTermsMeta = {
   deliveryLocation: string;
   estimatedDeliveryDaysMin: string;
   estimatedDeliveryDaysMax: string;
+} & ContractClausesMeta;
+
+/** Sözleşme çıktısındaki isteğe bağlı maddeler (stok, leasing, teşvik, kur farkı, takas). */
+export type ContractClausesMeta = {
+  inStock: boolean;
+  leasingDelivery: boolean;
+  investmentIncentive: boolean;
+  exchangeRateDifference: boolean;
+  tradeIn: boolean;
+  tradeInDescription: string;
+  tradeInAmount: string;
+  tradeInPlusVat: boolean;
+  tradeInPickup: string;
 };
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+
+/** Kayıtlı `terms.contractClauses` → form alanları. */
+export function contractClausesToMeta(raw: unknown): ContractClausesMeta {
+  const c = asRecord(raw);
+  const t = c.tradeIn && typeof c.tradeIn === 'object' ? asRecord(c.tradeIn) : null;
+  return {
+    inStock: c.inStock === true,
+    leasingDelivery: c.leasingDelivery === true,
+    investmentIncentive: c.investmentIncentive === true,
+    exchangeRateDifference: c.exchangeRateDifference === true,
+    tradeIn: t !== null,
+    tradeInDescription: typeof t?.description === 'string' ? t.description : '',
+    tradeInAmount: typeof t?.amount === 'number' && t.amount > 0 ? String(t.amount) : '',
+    tradeInPlusVat: t?.plusVat !== false,
+    tradeInPickup: typeof t?.pickupLocation === 'string' ? t.pickupLocation : '',
+  };
+}
+
+/** Form alanları → API gövdesi; açıklaması veya tutarı olmayan takas gönderilmez. */
+export function contractClausesPayload(meta: ContractClausesMeta): ContractClausesInput {
+  const amount = parseDecimal(meta.tradeInAmount);
+  const description = meta.tradeInDescription.trim();
+  return {
+    inStock: meta.inStock,
+    leasingDelivery: meta.leasingDelivery,
+    investmentIncentive: meta.investmentIncentive,
+    exchangeRateDifference: meta.exchangeRateDifference,
+    tradeIn: meta.tradeIn && description && Number.isFinite(amount) && amount > 0
+      ? { description, amount, plusVat: meta.tradeInPlusVat, pickupLocation: meta.tradeInPickup.trim() || undefined }
+      : null,
+  };
+}
 
 export const emptyContractTermsMeta = (): ContractTermsMeta => ({
   importCostsExcluded: true,
@@ -159,6 +208,7 @@ export const emptyContractTermsMeta = (): ContractTermsMeta => ({
   deliveryLocation: '',
   estimatedDeliveryDaysMin: '',
   estimatedDeliveryDaysMax: '',
+  ...contractClausesToMeta(null),
 });
 
 /** Şart metinleri; sözleşmede teslimat bilgileri ve madde anahtarları da düzenlenir. */
@@ -237,6 +287,25 @@ export function DocumentTermsFields({
             value={meta.freightPaidBySeller}
             onChange={(next) => onMetaChange({ freightPaidBySeller: next })}
           />
+          <ToggleRow label="Tezgah stoktan teslim (teslim süresi yerine stok maddesi)" value={meta.inStock} onChange={(next) => onMetaChange({ inStock: next })} />
+          <ToggleRow label="Leasing firmasına teslim" value={meta.leasingDelivery} onChange={(next) => onMetaChange({ leasingDelivery: next })} />
+          <ToggleRow label="Yatırım Teşvik Belgesi maddesi" value={meta.investmentIncentive} onChange={(next) => onMetaChange({ investmentIncentive: next })} />
+          <ToggleRow label="Kur farkı maddesi" value={meta.exchangeRateDifference} onChange={(next) => onMetaChange({ exchangeRateDifference: next })} />
+          <ToggleRow label="Takas tezgah var" value={meta.tradeIn} onChange={(next) => onMetaChange({ tradeIn: next })} />
+          {meta.tradeIn ? (
+            <>
+              <Field label="Takas tezgah" value={meta.tradeInDescription} onChangeText={(value) => onMetaChange({ tradeInDescription: value })} placeholder="Örn. Kullanılmış VM-2 Cnc Dik İşleme Merkezi" maxLength={500} />
+              <View className="flex-row gap-2">
+                <View className="flex-1">
+                  <Field label="Takas bedeli" value={meta.tradeInAmount} onChangeText={(value) => onMetaChange({ tradeInAmount: value })} keyboardType="decimal-pad" maxLength={20} />
+                </View>
+                <View className="flex-1">
+                  <Field label="Teslim alınacak yer" value={meta.tradeInPickup} onChangeText={(value) => onMetaChange({ tradeInPickup: value })} placeholder="Örn. Zeytinburnu" maxLength={255} />
+                </View>
+              </View>
+              <ToggleRow label="Takas bedeli + K.D.V." value={meta.tradeInPlusVat} onChange={(next) => onMetaChange({ tradeInPlusVat: next })} />
+            </>
+          ) : null}
         </>
       ) : null}
     </View>

@@ -26,6 +26,8 @@ import {
   DocumentTotalsCard,
   draftsFromRows,
   emptyContractTermsMeta,
+  contractClausesPayload,
+  contractClausesToMeta,
   firstPriceError,
   parseDeliveryDays,
   PriceRowsEditor,
@@ -129,6 +131,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
       deliveryLocation: str(terms.deliveryLocation),
       estimatedDeliveryDaysMin: optionalDays(terms.estimatedDeliveryDaysMin),
       estimatedDeliveryDaysMax: optionalDays(terms.estimatedDeliveryDaysMax),
+      ...contractClausesToMeta(terms.contractClauses),
     });
     setTermsDirty(false);
     setHydratedFor(key);
@@ -157,6 +160,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
       deliveryLocation: str(terms.deliveryLocation),
       estimatedDeliveryDaysMin: optionalDays(terms.estimatedDeliveryDaysMin),
       estimatedDeliveryDaysMax: optionalDays(terms.estimatedDeliveryDaysMax),
+      ...contractClausesToMeta(terms.contractClauses),
     });
     setTermsDirty(false);
     setHydratedFor(data.id);
@@ -256,6 +260,7 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
             deliveryLocation: meta.deliveryLocation.trim() || undefined,
             estimatedDeliveryDaysMin: days.min,
             estimatedDeliveryDaysMax: days.max,
+            contractClauses: contractClausesPayload(meta),
           }
         : { paymentTermsText: payment, deliveryTermsText: delivery, warrantyTermsText: warranty, importCostsExcluded: true }
       : undefined;
