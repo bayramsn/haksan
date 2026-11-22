@@ -20,22 +20,24 @@ function colorFor(name: string): string {
   return PALETTE[hash % PALETTE.length]!;
 }
 
-export function Avatar({ name, size = 44, square }: { name: string; size?: number; square?: boolean }) {
+/** `muted`: tek vurgu renginin açık tonu — firma listesinde gökkuşağı kareler gürültü yapıyordu. */
+export function Avatar({ name, size = 44, square, muted }: { name: string; size?: number; square?: boolean; muted?: boolean }) {
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no"
-      className="items-center justify-center"
+      className={`items-center justify-center ${muted ? 'bg-primary/10' : ''}`}
       style={{
         width: size,
         height: size,
-        backgroundColor: colorFor(name),
+        // muted: zemin className (bg-primary/10) ile; style anahtarı hiç yazılmamalı yoksa onu ezer.
+        ...(muted ? {} : { backgroundColor: colorFor(name) }),
         // Firma satırlarında mockup daire değil yuvarlatılmış kare kullanıyor.
         borderRadius: square ? size * 0.26 : size / 2,
         borderCurve: 'continuous',
       }}
     >
-      <Text className="font-inter-semibold text-white" style={{ fontSize: size * 0.36 }}>
+      <Text className={`font-inter-semibold ${muted ? 'text-primary' : 'text-white'}`} style={{ fontSize: size * 0.36 }}>
         {initials(name)}
       </Text>
     </View>

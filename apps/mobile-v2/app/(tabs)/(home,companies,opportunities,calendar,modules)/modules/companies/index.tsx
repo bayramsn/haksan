@@ -4,7 +4,6 @@ import { Alert, Image, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
 import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
@@ -14,7 +13,7 @@ import { useCompanyListExt, useCompanySummaryExt } from '@/src/api/crm-general.h
 import type { CompanyListRow } from '@/src/api/crm-general.api';
 import { mediaUrl } from '@/src/api/config';
 import { exportService } from '@/src/api/exports';
-import { useTheme, type Tone } from '@/src/theme/theme';
+import { useTheme } from '@/src/theme/theme';
 import { Avatar } from '@/src/ui/Avatar';
 import {
   ListSkeleton,
@@ -28,6 +27,8 @@ import {
   SCREEN_PAD,
   ScreenHeader,
   SearchBar,
+  GroupedDivider,
+  groupedRowClass,
 } from '@/src/ui';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
@@ -58,14 +59,6 @@ const STATUS_OPTIONS = [
 
 type StatusCode = (typeof STATUS_OPTIONS)[number]['code'];
 
-/** Web FIRM_TYPE_ACCENT ile aynı aile: müşteri mavi, ted.+müşteri marka mavisi, tedarikçi sarı, rakip kırmızı. */
-const FIRM_TONE: Record<FirmType, Tone> = {
-  customer: 'info',
-  supplier_customer: 'stage',
-  supplier: 'warning',
-  competitor: 'destructive',
-};
-
 function firmTypeOf(row: CompanyListRow): FirmType {
   const code = row.relationType?.code;
   return code === 'supplier' || code === 'supplier_customer' || code === 'competitor' ? code : 'customer';
@@ -87,44 +80,45 @@ function CompanyRow({
   item,
   onOpen,
   onMenu,
+  first,
+  last,
 }: {
   item: CompanyListRow;
   onOpen: () => void;
   onMenu: () => void;
+  first: boolean;
+  last: boolean;
 }) {
-  const { colors } = useTheme();
   const firmType = firmTypeOf(item);
-  const location = [item.primaryAddress?.province, item.primaryAddress?.district].filter(Boolean).join(' / ') || 'Konum yok';
+  const location = [item.primaryAddress?.province, item.primaryAddress?.district].filter(Boolean).join(' / ');
   const supplierLabel = supplierCategoryLabel(item.supplierCategoryCode);
   const isActiveCustomer = item.customerStatus?.code === 'active';
-  const meta = [location, item.primaryPhone || null].filter(Boolean).join(' · ');
+  // Varsayılanlar (Müşteri, Potansiyel) her satırda tekrar edip gürültü yapıyordu; yalnızca ayırt eden bilgi kalır.
+  const meta = [location || null, firmType === 'customer' ? null : FIRM_TYPE_LABELS[firmType], supplierLabel].filter(Boolean).join(' · ');
+  const a11y = [item.legalTitle, location || 'Konum yok', FIRM_TYPE_LABELS[firmType], isActiveCustomer ? 'Cari' : 'Potansiyel', supplierLabel].filter(Boolean).join(', ');
 
   return (
-    // Kartsız satır: ince ayraç, fırsat oluşturma ⋮ menüsünde.
-    <View className="border-b border-border">
-      <View className="flex-row items-stretch">
-        <Pressable onPress={onOpen} onLongPress={onMenu} delayLongPress={350}
-          accessibilityRole="button" accessibilityLabel={`${item.legalTitle}, ${location}. Firma detayını aç`}
-          className="min-w-0 flex-1 gap-2 py-3 active:opacity-70">
-          <View className="flex-row items-start gap-3">
-            {item.logoUrl ? <CompanyLogo uri={item.logoUrl} /> : <Avatar name={item.legalTitle} size={36} square />}
-            <View className="min-w-0 flex-1 gap-0.5">
-              <Text className="font-inter-semibold text-[15px] leading-[20px] text-foreground" numberOfLines={2}>{item.legalTitle}</Text>
-              <Text className="font-inter text-[12px] leading-[17px] text-muted-foreground" numberOfLines={1}>{meta}</Text>
-            </View>
-          </View>
-          <View className="flex-row flex-wrap items-center gap-1">
-            <Chip tone={FIRM_TONE[firmType]} label={FIRM_TYPE_LABELS[firmType]} />
-            <Chip tone={isActiveCustomer ? 'success' : 'neutral'} label={isActiveCustomer ? 'Cari' : 'Potansiyel'} />
-            {supplierLabel ? <Chip tone="info" label={supplierLabel} /> : null}
-          </View>
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={`${item.legalTitle} firma işlemleri`} onPress={onMenu}
-          className="min-h-11 min-w-[44px] items-center justify-center self-center active:opacity-60">
-          <Ionicons name="ellipsis-vertical" size={18} color={colors.foreground} />
-        </Pressable>
+    // Gri zemin üstünde beyaz gruplu yüzey (iOS inset grouped); işlemler uzun basışta.
+    <Pressable onPress={onOpen} onLongPress={onMenu} delayLongPress={350}
+      accessibilityRole="button" accessibilityLabel={`${a11y}. Firma detayını aç`}
+      accessibilityHint="Uzun basınca firma işlemleri açılır"
+      accessibilityActions={[{ name: 'longpress', label: 'Firma işlemleri' }]}
+      onAccessibilityAction={(event) => { if (event.nativeEvent.actionName === 'longpress') onMenu(); }}
+      className={`min-h-[64px] flex-row items-center gap-3 py-3 active:bg-secondary ${groupedRowClass(first, last)}`}
+      style={{ borderCurve: 'continuous' }}>
+      {item.logoUrl ? <CompanyLogo uri={item.logoUrl} /> : <Avatar name={item.legalTitle} size={40} square muted />}
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className="font-inter-medium text-[15px] leading-[20px] text-foreground" numberOfLines={2}>{item.legalTitle}</Text>
+        {meta ? <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground" numberOfLines={1}>{meta}</Text> : null}
       </View>
-    </View>
+      {isActiveCustomer ? (
+        <View className="flex-row items-center gap-1.5">
+          <View className="h-1.5 w-1.5 rounded-full bg-success" />
+          <Text className="font-inter-medium text-[12px] text-success">Cari</Text>
+        </View>
+      ) : null}
+      {last ? null : <GroupedDivider inset={68} />}
+    </Pressable>
   );
 }
 
@@ -189,7 +183,6 @@ export default function CompaniesScreen() {
   const advancedFilterCount =
     (salesTab !== 'all' ? 1 : 0) + (city ? 1 : 0) + (district ? 1 : 0) + (sector ? 1 : 0) + (supplierCategory !== 'all' ? 1 : 0) + (divisionId !== 'all' ? 1 : 0);
   const hasFilters = search.trim().length > 0 || tab !== 'all' || advancedFilterCount > 0;
-  const divisionName = user?.divisions?.find((division) => division.id === divisionId)?.name;
   function clearFilters() {
     setSearch(''); setTab('all'); setSalesTab('all'); setCity(null); setDistrict(null); setSector(null); setSupplierCategory('all'); setDivisionId('all');
   }
@@ -273,9 +266,6 @@ export default function CompaniesScreen() {
           ] : []),
           ...(isSuperAdmin ? [{ icon: 'cloud-upload-outline' as const, label: 'Firma ve kontak içe aktar', onPress: () => router.push(`/modal/company-import?divisionId=${divisionId}` as Href) }] : []),
         ]} />
-      <View className="px-4">
-        <Text className="font-inter-medium text-[12px] text-muted-foreground">{divisionName ?? 'Tüm bölümler'}</Text>
-      </View>
       <FilterChips options={relationOptions} value={tab === 'all' ? null : tab} onChange={(next) => setTab(next ?? 'all')} allLabel="Tümü" />
     </View>
   );
@@ -284,13 +274,10 @@ export default function CompaniesScreen() {
     <View className="gap-2 bg-canvas pb-3 pt-2">
       <SearchBar value={search} onChange={setSearch} placeholder="Firma, şehir veya e-posta ara…"
         onFilterPress={() => filterSheetRef.current?.present()} filterActive={advancedFilterCount > 0} />
-      <View className="min-h-11 flex-row items-center justify-between gap-3 px-4">
-        <View className="min-w-0 flex-1 gap-0.5">
-          {list.data ? (
-            <Text accessibilityLiveRegion="polite" className="font-inter text-[11px] text-muted-foreground">{list.data.total} firma</Text>
-          ) : null}
-          <Text className="font-inter text-[12px] text-muted-foreground">{COMPANY_SORT_OPTIONS.find((option) => option.value === sortMode)?.label}{advancedFilterCount ? ` · ${advancedFilterCount} filtre` : ''}</Text>
-        </View>
+      <View className="min-h-11 flex-row items-center justify-between gap-3" style={{ paddingHorizontal: SCREEN_PAD }}>
+        <Text accessibilityLiveRegion="polite" className="min-w-0 flex-1 font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+          {[list.data ? `${list.data.total} firma` : null, COMPANY_SORT_OPTIONS.find((option) => option.value === sortMode)?.label, advancedFilterCount ? `${advancedFilterCount} filtre` : null].filter(Boolean).join(' · ')}
+        </Text>
         {hasFilters ? <Pressable accessibilityRole="button" accessibilityLabel="Firma aramasını ve filtreleri temizle" onPress={clearFilters}
           className="min-h-11 justify-center px-2 active:opacity-70"><Text className="font-inter-medium text-[13px] text-primary">Temizle</Text></Pressable> : null}
       </View>
@@ -326,7 +313,7 @@ export default function CompaniesScreen() {
           getItemType={(row) => row.kind}
           stickyHeaderIndices={[1]}
           contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
-          renderItem={({ item: row }) => {
+          renderItem={({ item: row, index }) => {
             if (row.kind === 'intro') return intro;
             if (row.kind === 'search') return searchBar;
             if (row.kind === 'empty') {
@@ -343,6 +330,8 @@ export default function CompaniesScreen() {
             return (
               <View style={{ paddingHorizontal: SCREEN_PAD }}>
                 <CompanyRow
+                  first={index === 2}
+                  last={index === rows.length - 1}
                   item={row.item}
                   onOpen={() => router.push(`/modules/companies/${row.item.id}`)}
                   onMenu={() => openMenu(row.item)}
