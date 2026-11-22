@@ -72,13 +72,13 @@ function ContactRow({
   ].filter(Boolean).join(' · ');
 
   return (
-    <View className="my-1 overflow-hidden rounded-surface border border-border bg-card">
+    <View className="overflow-hidden border-b border-border">
       <View className="flex-row items-stretch">
         <Pressable
           onPress={onPress}
           accessibilityRole="button"
           accessibilityLabel={item.fullName}
-          className="min-w-0 flex-1 flex-row gap-3 p-3.5 active:opacity-70"
+          className="min-w-0 flex-1 flex-row gap-3 py-3 active:opacity-70"
         >
           <View className="h-9 w-9 items-center justify-center rounded-control bg-secondary">
             <Text className="font-inter-semibold text-[13px] text-foreground">{initials(item.fullName)}</Text>
@@ -100,7 +100,7 @@ function ContactRow({
         </Pressable>
       </View>
       {(onCall || onMail || onEdit || onDelete) ? (
-        <View className="flex-row border-t border-border">
+        <View className="-mt-1 flex-row pb-1">
           {onCall ? (
             <Pressable accessibilityRole="button" accessibilityLabel="Ara" onPress={onCall}
               className="min-h-11 flex-1 items-center justify-center active:opacity-70">
@@ -109,19 +109,19 @@ function ContactRow({
           ) : null}
           {onMail ? (
             <Pressable accessibilityRole="button" accessibilityLabel="E-posta" onPress={onMail}
-              className="min-h-11 flex-1 items-center justify-center border-l border-border active:opacity-70">
+              className="min-h-11 flex-1 items-center justify-center active:opacity-70">
               <Ionicons name="mail-outline" size={18} color={colors.primary} />
             </Pressable>
           ) : null}
           {onEdit ? (
             <Pressable accessibilityRole="button" accessibilityLabel="Düzenle" onPress={onEdit}
-              className="min-h-11 flex-1 items-center justify-center border-l border-border active:opacity-70">
+              className="min-h-11 flex-1 items-center justify-center active:opacity-70">
               <Ionicons name="create-outline" size={18} color={colors.primary} />
             </Pressable>
           ) : null}
           {onDelete ? (
             <Pressable accessibilityRole="button" accessibilityLabel="Sil" onPress={onDelete}
-              className="min-h-11 flex-1 items-center justify-center border-l border-border active:opacity-70">
+              className="min-h-11 flex-1 items-center justify-center active:opacity-70">
               <Ionicons name="trash-outline" size={18} color={colors.destructive} />
             </Pressable>
           ) : null}

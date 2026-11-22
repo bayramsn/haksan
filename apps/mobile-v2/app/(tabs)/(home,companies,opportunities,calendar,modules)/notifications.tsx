@@ -159,7 +159,7 @@ function Row({
   const waitingForAction = item.actionStatus === 'pending';
 
   return (
-    <View className="my-1 rounded-overlay border border-border bg-card px-3 py-2">
+    <View className="border-b border-border py-2.5">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={item.title}

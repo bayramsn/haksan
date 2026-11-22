@@ -59,7 +59,7 @@ function ShipmentRow({ item, now, onPress }: { item: Shipment; now: number; onPr
       accessibilityRole="button"
       accessibilityLabel={`Sevkiyat ${item.trackingNo ?? item.shipmentNo ?? ''}`}
       onPress={onPress}
-      className="my-1 gap-2 rounded-overlay border border-border bg-card px-3.5 py-3 active:opacity-70"
+      className="gap-2 border-b border-border py-3 active:opacity-70"
     >
       <View className="flex-row items-start gap-3">
         <View className="min-w-0 flex-1 gap-0.5">

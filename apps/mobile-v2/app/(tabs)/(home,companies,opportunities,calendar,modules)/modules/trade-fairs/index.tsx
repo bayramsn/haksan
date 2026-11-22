@@ -58,8 +58,8 @@ function TradeFairRow({
   const tone = tradeFairRowTone(row);
   const accent = tone ? toneColor(colors, tone) : colors.border;
   return (
-    <View className="mb-2.5 overflow-hidden rounded-surface border border-border bg-card" style={{ borderLeftWidth: 4, borderLeftColor: accent }}>
-      <Pressable accessibilityRole="button" accessibilityLabel={`${row.companyName} kaydını aç`} onPress={onOpen} className="gap-1 p-3 active:opacity-70">
+    <View className="overflow-hidden border-b border-border" style={{ borderLeftWidth: 4, borderLeftColor: accent }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={`${row.companyName} kaydını aç`} onPress={onOpen} className="gap-1 py-3 pl-3 active:opacity-70">
         <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>{row.companyName}</Text>
         <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={2}>
           {row.contactName}{row.contactTitle ? ` · ${row.contactTitle}` : ''}

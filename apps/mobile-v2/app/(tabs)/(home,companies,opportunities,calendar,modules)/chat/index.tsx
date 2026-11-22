@@ -22,7 +22,7 @@ function Row({ item, title, onPress }: { item: Conversation; title: string; onPr
       accessibilityRole="button"
       accessibilityLabel={`${title}${unread ? `, ${item.unreadCount} okunmamış mesaj` : ''}`}
       onPress={onPress}
-      className="mx-4 my-1 min-h-[56px] flex-row items-center gap-2.5 rounded-surface border border-border bg-card px-3.5 py-2 active:opacity-70"
+      className="mx-4 min-h-[56px] flex-row items-center gap-2.5 border-b border-border py-2.5 active:opacity-70"
     >
       {item.type === 'group' ? (
         <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary">

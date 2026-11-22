@@ -60,7 +60,7 @@ function QuoteRow({ item, onPress }: { item: QuoteListItem; onPress: () => void 
     && !['approved', 'rejected', 'cancelled', 'expired'].includes(item.status?.code ?? '');
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={item.documentNo}
-      className="my-1 gap-1 rounded-surface border border-border bg-card px-3 py-2.5 active:opacity-70">
+      className="gap-1 border-b border-border py-3 active:opacity-70">
       <View className="flex-row items-center gap-2">
         <Text className="min-w-0 flex-1 font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
           {company || item.documentNo}

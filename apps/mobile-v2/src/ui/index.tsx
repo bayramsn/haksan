@@ -806,16 +806,15 @@ export function ListRow({
   const { colors } = useTheme();
   const allChips = chips ?? (chip ? [chip] : []);
   const body = (
-    <View className="my-1 gap-2 rounded-surface border border-border bg-card p-3.5"
-      style={{ borderCurve: 'continuous', boxShadow: '0 1px 4px rgba(15, 23, 42, 0.05)' }}>
+    <View className="gap-2 border-b border-border py-3">
       <View className="min-h-[44px] flex-row items-start gap-3">
         {icon ? <View className={`h-10 w-10 items-center justify-center rounded-control border ${chipClass[iconTone]}`}>
           <Ionicons name={icon} size={19} color={toneColor(colors, iconTone)} />
         </View> : null}
         <View className="min-w-0 flex-1 gap-1">
-          <Text className="font-inter-semibold text-[16px] leading-[22px] text-foreground" numberOfLines={2}>{title}</Text>
+          <Text className="font-inter-semibold text-[15px] leading-[20px] text-foreground" numberOfLines={2}>{title}</Text>
           {lines.filter((line): line is string => Boolean(line)).map((line, index) => (
-            <Text key={`${index}-${line}`} className="font-inter text-[13px] leading-[19px] text-muted-foreground" numberOfLines={2}>{line}</Text>
+            <Text key={`${index}-${line}`} className="font-inter text-[13px] leading-[18px] text-muted-foreground" numberOfLines={2}>{line}</Text>
           ))}
         </View>
         {onPress ? <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} style={{ marginTop: 2 }} /> : null}
@@ -823,7 +822,7 @@ export function ListRow({
       {allChips.length ? <View className="flex-row flex-wrap gap-2">
         {allChips.map((item, index) => <Chip key={`${index}-${item.label}`} tone={item.tone} label={item.label} shrink />)}
       </View> : null}
-      {trailing ? <View className="flex-row flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-border pt-3">
+      {trailing ? <View className="flex-row flex-wrap items-center justify-between gap-x-3 gap-y-1">
         {metaLabel ? <View className="flex-row items-center gap-1">
           {metaIcon ? <Ionicons name={metaIcon} size={14} color={colors.mutedForeground} /> : null}
           <Text className="font-inter text-[13px] text-muted-foreground">{metaLabel}</Text>

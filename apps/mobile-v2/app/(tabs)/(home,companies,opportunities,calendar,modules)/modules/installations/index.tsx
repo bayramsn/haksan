@@ -55,7 +55,7 @@ function InstallationRow({ item, onPress }: { item: Installation; onPress: () =>
       accessibilityRole="button"
       accessibilityLabel={`${machine || 'Kurulum kaydı'}, ${customer}`}
       onPress={onPress}
-      className="my-1 gap-3 rounded-overlay border border-border bg-card px-3.5 py-3 active:opacity-70"
+      className="gap-3 border-b border-border py-3 active:opacity-70"
     >
       <View className="flex-row items-center gap-3">
         <View className={`h-10 w-10 items-center justify-center rounded-control border ${chipClass[tone]}`}>
@@ -88,7 +88,7 @@ function LegacyDeliveryRow({ item, onPress }: { item: Delivery; onPress: () => v
       accessibilityRole="button"
       accessibilityLabel={`Kurulum tutanağı, ${item.company?.legalTitle ?? 'Firma'}`}
       onPress={onPress}
-      className="my-1 gap-3 rounded-overlay border border-border bg-card px-3.5 py-3 active:opacity-70"
+      className="gap-3 border-b border-border py-3 active:opacity-70"
     >
       <View className="flex-1 gap-0.5">
         <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>

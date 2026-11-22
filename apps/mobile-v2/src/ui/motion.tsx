@@ -117,9 +117,9 @@ export function Skeleton({
 /** Liste yüklemesi: gerçek satır ritmini taklit eden 5 satır. */
 export function ListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <View className="gap-2 px-4 pt-2">
+    <View className="px-4 pt-2">
       {Array.from({ length: rows }, (_, i) => (
-        <View key={i} className="flex-row items-center gap-3 rounded-overlay border border-border bg-card px-3.5 py-3">
+        <View key={i} className="flex-row items-center gap-3 border-b border-border py-3">
           <Skeleton width={40} height={40} rounded={12} />
           <View className="flex-1 gap-2">
             <Skeleton width="62%" />
@@ -136,12 +136,12 @@ export function ListSkeleton({ rows = 5 }: { rows?: number }) {
 export function DetailSkeleton() {
   return (
     <View className="gap-4 px-4 pt-4">
-      <View className="gap-3 rounded-surface border border-border bg-card p-4">
+      <View className="gap-3 rounded-surface bg-card p-4">
         <Skeleton width="34%" height={22} />
         <Skeleton width="70%" height={16} />
         <Skeleton width="52%" height={12} />
       </View>
-      <View className="gap-3 rounded-surface border border-border bg-card p-4">
+      <View className="gap-3 rounded-surface bg-card p-4">
         {Array.from({ length: 4 }, (_, i) => (
           <View key={i} className="flex-row items-center justify-between gap-4">
             <Skeleton width={90} height={12} />

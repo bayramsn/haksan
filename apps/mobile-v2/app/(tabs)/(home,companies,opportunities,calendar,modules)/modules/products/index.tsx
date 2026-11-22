@@ -40,7 +40,7 @@ function ProductCard({ product, onPress }: { product: CatalogProduct; onPress: (
       accessibilityRole="button"
       accessibilityLabel={`${product.fullName}, ${product.modelCode}`}
       onPress={onPress}
-      className="my-1 gap-3 rounded-surface border border-border bg-card p-4 active:opacity-70"
+      className="gap-3 border-b border-border py-3 active:opacity-70"
     >
       <View className="flex-row items-center gap-3">
       <ProductThumb imageUrl={product.imageUrl} label={product.fullName} size={56} />

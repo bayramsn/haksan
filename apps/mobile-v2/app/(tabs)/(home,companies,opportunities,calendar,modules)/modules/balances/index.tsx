@@ -30,7 +30,7 @@ function BalanceRow({ row, onPress }: { row: CustomerBalance; onPress: () => voi
       accessibilityRole="button"
       accessibilityLabel={`${row.companyName} cari ekstre`}
       onPress={onPress}
-      className="mb-2 gap-2 rounded-surface border border-border bg-card p-3 active:opacity-70"
+      className="gap-2 border-b border-border py-3 active:opacity-70"
       style={{ borderCurve: 'continuous' }}
     >
       <View className="flex-row items-center gap-2">

@@ -54,7 +54,7 @@ export function TicketCard({
       accessibilityHint={onLongPress ? 'Uzun basarak aşamaya taşıyın' : undefined}
       onPress={onPress}
       onLongPress={onLongPress}
-      className={`min-h-[52px] gap-1 rounded-surface border border-border bg-card active:opacity-70 ${compact ? 'p-2.5' : 'my-1 p-3'}`}
+      className={`min-h-[52px] gap-1 active:opacity-70 ${compact ? 'rounded-surface border border-border bg-card p-2.5' : 'border-b border-border py-3'}`}
       style={{ borderCurve: 'continuous' }}
     >
       <View className="flex-row items-center gap-2">

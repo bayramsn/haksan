@@ -105,12 +105,12 @@ function SalesRow({
     : 'Sonraki aktivite planlanmamış';
 
   return (
-    <View className="my-1 flex-row rounded-surface border border-border bg-card">
+    <View className="flex-row border-b border-border">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${party} fırsat detayını aç`}
         onPress={onOpen}
-        className="min-h-[52px] min-w-0 flex-1 gap-2 p-3.5 active:opacity-70"
+        className="min-h-[52px] min-w-0 flex-1 gap-2 py-3 active:opacity-70"
       >
         <View className="flex-row items-start gap-2">
           <View className="min-w-0 flex-1 gap-0.5">
@@ -168,7 +168,7 @@ function ArchiveRow({
   const party = partyName(item);
   const lost = stage === 'lost';
   return (
-    <View className="my-1 gap-2 rounded-overlay border border-border bg-card px-3.5 py-3">
+    <View className="gap-2 border-b border-border py-3">
       <Pressable accessibilityRole="button" accessibilityLabel={`${party} fırsat detayını aç`} onPress={onOpen} className="min-h-[44px] gap-1 active:opacity-70">
         <View className="flex-row items-center gap-2">
           <Text className="min-w-0 flex-1 font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>

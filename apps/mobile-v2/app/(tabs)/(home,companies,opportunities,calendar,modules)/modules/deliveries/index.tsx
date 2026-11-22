@@ -44,7 +44,7 @@ function DeliveryRow({ item, onPress }: { item: Delivery; onPress: () => void })
       accessibilityRole="button"
       accessibilityLabel={`${machine || 'Teslimat kaydı'}, ${customer}`}
       onPress={onPress}
-      className="my-1 gap-3 rounded-overlay border border-border bg-card px-3.5 py-3 active:opacity-70"
+      className="gap-3 border-b border-border py-3 active:opacity-70"
     >
       <View className="flex-row items-start gap-3">
         <View className="flex-1 gap-0.5">
