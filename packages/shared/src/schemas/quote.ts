@@ -137,7 +137,33 @@ export type QuoteTermsUpsertInput = z.infer<typeof quoteTermsUpsertSchema>;
  * aynı teklife bağlı proformanın çıktısını geriye dönük değiştiriyordu. Teklif
  * yalnız ön-dolgu kaynağıdır; gönderilmezse belge onun şartlarıyla basılır.
  */
-export const documentTermsSchema = quoteTermsUpsertSchema.partial().optional();
+/**
+ * Sözleşmeye özel, satış türüne göre açılıp kapanan maddeler. Referans
+ * sözleşmeler (millileşmiş stoktan çekli, gümrük teslimli terminli, leasing +
+ * takaslı) aynı iskeletin bu anahtarlarla değişen hâlleridir.
+ */
+export const contractClausesSchema = z.object({
+  /** Tezgah stokta: teslim ödeme işlemlerine müteakip (termin günü yerine). */
+  inStock: z.boolean().optional(),
+  /** Tezgah alıcının anlaşacağı leasing firmasına teslim edilir. */
+  leasingDelivery: z.boolean().optional(),
+  /** KDV istisnası için Yatırım Teşvik Belgesi maddesi. */
+  investmentIncentive: z.boolean().optional(),
+  /** Döviz vadelerde TCMB satış kuru ile kur farkı faturası maddesi. */
+  exchangeRateDifference: z.boolean().optional(),
+  /** Alıcıdan ikinci el alınan makine (takas). */
+  tradeIn: z.object({
+    description: z.string().trim().min(1).max(500),
+    amount: z.coerce.number().nonnegative().max(1e12),
+    plusVat: z.boolean().optional(),
+    pickupLocation: z.string().trim().max(255).optional(),
+  }).nullish(),
+});
+export type ContractClausesInput = z.infer<typeof contractClausesSchema>;
+
+export const documentTermsSchema = quoteTermsUpsertSchema.partial()
+  .extend({ contractClauses: contractClausesSchema.optional() })
+  .optional();
 export type DocumentTermsInput = z.infer<typeof documentTermsSchema>;
 
 /**
@@ -364,6 +390,7 @@ const standaloneContractFields = z.object({
   vatIncluded: z.boolean().default(false),
   /** Sözleşme 2.6 — nakliye ve sigorta satıcıya mı ait? */
   freightPaidBySeller: z.boolean().default(false),
+  contractClauses: contractClausesSchema.optional(),
   installments: z.array(standaloneContractInstallmentSchema).max(60).optional(),
 });
 

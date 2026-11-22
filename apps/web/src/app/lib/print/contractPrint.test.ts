@@ -82,7 +82,9 @@ describe("contract print data", () => {
     expect(data.machines?.[0]).toMatchObject({
       model: "ECOCA MT-208 CNC Torna",
       adet: 1,
-      aksesuarlar: ["Torna standart paketi", "Talaş konveyörü"],
+      aksesuarlar: ["Torna standart paketi"],
+      // Opsiyon standart donanıma karışmaz; kendi başlığında adetle basılır.
+      opsiyonlar: [{ ad: "Talaş konveyörü", adet: 1, fiyataDahil: false }],
     });
     expect(data.machines?.[0].ozellikler).toContainEqual({ key: "Çevirme Çapı", value: "550 mm" });
     expect(data.machines?.[1]).toMatchObject({
@@ -219,8 +221,8 @@ describe("contract print data", () => {
     });
 
     expect(data.odemePlani).toEqual([
-      { label: "1. taksit senet", tutar: 40_000, senet: true, yontem: "Senet" },
-      { label: "2. taksit", tutar: 60_000, senet: false, yontem: undefined },
+      { label: "1. taksit senet", vade: "2026-09-01", tutar: 40_000, senet: true, yontem: "Senet" },
+      { label: "2. taksit", vade: "2026-10-01", tutar: 60_000, senet: false, yontem: undefined },
     ]);
   });
 
@@ -337,7 +339,7 @@ describe("contract print data", () => {
     expect(data.ithalatMasraflariDahil).toBe(true);
     expect(data.kdvDahil).toBe(true);
     expect(data.nakliyeSaticiya).toBe(true);
-    expect(data.odemePlani).toEqual([{ label: "Siparişte peşin", tutar: 10_000, senet: false, yontem: "Nakit" }]);
+    expect(data.odemePlani).toEqual([{ label: "Siparişte peşin", vade: "2026-08-18", tutar: 10_000, senet: false, yontem: "Nakit" }]);
     expect(JSON.stringify(data)).not.toContain("{{");
     expect(contractReadinessErrors(data)).toEqual([]);
   });

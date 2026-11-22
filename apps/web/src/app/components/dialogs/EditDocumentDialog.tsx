@@ -12,6 +12,8 @@ import { documentService, quoteService } from "../../../lib/services";
 import { Button } from "../ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "../ui/dialog";
 import { Switch } from "../ui/switch";
+import { ContractClausesFields, cleanContractClauses } from "./ContractClausesFields";
+import type { ContractClausesInput } from "@haksan/shared";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { DocumentDiscountFields, ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
@@ -80,6 +82,7 @@ type TermsMetadata = {
   deliveryLocation?: string;
   estimatedDeliveryDaysMin?: number;
   estimatedDeliveryDaysMax?: number;
+  contractClauses?: ContractClausesInput;
 };
 
 const EMPTY_TERMS_METADATA: TermsMetadata = {
@@ -180,6 +183,7 @@ export function EditDocumentDialog({
           deliveryLocation: terms.deliveryLocation ?? undefined,
           estimatedDeliveryDaysMin: terms.estimatedDeliveryDaysMin ?? undefined,
           estimatedDeliveryDaysMax: terms.estimatedDeliveryDaysMax ?? undefined,
+          contractClauses: (terms as { contractClauses?: ContractClausesInput | null }).contractClauses ?? undefined,
         });
         setTermsTemplateKey(matchSavedTermsTemplate(payment, delivery, warranty, savedTermsTemplates));
         setTermsDirty(false);
@@ -236,6 +240,7 @@ export function EditDocumentDialog({
                 deliveryTermsText: deliveryTerms,
                 warrantyTermsText: warrantyTerms,
                 ...termsMetadata,
+                ...(termsMetadata.contractClauses ? { contractClauses: cleanContractClauses(termsMetadata.contractClauses) } : {}),
               },
             }
           : {}),
@@ -428,6 +433,16 @@ export function EditDocumentDialog({
                 />
                 Nakliye ve sigorta HAKSAN'a ait (madde 2.6)
               </label>
+              <div className="sm:col-span-2">
+                <ContractClausesFields
+                  value={termsMetadata.contractClauses ?? {}}
+                  disabled={saving || loading}
+                  onChange={(next) => {
+                    setTermsMetadata((current) => ({ ...current, contractClauses: next }));
+                    setTermsDirty(true);
+                  }}
+                />
+              </div>
             </div>
           )}
         </div>

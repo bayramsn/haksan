@@ -9,6 +9,8 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { ContractClausesFields, cleanContractClauses } from "./ContractClausesFields";
+import type { ContractClausesInput } from "@haksan/shared";
 import { PAYMENT_METHOD_PRINT_LABELS } from "../../lib/paymentMethod";
 import type { OpportunityPaymentMethod } from "../../lib/mock";
 
@@ -140,6 +142,7 @@ export function QuickContractDialog({
   // Sözleşme 3.3 ve 2.6 maddelerinin yönü; varsayılanlar bugünkü çıktıyı korur.
   const [vatIncluded, setVatIncluded] = useState(false);
   const [freightPaidBySeller, setFreightPaidBySeller] = useState(false);
+  const [clauses, setClauses] = useState<ContractClausesInput>({});
   const [installments, setInstallments] = useState<Installment[]>([]);
   const [termsTemplateKey, setTermsTemplateKey] = useState("");
   const [paymentTerms, setPaymentTerms] = useState("");
@@ -169,6 +172,7 @@ export function QuickContractDialog({
       setImportCostsExcluded(snapshot.terms?.importCostsExcluded ?? true);
       setVatIncluded(snapshot.terms?.vatIncluded ?? false);
       setFreightPaidBySeller(snapshot.terms?.freightPaidBySeller ?? false);
+      setClauses((snapshot.terms as { contractClauses?: ContractClausesInput | null } | undefined)?.contractClauses ?? {});
       setInstallments(
         (Array.isArray(snapshot.receivables) ? snapshot.receivables : []).map((receivable: any) => ({
           ...emptyInstallment(),
@@ -292,6 +296,7 @@ export function QuickContractDialog({
         importCostsExcluded,
         vatIncluded,
         freightPaidBySeller,
+        contractClauses: cleanContractClauses(clauses),
         installments: installments.length
           ? installments.map((row) => ({
               label: row.label.trim() || undefined,
@@ -468,6 +473,7 @@ export function QuickContractDialog({
                     <Switch checked={freightPaidBySeller} onCheckedChange={setFreightPaidBySeller} />
                     Nakliye ve sigorta HAKSAN'a ait (sözleşme 2.6)
                   </label>
+                  <ContractClausesFields value={clauses} onChange={setClauses} />
                 </div>
               </section>
 

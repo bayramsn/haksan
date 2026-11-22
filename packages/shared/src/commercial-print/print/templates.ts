@@ -4,7 +4,7 @@
 // görsellerdir.
 
 import {
-  PrintDocument, CurrencyCode, esc, blank, fmtMoney, tutarYaziyla, tutarYaziylaProforma, trLongDate,
+  PrintDocument, CurrencyCode, esc, blank, fmtMoney, tutarYaziyla, tutarYaziylaProforma, trLongDate, trShortDate,
   haksanHeader, drmakHeader, drmakFooter, drmakWatermark, DRMAK_CSS,
 } from "./core";
 import { productSpecGroupForKey, PRODUCT_SPEC_GROUPS } from "../productSpecTemplates";
@@ -1149,9 +1149,22 @@ export interface ContractMachinePrintData {
   adet: number;
   ozellikler: { key: string; value: string }[];
   aksesuarlar: string[];
+  /** "Tezgahın Opsiyonel Aksesuarları" — adet ya da "Fiyata Dahil". */
+  opsiyonlar?: { ad: string; adet: number; fiyataDahil?: boolean }[];
   muadiller?: string[];
   fiyat: number;
   kontrolUnitesiMarka?: string;
+  /** Tezgaha özel K.D.V. oranı; tezgahlar arasında farklıysa 3.3 ayrı ayrı yazar. */
+  kdvOran?: number;
+}
+
+/** Satış türüne göre açılan ek maddeler (belge şartlarındaki `contractClauses`). */
+export interface ContractExtraClauses {
+  stoktan?: boolean;
+  leasing?: boolean;
+  tesvik?: boolean;
+  kurFarki?: boolean;
+  takas?: { aciklama: string; tutar: number; kdvHaric?: boolean; teslimYeri?: string };
 }
 
 export interface ContractPrintData {
@@ -1191,9 +1204,10 @@ export interface ContractPrintData {
   garantiKosullari?: string;
   notlar?: string;
   kdvOran: number;
-  odemePlani: { label: string; tutar: number; senet?: boolean; yontem?: string }[];
+  odemePlani: { label: string; tutar: number; senet?: boolean; yontem?: string; vade?: string }[];
   kontrolUnitesiMarka?: string;
   machines?: ContractMachinePrintData[];
+  ekMaddeler?: ContractExtraClauses;
   /** Sözleşmeyi hazırlayan CRM kullanıcısı ve ünvanı (TARAFLAR sayfası altı). */
   hazirlayan?: string;
   hazirlayanUnvan?: string;
@@ -1224,6 +1238,7 @@ const CONTRACT_CSS = `
 table.ct-kv { width: calc(100% - 10mm); margin: .4mm 0 0 10mm; font-size: 11pt; line-height: 1.1; }
 table.ct-kv td { padding: .15mm 0; vertical-align: top; overflow-wrap: anywhere; }
 table.ct-kv td:first-child { width: 65mm; padding-right: 2mm; }
+table.ct-opt td:first-child { width: 95mm; }
 .ct-acc { margin: .4mm 0 0 10mm; line-height: 1.1; }
 .ct-acc div { margin-bottom: .15mm; overflow-wrap: anywhere; }
 .ct-h2 { display: grid; grid-template-columns: 7mm 1fr; font-weight: bold; margin: 3.4mm 0 .5mm; }
@@ -1253,6 +1268,11 @@ table.ct-price-table td.total-label { text-align: right; padding-right: 14mm; }
 table.ct-pay { margin: 2.4mm 0 .6mm 20mm; font-size: 10.7pt; line-height: 1.15; }
 table.ct-pay td { padding: .2mm 3mm .2mm 0; }
 table.ct-pay td.amt { text-align: right; min-width: 36mm; white-space: nowrap; }
+table.ct-pay td.due, table.ct-pay td.lbl { white-space: nowrap; }
+/* Uzun çek listesi iki sütun (Seba referansı); sütunlar arasında boşluk. */
+table.ct-pay.two { margin-left: 0; }
+table.ct-pay.two td.amt { min-width: 22mm; }
+table.ct-pay td.gap { width: 10mm; }
 /* Tahsilat yöntemi (Nakit / Çek / Senet) — referans sözleşmelerdeki 3. sütun. */
 table.ct-pay td.mtd { padding-left: 6mm; white-space: nowrap; }
 table.ct-parties { width: 100%; margin-top: 0; font-size: 11pt; line-height: 1.12; }
@@ -1265,7 +1285,7 @@ table.ct-parties .kv { display: grid; grid-template-columns: 38mm 1fr; }
 `;
 
 type ContractTechnicalEntry = {
-  kind: "spec" | "standard" | "equivalent";
+  kind: "spec" | "standard" | "option" | "equivalent";
   key?: string;
   value: string;
   weight: number;
@@ -1302,6 +1322,12 @@ const contractTechnicalChunks = (machine: ContractMachinePrintData): ContractTec
       kind: "standard" as const,
       value,
       weight: contractLineCount(value, 90),
+    })),
+    ...(machine.opsiyonlar ?? []).map((option) => ({
+      kind: "option" as const,
+      key: option.ad,
+      value: option.fiyataDahil ? "Fiyata Dahil" : `${option.adet} (${adetYaziBuyuk(option.adet)}) Adet`,
+      weight: contractLineCount(option.ad, 60),
     })),
     ...(machine.muadiller ?? []).map((value) => ({
       kind: "equivalent" as const,
@@ -1408,7 +1434,13 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
           <table class="ct-kv">${group.map((entry) => `<tr><td>${esc(entry.key)}</td><td>${esc(entry.value)}</td></tr>`).join("")}</table>
         </div>`;
       }
-      const number = `${machineNumber(machineIndex)}${kind === "standard" ? "2" : "3"}.`;
+      if (kind === "option") {
+        return `<div class="ct-tech-group">
+          <div class="ct-tech-heading"><span>${machineNumber(machineIndex)}3.</span><span>Tezgahın Opsiyonel Aksesuarları;${continuation}</span></div>
+          <table class="ct-kv ct-opt">${group.map((entry) => `<tr><td>${esc(entry.key)}</td><td>${esc(entry.value)}</td></tr>`).join("")}</table>
+        </div>`;
+      }
+      const number = `${machineNumber(machineIndex)}${kind === "standard" ? "2" : "4"}.`;
       const title = kind === "standard" ? "Tezgahın Standart Aksesuarları;" : "Muadil Ürünler;";
       return `<div class="ct-tech-group">
         <div class="ct-tech-heading"><span>${number}</span><span>${title}${continuation}</span></div>
@@ -1430,8 +1462,20 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     isHeading: true,
   });
 
+  const ek = d.ekMaddeler ?? {};
+  const multi = machines.length > 1;
+  // Gümrük/C.I.F. teslimde tezgah antrepoda devredilir; millileştirilmiş
+  // teslimde ithalat bitmiş olduğundan doğrudan teslim edilir.
+  const bondedDelivery = /c\.?\s*i\.?\s*f|gümrük/i.test(d.teslimSekli ?? "");
   const deliveryDays = d.teslimGunMax ?? d.teslimGunMin;
-  const deliveryDefault = deliveryDays !== undefined
+  const deliveryWindow = d.teslimGunMin !== undefined && d.teslimGunMax !== undefined && d.teslimGunMax > d.teslimGunMin
+    ? { center: Math.round((d.teslimGunMin + d.teslimGunMax) / 2), tolerance: Math.round((d.teslimGunMax - d.teslimGunMin) / 2) }
+    : undefined;
+  const deliveryDefault = ek.stoktan
+    ? `${multi ? "Tezgahlar" : "Tezgah"} stoklarımızda mevcut olup, teslimi ödeme işlemlerine müteakip gerçekleştirilecektir;`
+    : deliveryWindow
+    ? `Sözleşmeye konu ${multi ? "tezgahlar" : "tezgah"} iş bu sözleşmenin imza altına alınması ve sözleşme şartlarının yerine getirilmesine müteakip ${deliveryWindow.center} (±${deliveryWindow.tolerance}) gün sonra ${bondedDelivery ? "antrepoda devredilecektir" : "teslim edilecektir"};`
+    : deliveryDays !== undefined
     ? `Tezgahın teslimi sözleşme tarihinden itibaren ${deliveryDays} gün sonra gerçekleştirilecektir;`
     : d.teslimAyi
       ? `Tezgahın teslimi sözleşme şartlarının yerine getirilmesi ve gümrük işlemlerinin tamamlanmasıyla ${d.teslimAyi} ayı içerisinde gerçekleştirilecektir;`
@@ -1445,10 +1489,14 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   const freightBySeller = d.nakliyeSaticiya === true;
   const deliveryLocation = d.teslimYeri?.trim()
     || (freightBySeller ? `${aliciKisaRaw} tesisleri` : "HAKSAN MAKİNA/Hadımköy tesisleri");
-  const freightDefault = freightBySeller
+  // Leasing satışında tezgah alıcıya değil, alıcının anlaştığı leasing firmasına
+  // teslim edilir; taşıma ve sigortayı leasing firması öder (Akdağ MV-850).
+  const freightDefault = ek.leasing
+    ? `Tezgah ${deliveryLocation} adresinden ${aliciKisaRaw} firmasının anlaşacağı LEASİNG firmasına teslim edilecek olup, tezgahın taşıma ve sigortası ${aliciKisaRaw} firmasının anlaştığı LEASİNG firması tarafından ödenecektir;`
+    : freightBySeller
     ? `Tezgah ${deliveryLocation} adresine teslim edilecek olup, tezgahın nakliye ve sigorta giderleri HAKSAN MAKİNA'ya aittir.`
     : `Tezgah ${deliveryLocation} adresinden teslim edilecek olup, tezgahın nakliye ve sigorta giderleri ${aliciKisaRaw} firmasına aittir.`;
-  const operationalDefaults = {
+  const operationalDefaultsSingular = {
     delivery: deliveryDefault,
     freight: freightDefault,
     installation: `Tezgahın ${aliciKisaRaw} firmasına teslim olmasını müteakip 2 (iki) gün içerisinde HAKSAN MAKİNA personeli tarafından tezgahın kurulumu ve ilk çalıştırması gerçekleştirilecektir;`,
@@ -1457,6 +1505,13 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     control: `Tezgahın kontrol ünitesi garantisi ${aliciKisaRaw} firmasına teslimiyle başlayacak olup, işletim sistemi garantisi 2 (iki) yıl ${controlBrand ? `${controlBrand}/Türkiye` : "üretici/Türkiye"} garantisi kapsamındadır;`,
     support: `HAKSAN MAKİNA, ${aliciKisaRaw} firmasına garanti süresi içerisinde ve sonrasında karşılıklı şartlar dahilinde teknik destek, bilgi, belge, doküman ve yedek parça sağlamakla yükümlüdür.`,
   };
+  // Çok tezgahlı sözleşmede (Seba: VM-2, VC-1000, SL-8) varsayılan maddeler çoğul konuşur.
+  const pluralize = (text: string) => multi
+    ? text.replace(/\bTezgahın\b/g, "Tezgahların").replace(/\btezgahın\b/g, "tezgahların").replace(/^Tezgah /, "Tezgahlar ")
+    : text;
+  const operationalDefaults = Object.fromEntries(
+    Object.entries(operationalDefaultsSingular).map(([kind, text]) => [kind, pluralize(text)]),
+  ) as typeof operationalDefaultsSingular;
   type OperationalKind = keyof typeof operationalDefaults;
   const operationalKind = (text: string): OperationalKind | null => {
     if (/yedek parça|teknik destek|bilgi.*belge.*doküman/i.test(text)) return "support";
@@ -1483,8 +1538,9 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     // hükümler onların üzerine yazamaz.
     else if (kind === "freight") {
       const saysSellerPays = /HAKSAN\s+MAKİNA(?:'ya|YA)?\s+ait|HAKSAN\s+MAKİNA\s+tarafından/i.test(text);
-      if (saysSellerPays === freightBySeller && !selectedOperational.has(kind)) selectedOperational.set(kind, text);
-    } else if (!(kind === "delivery" && deliveryDays !== undefined) && !selectedOperational.has(kind)) {
+      const saysLeasing = /leasing/i.test(text);
+      if (saysSellerPays === freightBySeller && saysLeasing === Boolean(ek.leasing) && !selectedOperational.has(kind)) selectedOperational.set(kind, text);
+    } else if (!(kind === "delivery" && (deliveryDays !== undefined || ek.stoktan)) && !selectedOperational.has(kind)) {
       selectedOperational.set(kind, text);
     }
   }
@@ -1518,7 +1574,8 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   const priceIntro = machines.length > 1
     ? "1. bölümde belirtilen tezgahların ilgili maddelerde belirtilmiş olan karakteristik özellikleri ve donanımları ile birlikte fiyatları aşağıdaki gibidir,"
     : "1.1. no'lu maddede belirtilen tezgahın karakteristik özellikleri ve donanımları ile birlikte fiyatı aşağıdaki gibidir,";
-  const priceWeight = 4 + machines.length;
+  // Uzun model adı fiyat tablosunda iki satıra kırılır; ağırlık buna göre.
+  const priceWeight = 4 + machines.reduce((sum, machine) => sum + contractLineCount(machine.model, 40), 0);
   const priceBlock: ContractLegalEntry = {
     html: `<div class="ct-clause${keepTogetherClass(priceWeight)}"><span class="no">3.1.</span><span class="text">${esc(priceIntro)}
       <div class="ct-price">
@@ -1533,9 +1590,28 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   };
   // 3.4 maddesi vadeleri "bedelin tamamı" olarak sunar; taban 3.1'deki TOPLAM ile
   // aynı olmalı, yoksa KDV dahil sözleşme kendi kendisiyle çelişen iki rakam basar.
-  const paymentPlanHtml = d.odemePlani.length ? `<table class="ct-pay">${d.odemePlani.map((payment) =>
-    `<tr><td>${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(contractAmount(payment.tutar), d.currency))}</td><td class="mtd">${esc(payment.yontem ?? (payment.senet ? "Senet" : ""))}</td></tr>`
-  ).join("")}</table>` : "";
+  // Vade tarihi varsa dördüncü sütun olur (Seba: "1. Çek 7.500 USD 28.11.2026").
+  // Uzun çek listesi referanstaki gibi iki sütuna bölünür; yarım sayfa yer kazandırır.
+  const showDueDates = d.odemePlani.some((payment) => payment.vade && !payment.label.includes(trShortDate(payment.vade)));
+  const paymentCells = (payment: ContractPrintData["odemePlani"][number]) => {
+    const method = payment.yontem ?? (payment.senet ? "Senet" : "");
+    // "1. Çek" gibi etiket yöntemi zaten söylüyorsa sütunda tekrar yazılmaz.
+    const shownMethod = method && payment.label.toLocaleLowerCase("tr-TR").includes(method.toLocaleLowerCase("tr-TR")) ? "" : method;
+    return `<td class="lbl">${esc(payment.label)}</td><td class="amt">${esc(fmtMoney(contractAmount(payment.tutar), d.currency))}</td><td class="mtd">${esc(shownMethod)}</td>${showDueDates ? `<td class="due">${esc(payment.vade ? trShortDate(payment.vade) : "")}</td>` : ""}`;
+  };
+  const twoColumnPlan = d.odemePlani.length > 6;
+  const planHalf = Math.ceil(d.odemePlani.length / 2);
+  const paymentRows = twoColumnPlan
+    ? d.odemePlani.slice(0, planHalf).map((payment, index) => {
+        const right = d.odemePlani[index + planHalf];
+        return `<tr>${paymentCells(payment)}<td class="gap"></td>${right ? paymentCells(right) : ""}</tr>`;
+      })
+    : d.odemePlani.map((payment) => `<tr>${paymentCells(payment)}</tr>`);
+  const paymentPlanHtml = d.odemePlani.length
+    ? `<table class="ct-pay${twoColumnPlan ? " two" : ""}">${paymentRows.join("")}</table>`
+    : "";
+  // Tablo satırları metin satırından biraz yüksek; sayfa taşmasın diye pay bırakılır.
+  const paymentPlanWeight = Math.ceil((twoColumnPlan ? planHalf : d.odemePlani.length) * 1.3);
   const paymentTerms = String(d.odemeKosullari ?? "")
     .split(/\r?\n/)
     .map((text) => text.trim())
@@ -1543,34 +1619,106 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     // eski şablonlardan gelen kopyaları ödeme maddesine sokma.
     .filter((text) => text && !/K\.?\s*D\.?\s*V|ithalat.*(?:masraf|vergi)|(?:C\.?I\.?F|İşletme)\s*teslim.*fiyat/i.test(text))
     .join("\n");
-  const paymentWeight = 2 + (paymentTerms ? contractLineCount(paymentTerms) : 0) + d.odemePlani.length;
-  const paymentBlock: ContractLegalEntry = {
-    html: `<div class="ct-clause${keepTogetherClass(paymentWeight)}"><span class="no">3.4.</span><span class="text">Sözleşmeye konu tezgahın bedelinin tamamı ${A} firmasından aşağıdaki şekilde tahsil edilecektir;
+  const paymentWeight = 2 + (paymentTerms ? contractLineCount(paymentTerms) : 0) + paymentPlanWeight;
+  const subjectPrice = multi ? "tezgahların bedelinin" : "tezgahın bedelinin";
+  // Planı ve yazılı şartı olmayan leasing satışı referanstaki tek cümleyle kapanır.
+  const leasingOnly = ek.leasing && !d.odemePlani.length && !paymentTerms;
+  const paymentBlock: ContractLegalEntry = leasingOnly
+    ? clause("", `Sözleşmeye konu ${subjectPrice} tamamı ${aliciKisaRaw} firmasından nakit/leasing olarak tahsil edilecektir;`,
+        `Sözleşmeye konu ${subjectPrice} tamamı ${A} firmasından nakit/leasing olarak tahsil edilecektir;`)
+    : {
+        html: `<div class="ct-clause${keepTogetherClass(paymentWeight)}"><span class="no"></span><span class="text">Sözleşmeye konu ${subjectPrice} tamamı ${A} firmasından aşağıdaki şekilde tahsil edilecektir;
       ${paymentTerms ? `<div style="margin-top:.7mm">${contractText(paymentTerms)}</div>` : ""}
       ${paymentPlanHtml}
     </span></div>`,
-    weight: paymentWeight,
-  };
+        weight: paymentWeight,
+      };
+
+  // 3.3 K.D.V.: tezgahlar farklı oranlıysa (Seba: VM-2/VC-1000 %20, SL-8 %10) oranlar model bazında yazılır.
+  const vatGroups = new Map<number, string[]>();
+  for (const machine of machines) {
+    const rate = machine.kdvOran ?? d.kdvOran;
+    vatGroups.set(rate, [...(vatGroups.get(rate) ?? []), machine.model]);
+  }
+  const vatVerb = vatIncluded ? "dahildir" : "dahil değildir";
+  const vatClause = vatGroups.size > 1
+    ? clause(
+        "",
+        `Sözleşmeye konu tezgahların fiyatlarına; ${[...vatGroups].map(([rate, models]) => `${models.join(" ve ")} için %${rate}`).join(", ")} oranındaki K.D.V. ${vatVerb};`,
+        `Sözleşmeye konu tezgahların fiyatlarına; ${[...vatGroups].map(([rate, models]) => `${esc(models.join(" ve "))} için <span class="b">%${esc(rate)}</span>`).join(", ")} oranındaki <span class="b">K.D.V.</span> ${vatVerb};`,
+      )
+    : clause(
+        "",
+        `Sözleşmeye konu ${multi ? "tezgahların" : "tezgahın"} fiyatına ${d.kdvOran > 0 ? `%${d.kdvOran} oranındaki ` : ""}K.D.V. ${vatVerb};`,
+        `Sözleşmeye konu ${multi ? "tezgahların" : "tezgahın"} fiyatına ${d.kdvOran > 0 ? `<span class="b">%${esc(d.kdvOran)}</span> oranındaki ` : ""}<span class="b">K.D.V.</span> ${vatVerb};`,
+      );
+
+  const paysByCheque = d.odemePlani.some((payment) => /çek/i.test(`${payment.yontem ?? ""} ${payment.label}`));
+  const exchangeClause = ek.kurFarki
+    ? clause("", paysByCheque
+        ? "Çek tarihinde TCMB Satış kuru ile çek tutarı hesaplanıp kur farkı faturası kesilecektir;"
+        : "Ödeme tarihinde TCMB Satış kuru ile ödeme tutarı hesaplanıp kur farkı faturası kesilecektir;")
+    : null;
+  const incentiveClause = ek.tesvik
+    ? clause(
+        "",
+        `${multi ? "Tezgahlar" : "Tezgah"} sevk irsaliyesi ile teslim edilir. Alıcı, KDV istisnası için Yatırım Teşvik Belgesi'ni irsaliye tarihinden itibaren en geç 7 gün içinde satıcıya iletmek zorundadır. Bu süre içinde belge iletilmezse, yasal süreye uyularak normal KDV oranlı fatura kesilir.`,
+        `${multi ? "Tezgahlar" : "Tezgah"} sevk irsaliyesi ile teslim edilir. Alıcı, KDV istisnası için <span class="b">Yatırım Teşvik Belgesi'ni</span> irsaliye tarihinden itibaren en geç <span class="b">7 gün</span> içinde satıcıya iletmek zorundadır. Bu süre içinde belge iletilmezse, yasal süreye uyularak normal KDV oranlı fatura kesilir.`,
+      )
+    : null;
+  const tradeIn = ek.takas;
+  const tradeInClauses = tradeIn
+    ? [
+        {
+          html: `<div class="ct-clause avoid-break"><span class="no"></span><span class="text">${A} firmasından ikinci el olarak alınacak makine aşağıda belirtilmiştir:
+            <table class="ct-price-table" style="margin:.7mm 0 0"><tr><td>${esc(tradeIn.aciklama)}</td><td class="amount">${esc(fmtMoney(tradeIn.tutar, d.currency))}${tradeIn.kdvHaric ? " + KDV" : ""}</td></tr></table>
+          </span></div>`,
+          weight: 3 + contractLineCount(tradeIn.aciklama, 70),
+        } as ContractLegalEntry,
+        clause(
+          "",
+          `Kullanılmış makine ${aliciKisaRaw}${tradeIn.teslimYeri ? `/${tradeIn.teslimYeri}` : ""} işletmesinden teslim alınacaktır, kullanılmış makinenin nakliye ve sigortası HAKSAN MAKİNA firmasına aittir;`,
+        ),
+      ]
+    : [];
+
+  // Madde numaraları açılıp kapanan ek maddelere göre sırayla verilir.
+  const numbered = (section: number, entries: (ContractLegalEntry | null)[]) =>
+    entries
+      .filter((entry): entry is ContractLegalEntry => Boolean(entry))
+      .map((entry, index) => ({
+        ...entry,
+        html: entry.html.replace('<span class="no"></span>', `<span class="no">${section}.${index + 1}.</span>`),
+      }));
   const sectionThree = [
     heading("3.", "Fiyat ve Ödeme Şartları;"),
-    priceBlock,
-    clause("3.2.", priceBasisPlain, priceBasisHtml),
-    clause(
-      "3.3.",
-      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `%${d.kdvOran} oranındaki ` : ""}K.D.V. ${vatIncluded ? "dahildir" : "dahil değildir"};`,
-      `Sözleşmeye konu tezgahın fiyatına ${d.kdvOran > 0 ? `<span class="b">%${esc(d.kdvOran)}</span> oranındaki ` : ""}<span class="b">K.D.V.</span> ${vatIncluded ? "dahildir" : "dahil değildir"};`,
-    ),
-    paymentBlock,
+    ...numbered(3, [
+      // Fiyat bloğu sabit 3.1 olarak üretilir; numaralandırıcıya boş numarayla girer.
+      { ...priceBlock, html: priceBlock.html.replace('<span class="no">3.1.</span>', '<span class="no"></span>') },
+      clause("", priceBasisPlain, priceBasisHtml),
+      vatClause,
+      paymentBlock,
+      exchangeClause,
+      incentiveClause,
+      ...tradeInClauses,
+    ]),
     heading("4.", "Diğer Hususlar;"),
-    clause(
-      "4.1.",
-      `İş bu sözleşme ${HAKSAN.unvan} ve ${d.alici.unvan} tarafından, her iki firmanın iradesi altında imza altına alınmıştır;`,
-      `İş bu sözleşme <span class="b">${esc(HAKSAN.unvan)}</span> ve <span class="b">${esc(d.alici.unvan)}</span> tarafından, her iki firmanın iradesi altında imza altına alınmıştır;`,
-    ),
-    clause("4.2.", "İş bu sözleşmenin maddesi veya maddeleri her iki taraf mutabakatı ile değiştirilebilir, tek taraflı değiştirilemez ve sözleşme feshedilemez;"),
-    clause("4.3.", "Taraflar arasında bu sözleşmeden doğabilecek uyuşmazlıkların çözümünde İstanbul Merkez Adliyesi Mahkemeleri ve İcra Müdürlükleri yetkilidir;"),
-    clause("4.4.", `İş bu sözleşme ${tarihUzun} tarihinde imza altına alınmış ve yürürlüğe girmiştir.`),
-    ...(d.notlar?.trim() ? [clause("4.5.", d.notlar.trim())] : []),
+    ...numbered(4, [
+      clause(
+        "",
+        `İş bu sözleşme ${HAKSAN.unvan} ve ${d.alici.unvan} tarafından, her iki firmanın iradesi altında imza altına alınmıştır;`,
+        `İş bu sözleşme <span class="b">${esc(HAKSAN.unvan)}</span> ve <span class="b">${esc(d.alici.unvan)}</span> tarafından, her iki firmanın iradesi altında imza altına alınmıştır;`,
+      ),
+      clause("", "İş bu sözleşmenin maddesi veya maddeleri her iki taraf mutabakatı ile değiştirilebilir, tek taraflı değiştirilemez ve sözleşme feshedilemez;"),
+      // Referanslarda yalnız kaparo/teminat alınan (Seba) veya leasing/takaslı
+      // (Akdağ) sözleşmede var; Esbirlik ve imzalı SL-8'de yok, eklemek 2 sayfayı taşırıyor.
+      ek.leasing || ek.takas || d.odemePlani.some((row) => /kaparo|teminat/i.test(row.label))
+        ? clause("", "İş bu sözleşmenin karşılıklı feshedilmesi veya şartlarının değiştirilmesi halinde sözleşmeye istinaden alınan kaparo veya teminatlar taraflara iade edilecektir;")
+        : null,
+      clause("", "Taraflar arasında bu sözleşmeden doğabilecek uyuşmazlıkların çözümünde İstanbul Merkez Adliyesi Mahkemeleri ve İcra Müdürlükleri yetkilidir;"),
+      clause("", `İş bu sözleşme ${tarihUzun} tarihinde imza altına alınmış ve yürürlüğe girmiştir.`),
+      d.notlar?.trim() ? clause("", d.notlar.trim()) : null,
+    ]),
   ];
   const kv = (key: string, value?: string) => `<div class="kv"><span>${esc(key)}</span><span>${blank(value)}</span></div>`;
   const partiesBlock = `<div class="avoid-break">
@@ -1664,6 +1812,11 @@ const ADET_YAZI: Record<number, string> = {
   1: "bir", 2: "iki", 3: "üç", 4: "dört", 5: "beş", 6: "altı", 7: "yedi", 8: "sekiz", 9: "dokuz", 10: "on",
 };
 const sayiAdet = (n: number) => ADET_YAZI[n] ?? String(n);
+/** Referanstaki "1 (Bir) Adet" yazımı — baş harf büyük. */
+const adetYaziBuyuk = (n: number) => {
+  const word = sayiAdet(n);
+  return word.charAt(0).toLocaleUpperCase("tr-TR") + word.slice(1);
+};
 const shortFirmName = (s: string) => s.split(" ").slice(0, 2).join(" ");
 
 // ── 5) KUTU ADRES ETİKETİ ───────────────────────────────────────────────────

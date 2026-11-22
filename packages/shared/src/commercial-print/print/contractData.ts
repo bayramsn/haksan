@@ -155,6 +155,27 @@ const resolveContractTerms = (
     .replace(/\{\{[^{}]+\}\}/g, "belirtilmemiş");
 };
 
+/** Belge şartlarındaki `contractClauses` → çıktının ek maddeleri. */
+const contractClauses = (terms: any): ContractPrintData["ekMaddeler"] => {
+  const source = terms?.contractClauses ?? terms?.contract_clauses;
+  if (!source || typeof source !== "object") return undefined;
+  const tradeIn = source.tradeIn;
+  return {
+    stoktan: Boolean(source.inStock),
+    leasing: Boolean(source.leasingDelivery),
+    tesvik: Boolean(source.investmentIncentive),
+    kurFarki: Boolean(source.exchangeRateDifference),
+    takas: tradeIn && String(tradeIn.description ?? "").trim()
+      ? {
+          aciklama: String(tradeIn.description).trim(),
+          tutar: asNumber(tradeIn.amount),
+          kdvHaric: Boolean(tradeIn.plusVat),
+          teslimYeri: String(tradeIn.pickupLocation ?? "").trim() || undefined,
+        }
+      : undefined,
+  };
+};
+
 const recordValue = (record: any, ...keys: string[]) => {
   for (const key of keys) if (record?.[key] !== undefined && record?.[key] !== null) return record[key];
   return undefined;
@@ -304,14 +325,18 @@ const buildContractMachines = (
       ? snapshotProduct.standardEquipment.map((item) => String(item ?? "").trim()).filter(Boolean)
       : [];
     const configuredEquipment = snapshotStandardEquipment(compatibility?.technicalSpecs);
-    const accessories = [
-      ...(configuredEquipment ?? (preferLiveProduct || productSnapshotEquipment.length === 0
-        ? product?.standardEquipment ?? []
-        : productSnapshotEquipment)),
-      ...options.map((option) => String(recordValue(option.item, "description") ?? "").trim())
-        .filter(Boolean)
-        .map((description) => description.replace(/^↳\s*Opsiyon:\s*/, "")),
-    ];
+    const accessories = configuredEquipment ?? (preferLiveProduct || productSnapshotEquipment.length === 0
+      ? product?.standardEquipment ?? []
+      : productSnapshotEquipment);
+    // Referans sözleşmelerde opsiyonlar standart donanıma karışmaz; kendi
+    // "Tezgahın Opsiyonel Aksesuarları" başlığında adet ya da "Fiyata Dahil" ile basılır.
+    const optionalAccessories = options
+      .map((option) => ({
+        ad: String(recordValue(option.item, "description") ?? "").trim().replace(/^↳\s*Opsiyon:\s*/, ""),
+        adet: asNumber(recordValue(option.item, "quantity")) || 1,
+        fiyataDahil: rowNetTotal(option.item) === 0,
+      }))
+      .filter((option) => option.ad);
     const priceBeforeHeader = rowNetTotal(row.item) + options.reduce((sum, option) => sum + rowNetTotal(option.item), 0);
     const customsForMachine = (customsByItem.get(row.item) ?? 0)
       + options.reduce((sum, option) => sum + (customsByItem.get(option.item) ?? 0), 0);
@@ -325,7 +350,9 @@ const buildContractMachines = (
       adet: asNumber(recordValue(row.item, "quantity")) || 1,
       ozellikler: specs,
       aksesuarlar: accessories,
+      opsiyonlar: optionalAccessories,
       muadiller: productEquivalents(product, products),
+      kdvOran: asOptionalNumber(recordValue(row.item, "vatRate", "vat_rate")),
       fiyat: priceBeforeHeader * headerRatio + customsForMachine,
       kontrolUnitesiMarka: inferControlUnitBrand(specs, `${String(warrantyTerms ?? "")} ${product?.controlPanel ?? ""}`),
     };
@@ -348,6 +375,7 @@ const expectedPaymentRows = (payments: Payment[], salesCase: SalesCase | null) =
     .sort((left, right) => left.dueDate.localeCompare(right.dueDate))
     .map((payment) => ({
       label: payment.note?.trim() || `Vade ${trShortDate(payment.dueDate)}`,
+      vade: payment.dueDate || undefined,
       tutar: payment.amount,
       senet: /senet/i.test(payment.note ?? ""),
       yontem: paymentMethodLabel(payment.plannedPaymentMethod ?? payment.paymentMethod)
@@ -451,6 +479,7 @@ async function buildContractPrintData(input: ContractBuildInput, quoteDetail?: C
       odemePlani: receivables.length
         ? receivables.map((receivable: any) => ({
             label: String(value(receivable, "notes") ?? `Vade ${trShortDate(value(receivable, "dueDate", "due_date"))}`),
+            vade: value(receivable, "dueDate", "due_date") ? String(value(receivable, "dueDate", "due_date")) : undefined,
             tutar: asNumber(value(receivable, "amount")),
             senet: /senet/i.test(String(value(receivable, "notes") ?? "")),
             yontem: paymentMethodLabel(value(receivable, "paymentMethod", "payment_method")),
@@ -458,6 +487,7 @@ async function buildContractPrintData(input: ContractBuildInput, quoteDetail?: C
         : expectedPaymentRows(payments, salesCase),
       kontrolUnitesiMarka: controlBrand,
       machines,
+      ekMaddeler: contractClauses(terms),
     };
   }
   if (!offer) throw new Error("Sözleşme için ilişkili teklif bulunamadı.");
@@ -540,6 +570,7 @@ async function buildContractPrintData(input: ContractBuildInput, quoteDetail?: C
     odemePlani: expectedPaymentRows(payments, salesCase),
     kontrolUnitesiMarka: controlBrand,
     machines,
+    ekMaddeler: contractClauses(terms),
   };
 }
 

@@ -15,6 +15,8 @@ import {
   DocumentTermsTemplateEditor, matchSavedTermsTemplate, useTermsTemplates,
 } from "./DocumentTermsTemplateEditor";
 import { CONTRACT_NOTE_VARIANTS, contractTermsFillContext } from "../../lib/print";
+import { ContractClausesFields, cleanContractClauses } from "./ContractClausesFields";
+import type { ContractClausesInput } from "@haksan/shared";
 
 const CONTRACT_TERMS_TEMPLATE_SCOPE = "contract_terms";
 
@@ -154,6 +156,7 @@ export function EditContractTermsDialog({ document, trigger }: { document: Docum
   // Sözleşme çıktısındaki 2.6 / 3.3 maddelerinin yönü — metin değil, seçim.
   const [vatIncluded, setVatIncluded] = useState(() => Boolean(snapshotTerms.vatIncluded));
   const [freightPaidBySeller, setFreightPaidBySeller] = useState(() => Boolean(snapshotTerms.freightPaidBySeller));
+  const [clauses, setClauses] = useState<ContractClausesInput>(() => (snapshotTerms.contractClauses as ContractClausesInput | null | undefined) ?? {});
   const [busy, setBusy] = useState(false);
 
   const save = async () => {
@@ -169,6 +172,7 @@ export function EditContractTermsDialog({ document, trigger }: { document: Docum
           warrantyTermsText: warranty.trim(),
           vatIncluded,
           freightPaidBySeller,
+          contractClauses: cleanContractClauses(clauses),
         },
       });
       await refresh();
@@ -224,6 +228,7 @@ export function EditContractTermsDialog({ document, trigger }: { document: Docum
               <Switch checked={freightPaidBySeller} onCheckedChange={setFreightPaidBySeller} disabled={busy} />
               Nakliye ve sigorta HAKSAN'a ait (madde 2.6)
             </label>
+            <ContractClausesFields value={clauses} onChange={setClauses} disabled={busy} />
           </div>
         </div>
         <DialogFooter>

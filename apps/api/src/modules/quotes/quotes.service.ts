@@ -3029,6 +3029,7 @@ export class QuotesService {
         importCostsExcluded: input.importCostsExcluded ?? true,
         vatIncluded: input.vatIncluded ?? false,
         freightPaidBySeller: input.freightPaidBySeller ?? false,
+        contractClauses: input.contractClauses ?? null,
       },
     };
   }
@@ -3129,6 +3130,7 @@ export class QuotesService {
       importCostsExcluded: input.importCostsExcluded ?? previous.terms?.importCostsExcluded ?? true,
       vatIncluded: input.vatIncluded ?? previous.terms?.vatIncluded ?? false,
       freightPaidBySeller: input.freightPaidBySeller ?? previous.terms?.freightPaidBySeller ?? false,
+      contractClauses: input.contractClauses ?? previous.terms?.contractClauses ?? undefined,
       installments:
         input.installments
         ?? (previous.receivables ?? []).map((receivable: any) => ({

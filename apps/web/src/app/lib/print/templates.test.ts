@@ -961,6 +961,63 @@ describe("print templates", () => {
     expect(document.body).toContain("235.000,00 USD");
   });
 
+  // Referans: Seba Makina (3 tezgah, millileşmiş, stoktan, çekli, teşvikli).
+  it("renders the multi-machine nationalized cheque contract like the Seba reference", () => {
+    const cheques = Array.from({ length: 8 }, (_, index) => ({
+      label: `${index + 1}. Çek`, tutar: 7_500, yontem: "Çek", vade: `2027-${String(index + 1).padStart(2, "0")}-28`,
+    }));
+    const document = contractDoc({
+      alici: { unvan: "SEBA MAKİNA SANAYİ ve TİC. LTD. ŞTİ.", kisaUnvan: "SEBA MAKİNA" },
+      sozlesmeNo: "SOZ-SEBA", sozlesmeTarihi: "2026-10-27", model: "", adet: 3, ozellikler: [], aksesuarlar: [],
+      fiyat: 138_000, currency: "USD", kdvOran: 20, teslimSekli: "Millileştirilmiş",
+      odemePlani: [{ label: "Kaparo (Alındı)", tutar: 5_000 }, { label: "Peşinat", tutar: 73_000 }, ...cheques],
+      machines: [
+        { model: "LK VM-2 Demo", adet: 1, ozellikler: [], aksesuarlar: ["Mitsubishi M80"], opsiyonlar: [{ ad: "Disk Tipi Kızak Yağı – Bor Yağı Ayırıcı", adet: 1 }], fiyat: 45_000, kdvOran: 20 },
+        { model: "LK VC-1000 Demo", adet: 1, ozellikler: [], aksesuarlar: [], fiyat: 45_000, kdvOran: 20 },
+        { model: "ECOCA SL-8 Demo", adet: 1, ozellikler: [], aksesuarlar: [], opsiyonlar: [{ ad: "Ara Yatak", adet: 1, fiyataDahil: true }], fiyat: 48_000, kdvOran: 10 },
+      ],
+      ekMaddeler: { stoktan: true, kurFarki: true, tesvik: true },
+    }, assetBase);
+    const text = document.body.replace(/<[^>]+>/g, "");
+
+    expect(text).toContain("Tezgahın Opsiyonel Aksesuarları;");
+    expect(text).toContain("1 (Bir) Adet");
+    expect(text).toContain("Fiyata Dahil");
+    expect(text).toContain("Tezgahlar stoklarımızda mevcut olup, teslimi ödeme işlemlerine müteakip gerçekleştirilecektir;");
+    expect(text).toContain("LK VM-2 Demo ve LK VC-1000 Demo için %20, ECOCA SL-8 Demo için %10 oranındaki K.D.V. dahil değildir;");
+    expect(text).toContain("Çek tarihinde TCMB Satış kuru ile çek tutarı hesaplanıp kur farkı faturası kesilecektir;");
+    expect(text).toContain("Yatırım Teşvik Belgesi'ni");
+    expect(text).toContain("28.08.2027");
+    expect(document.body).toContain('class="ct-pay two"');
+    expect(text).toContain("kaparo veya teminatlar taraflara iade edilecektir");
+    expect(text).toContain("Yalnız #YüzOtuzSekizBin# Amerikan Doları");
+  });
+
+  // Referans: Akdağ Kalıp (tek tezgah, gümrük teslim, terminli, leasing + takas).
+  it("renders the leasing contract with a trade-in like the Akdağ reference", () => {
+    const document = contractDoc({
+      alici: { unvan: "AKDAĞ KALIP ve YEDEK PARÇA SAN. DIŞ. TİC. LTD. ŞTİ.", kisaUnvan: "AKDAĞ KALIP" },
+      sozlesmeNo: "SOZ-AKDAG", sozlesmeTarihi: "2026-02-04", model: "LK MV-850", adet: 1, ozellikler: [], aksesuarlar: [],
+      fiyat: 70_000, currency: "USD", kdvOran: 20, teslimSekli: "C.I.F./İstanbul", ithalatMasraflariDahil: false,
+      teslimGunMin: 75, teslimGunMax: 105, teslimYeri: "HAKSAN MAKİNA/Hadımköy antreposu",
+      odemePlani: [],
+      ekMaddeler: {
+        leasing: true,
+        takas: { aciklama: "Kullanılmış LK VM-2 (Çalışır Vaziyette) Cnc Dik İşleme Merkezi", tutar: 30_000, kdvHaric: true, teslimYeri: "Zeytinburnu" },
+      },
+    }, assetBase);
+    const text = document.body.replace(/<[^>]+>/g, "");
+
+    expect(text).toContain("90 (±15) gün sonra antrepoda devredilecektir;");
+    expect(text).toContain("AKDAĞ KALIP firmasının anlaşacağı LEASİNG firmasına teslim edilecek");
+    expect(text).toContain("nakit/leasing olarak tahsil edilecektir;");
+    expect(text).toContain("30.000,00 USD + KDV");
+    expect(text).toContain("AKDAĞ KALIP/Zeytinburnu işletmesinden teslim alınacaktır");
+    // Ek maddeler açılınca numaralar kaymadan sıralı kalır.
+    expect(text).toMatch(/3\.5\.\s*AKDAĞ KALIP firmasından ikinci el/);
+    expect(text).toMatch(/4\.3\.\s*İş bu sözleşmenin karşılıklı feshedilmesi/);
+  });
+
   it("paginates dispatch and delivery rows with continuous numbering", () => {
     const items = Array.from({ length: 25 }, (_, index) => ({ description: `SEVKIYAT-${index + 1}`, quantity: 1 }));
     const dispatch = dispatchNoteDoc({ irsaliyeNo: "IRS-001", items }, assetBase);

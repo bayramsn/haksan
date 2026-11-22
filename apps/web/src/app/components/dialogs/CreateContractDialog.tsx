@@ -9,6 +9,8 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Combobox } from "../ui/combobox";
 import { Switch } from "../ui/switch";
+import { ContractClausesFields, cleanContractClauses } from "./ContractClausesFields";
+import type { ContractClausesInput } from "@haksan/shared";
 import { DialogSplitLayout, DialogSidebarSection } from "../shared/DialogSplitLayout";
 import { DocumentDiscountFields, ProformaItemsEditor, ProformaTotalsPanel } from "../shared/ProformaItemsEditor";
 import { useStore } from "../../lib/store";
@@ -36,6 +38,7 @@ type ContractTermsMetadata = {
   deliveryLocation?: string;
   estimatedDeliveryDaysMin?: number;
   estimatedDeliveryDaysMax?: number;
+  contractClauses?: ContractClausesInput;
 };
 
 /**
@@ -278,6 +281,7 @@ export function CreateContractDialog({
               deliveryTermsText: deliveryTerms,
               warrantyTermsText: warrantyTerms,
               ...termsMetadata,
+              contractClauses: cleanContractClauses(termsMetadata.contractClauses ?? {}),
             }
           : undefined,
       });
@@ -540,6 +544,13 @@ export function CreateContractDialog({
               />
               Nakliye ve sigorta HAKSAN'a ait (madde 2.6)
             </label>
+            <ContractClausesFields
+              value={termsMetadata.contractClauses ?? {}}
+              onChange={(next) => {
+                setTermsMetadata((current) => ({ ...current, contractClauses: next }));
+                setTermsDirty(true);
+              }}
+            />
           </div>
           </div>
           </DialogSplitLayout>
