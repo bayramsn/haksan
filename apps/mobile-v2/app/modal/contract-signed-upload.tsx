@@ -107,8 +107,10 @@ export default function ContractSignedUploadScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={file ? `Seçili dosya ${file.name}, değiştir` : 'İmzalı PDF seç'}
+            accessibilityState={{ disabled: busy, busy }}
+            disabled={busy}
             onPress={() => void chooseFile()}
-            className="min-h-[72px] flex-row items-center gap-3 rounded-control border border-dashed border-border bg-muted px-4 py-4 active:opacity-70"
+            className={`min-h-[72px] flex-row items-center gap-3 rounded-control border border-dashed border-border bg-muted px-4 py-4 ${busy ? 'opacity-50' : 'active:opacity-70'}`}
           >
             <View className="h-10 w-10 items-center justify-center rounded-control bg-secondary">
               <Ionicons name="document-attach-outline" size={20} color={colors.primary} />

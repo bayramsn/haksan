@@ -5,6 +5,9 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { QueryClient, QueryObserver } from '@tanstack/react-query';
 
+const scopePolicy = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('./scope-options.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports: scopePolicy });
+
 function providerHarness(secureStore = {}) {
   const exports = {}, renderState = { user: { id: 'alice', tenantId: 'tenant', canViewAllDivisions: false, divisions: [{ id: 'cnc' }], departments: [], accessScopes: [{ divisionId: null }] }, scope: { divisionId: 'cnc', departmentId: null }, callbacks: [], changes: [] };
   let cursor = 0;
@@ -17,6 +20,7 @@ function providerHarness(secureStore = {}) {
     'expo-crypto': { getRandomValues: bytes => bytes },
     '@/src/offline/queue': { setQueueScope: () => {}, flushQueue: async () => ({ sent: 0 }) }, '@/src/api/config': { apiOrigin: () => 'https://test.invalid' },
     '@/src/query/client': { queryClient: { clear: () => {} } }, '@/src/push/usePush': {},
+    './scope-options': scopePolicy,
     './scope': { activeScope: () => renderState.scope, setActiveScope: scope => renderState.changes.push(scope) },
   };
   const source = ts.transpileModule(readFileSync(new URL('./AuthProvider.tsx', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021, jsx: ts.JsxEmit.ReactJSX } }).outputText;
@@ -57,4 +61,16 @@ test('restoring a cached session keeps its original authentication time', async 
   applySession(h.state.user, null, 1_000);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(writes.at(-1).authenticatedAt, 1_000);
+});
+
+
+test('resource-aware scope change publishes exactly one valid department/division pair', () => {
+  const h = providerHarness();
+  h.state.user = { ...h.state.user, canViewAllDivisions: false, divisions: [{ id: 'cnc', isPrimary: true }, { id: 'sac' }], departments: [{ id: 'sales' }, { id: 'service' }], accessScopes: [{ resource: 'opportunities', departmentId: 'sales', divisionId: 'cnc', isPrimary: true }, { resource: 'opportunities', departmentId: 'service', divisionId: 'sac', isPrimary: false }] };
+  h.state.scope = { divisionId: 'cnc', departmentId: 'sales' };
+  h.render();
+  h.state.callbacks[1]({ divisionId: 'cnc', departmentId: 'service' }, 'opportunities');
+  assert.equal(h.state.changes.length, 1);
+  assert.equal(h.state.changes[0].departmentId, 'service');
+  assert.equal(h.state.changes[0].divisionId, 'sac');
 });

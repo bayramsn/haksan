@@ -64,7 +64,7 @@ export default function ComplaintLinkScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Herkese Açık Şikayet Linki', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <FormSection title="Link kapsamı" hint="Linkin kapsamını belirleyin; müşteri giriş yapmadan güvenli servis bildirimi oluşturabilsin.">
             <CompanyPicker
               label="Firma"
@@ -138,7 +138,7 @@ export default function ComplaintLinkScreen() {
             </Card>
           ) : null}
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button className="flex-1" label="Kapat" variant="ghost" onPress={() => router.back()} />
           {result ? null : (
             <Button className="flex-[2]" label="Link oluştur" loading={create.isPending} disabled={create.isPending} onPress={submit} />

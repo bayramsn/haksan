@@ -1,5 +1,7 @@
 # Web → mobil alan karşılaştırması
 
+Güncel ek çalışma: [4 Kasım 2026 canlı web/mobil denetimi](./parite-denetimi-2026-11-04.md). Aşağıdaki ilk karşılaştırmanın ardından mobil PDF, mail ekleri ve şablon akışları genişletildi; kullanıcının onayıyla API’ye proforma/sözleşme PDF uçları eklendi. Açık kalan alanlar güncel raporda ayrıca belirtilir.
+
 2026-10-23. Referans: çalışma ağacındaki apps/web ve apps/api kaynakları.
 Web/backend dosyaları bu çalışma kapsamında değiştirilmedi. Üretim yazımı yapılmadı.
 

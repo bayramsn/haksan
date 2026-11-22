@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -67,6 +68,7 @@ const priceInput = (value: string | null | undefined) => (value == null || value
 /** Web `CreateAccountingInvoiceDialog`: "Muhasebe Faturası" / "Faturayı Düzenle" / siparişten "Alış Faturası". */
 export default function InvoiceFormScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ id?: string; purchaseOrderId?: string; companyId?: string }>();
   const id = params.id ?? '';
@@ -274,7 +276,7 @@ export default function InvoiceFormScreen() {
       } else {
         const created = await create.mutateAsync(payload);
         toast.success(form.type === 'sales' ? 'Satış faturası oluşturuldu' : 'Alış faturası oluşturuldu');
-        router.replace(`/modules/invoices/${created.id}` as Href);
+        router.replace(recordDestination(`/modules/invoices/${created.id}`));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : '';

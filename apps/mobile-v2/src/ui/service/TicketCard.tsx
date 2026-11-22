@@ -7,7 +7,7 @@ import { useAuth } from '@/src/auth/AuthProvider';
 import { formatDate } from '@/src/lib/format';
 import type { Tone } from '@/src/theme/theme';
 import { Chip } from '@/src/ui';
-import { SERVICE_NEXT_ACTION, SEVERITY_LABELS, STAGE_LABELS, isSlaOverdue, locationLabel, serviceStageOf } from './serviceStage';
+import { SEVERITY_LABELS, STAGE_LABELS, isSlaOverdue, locationLabel, serviceStageOf } from './serviceStage';
 
 const SEVERITY_TONE: Record<string, Tone> = { critical: 'destructive', high: 'warning', normal: 'info', low: 'neutral' };
 
@@ -29,7 +29,7 @@ export function useTicketLookups() {
 
 export function TicketCard({
   item,
-  location,
+  location: _location,
   assignee,
   onPress,
   onLongPress,
@@ -45,9 +45,7 @@ export function TicketCard({
   const stage = serviceStageOf(item);
   const overdue = isSlaOverdue(item, Date.now());
   const company = item.company?.shortName ?? item.company?.legalTitle ?? 'Firma bağlanmadı';
-  const meta = [company, location, assignee ?? 'Atanmadı', SERVICE_NEXT_ACTION[stage], formatDate(item.reportedAt)]
-    .filter(Boolean)
-    .join(' · ');
+  const meta = [company, assignee ?? 'Atanmadı', formatDate(item.reportedAt)].filter(Boolean).join(' · ');
 
   return (
     <Pressable
@@ -65,16 +63,14 @@ export function TicketCard({
         </Text>
         <Chip tone={SEVERITY_TONE[item.severity] ?? 'neutral'} label={SEVERITY_LABELS[item.severity] ?? item.severity} />
       </View>
-      <Text className="font-inter text-[13px] text-foreground" numberOfLines={compact ? 2 : 1}>
-        {item.subject}
+      <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>
+        {[item.subject, meta].filter(Boolean).join(' · ')}
       </Text>
-      <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
-        {meta}
-      </Text>
-      <View className="flex-row flex-wrap items-center gap-1">
-        {compact ? null : <Chip tone="info" label={STAGE_LABELS[stage]} />}
-        {overdue ? <Chip tone="destructive" label="SLA aşıldı" /> : null}
-      </View>
+      {overdue ? (
+        <View className="flex-row flex-wrap items-center gap-1">
+          <Chip tone="destructive" label="SLA aşıldı" />
+        </View>
+      ) : null}
     </Pressable>
   );
 }

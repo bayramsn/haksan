@@ -1,3 +1,5 @@
+import { printDocument } from '@/src/native/print-document';
+import { dispatchPrint } from './logistics-print';
 import { Text, View } from 'react-native';
 import { formatDate } from '@/src/lib/format';
 import { CrmDocumentShare, DocRow, DocTitle } from './DocumentCapture';
@@ -42,7 +44,10 @@ export function CargoLabelDocument({
           {tel ? <Text className="font-inter-semibold text-[16px] text-foreground">Tel: {tel}</Text> : null}
         </View>
       </View>
-      <CrmDocumentShare fileId={fileId} filename="kargo-etiketi.pdf" label="CRM'den etiket PDF indir" />
+      <CrmDocumentShare fileId={fileId} render={{ kind: 'shipment-label', html: () => printDocument({ title: 'Kargo Etiketi', sections: [
+        { title: 'Gönderen', rows: [{ label: 'Firma', value: HAKSAN.unvan }, { label: 'Adres', value: HAKSAN.adres }, { label: 'Telefon', value: HAKSAN.tel }] },
+        { title: 'Alıcı', rows: [{ label: 'Firma', value: firma }, { label: 'Adres', value: adres }, { label: 'İlçe / şehir', value: ilceSehir }, { label: 'Telefon', value: tel }] },
+      ] }) }} filename="kargo-etiketi.pdf" label="Etiket PDF aç / paylaş" />
     </View>
   );
 }
@@ -68,7 +73,7 @@ export function DispatchNoteDocument({ data, fileId }: { data: DispatchNoteData;
   return (
     <View className="gap-3">
       <View className="rounded-surface border border-border bg-card p-4">
-        <Text className="font-display-semibold text-lg text-foreground">SEVK İRSALİYESİ</Text>
+        <Text className="font-inter-semibold text-lg text-foreground">SEVK İRSALİYESİ</Text>
         <DocRow label="İrsaliye No" value={data.irsaliyeNo} />
         <DocRow label="Tarih" value={data.tarih ? formatDate(data.tarih) : null} />
         <DocRow label="Taşıyıcı" value={data.carrier} />
@@ -111,7 +116,7 @@ export function DispatchNoteDocument({ data, fileId }: { data: DispatchNoteData;
           {`${HAKSAN.unvan} · ${HAKSAN.adres} · Tel: ${HAKSAN.tel} Faks: ${HAKSAN.faks} · Vergi: ${HAKSAN.vergi}`}
         </Text>
       </View>
-      <CrmDocumentShare fileId={fileId} filename={`sevk-irsaliyesi-${data.irsaliyeNo}.pdf`} label="CRM'den irsaliye PDF indir" />
+      <CrmDocumentShare fileId={fileId} render={{ kind: 'shipment-dispatch', html: () => dispatchPrint(data) }} filename={`sevk-irsaliyesi-${data.irsaliyeNo}.pdf`} label="İrsaliye PDF aç / paylaş" />
     </View>
   );
 }

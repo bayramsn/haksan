@@ -50,7 +50,7 @@ export default function TaskDetailScreen() {
   if (query.isPending || query.error || !query.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Görev" />
+        <DetailHeader title="Görev" compact />
         {query.isPending ? (
           <Loading />
         ) : (
@@ -119,11 +119,10 @@ export default function TaskDetailScreen() {
                 },
               ]
             : []
-        }
-      />
+        } compact />
       <ScrollView
-      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
-        contentContainerClassName="gap-4 px-4 pb-10 pt-4"
+      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
+        contentContainerClassName="gap-3 px-4 pb-8 pt-3"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.primary} />}
       >
         <Card className="gap-2">
@@ -132,7 +131,7 @@ export default function TaskDetailScreen() {
             <Chip label={priority.label} tone={priority.tone} />
             {task.overdue ? <Chip label="Gecikti" tone="destructive" /> : null}
           </View>
-          <Text className={`font-inter-semibold text-[20px] text-foreground ${closed ? 'line-through' : ''}`}>{task.title}</Text>
+          <Text className={`font-inter-semibold text-[17px] text-foreground ${closed ? 'line-through' : ''}`}>{task.title}</Text>
           <Text className={`font-inter text-[13px] ${task.overdue ? 'text-destructive' : 'text-muted-foreground'}`}>
             {task.dueAt ? `Son tarih: ${formatDateTime(task.dueAt)}` : 'Tarihsiz'}
           </Text>

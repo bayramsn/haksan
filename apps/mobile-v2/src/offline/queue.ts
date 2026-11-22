@@ -1,6 +1,8 @@
 import * as SecureStore from '@/src/security/secure-store';
 import { ApiError, OfflineError } from '@/src/api/client';
-import { companies } from '@/src/api/endpoints';
+import { companies, inventoryApi } from '@/src/api/endpoints';
+import { quoteOpportunityApi, quotesApi, type QuoteCreateInput, type QuoteItemInput, type QuoteTermsInput } from '@/src/api/quotes.api';
+import { itemsNetTotal } from '@/src/ui/documents/quote-logic';
 import { classifyFailure } from './failure';
 
 const INDEX_KEY = 'haksan.offline.index.v3';
@@ -25,11 +27,34 @@ export type CompanyStatusQueuePayload = {
   operationId: string;
 };
 
-export type MutationKind = 'company.status';
+/** Web `createQuoteFull` ile aynı iş; mobil saha formu offline kuyruğa yazılır. */
+export type QuoteCreateQueuePayload = {
+  operationId: string;
+  quote: QuoteCreateInput;
+  items: QuoteItemInput[];
+  terms: QuoteTermsInput;
+};
+
+export type InventoryReserveQueuePayload = {
+  operationId: string;
+  id: string;
+  companyId: string;
+  opportunityId?: string;
+  quoteId?: string;
+  notes?: string;
+};
+
+export type MutationKind = 'company.status' | 'quote.create' | 'inventory.reserve';
+
+export type QueuePayload =
+  | CompanyStatusQueuePayload
+  | QuoteCreateQueuePayload
+  | InventoryReserveQueuePayload;
+
 export type QueuedMutation = {
   id: string;
   kind: MutationKind;
-  payload: CompanyStatusQueuePayload;
+  payload: QueuePayload;
   scope: QueueScope;
   createdAt: string;
   retryCount: number;
@@ -37,6 +62,12 @@ export type QueuedMutation = {
   state: 'pending' | 'failed';
   failure?: 'conflict' | 'rejected' | 'retry_exhausted';
   lastStatus?: number;
+};
+
+export const MUTATION_KIND_LABELS: Record<MutationKind, string> = {
+  'company.status': 'Firma durumu',
+  'quote.create': 'Teklif oluşturma',
+  'inventory.reserve': 'Stok rezervasyonu',
 };
 
 const records = new Map<string, QueuedMutation>();
@@ -62,28 +93,58 @@ function isScope(value: unknown): value is QueueScope {
     && (row.departmentId === null || typeof row.departmentId === 'string');
 }
 
+function isCompanyStatusPayload(payload: Record<string, unknown>, operationId: string): boolean {
+  return typeof payload.id === 'string'
+    && UUID_PATTERN.test(payload.id)
+    && typeof payload.operationId === 'string'
+    && payload.operationId === operationId
+    && typeof payload.customerStatusCode === 'string'
+    && STATUS_CODES.has(payload.customerStatusCode);
+}
+
+function isQuoteCreatePayload(payload: Record<string, unknown>, operationId: string): boolean {
+  const quote = payload.quote as QuoteCreateInput | undefined;
+  const items = payload.items;
+  const terms = payload.terms;
+  return typeof payload.operationId === 'string'
+    && payload.operationId === operationId
+    && Boolean(quote)
+    && typeof quote === 'object'
+    && typeof quote.companyId === 'string'
+    && UUID_PATTERN.test(quote.companyId)
+    && Array.isArray(items)
+    && items.length > 0
+    && items.length <= 80
+    && Boolean(terms)
+    && typeof terms === 'object';
+}
+
+function isInventoryReservePayload(payload: Record<string, unknown>, operationId: string): boolean {
+  return typeof payload.operationId === 'string'
+    && payload.operationId === operationId
+    && typeof payload.id === 'string'
+    && UUID_PATTERN.test(payload.id)
+    && typeof payload.companyId === 'string'
+    && UUID_PATTERN.test(payload.companyId)
+    && (payload.opportunityId === undefined || (typeof payload.opportunityId === 'string' && UUID_PATTERN.test(payload.opportunityId)))
+    && (payload.quoteId === undefined || (typeof payload.quoteId === 'string' && UUID_PATTERN.test(payload.quoteId)))
+    && (payload.notes === undefined || (typeof payload.notes === 'string' && payload.notes.length <= 2000));
+}
+
 function isQueuedMutation(value: unknown): value is QueuedMutation {
   if (!value || typeof value !== 'object') return false;
   const row = value as Record<string, unknown>;
   const payload = row.payload as Record<string, unknown> | undefined;
-  return typeof row.id === 'string'
-    && UUID_PATTERN.test(row.id)
-    && row.kind === 'company.status'
-    && isScope(row.scope)
-    && typeof row.createdAt === 'string'
-    && Number.isFinite(Date.parse(row.createdAt))
-    && typeof row.retryCount === 'number'
-    && Number.isInteger(row.retryCount)
-    && row.retryCount >= 0
-    && typeof row.nextAttemptAt === 'number'
-    && (row.state === 'pending' || row.state === 'failed')
-    && Boolean(payload)
-    && typeof payload!.id === 'string'
-    && UUID_PATTERN.test(payload!.id)
-    && typeof payload!.operationId === 'string'
-    && payload!.operationId === row.id
-    && typeof payload!.customerStatusCode === 'string'
-    && STATUS_CODES.has(payload!.customerStatusCode);
+  if (typeof row.id !== 'string' || !UUID_PATTERN.test(row.id) || !isScope(row.scope)) return false;
+  if (typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt))) return false;
+  if (typeof row.retryCount !== 'number' || !Number.isInteger(row.retryCount) || row.retryCount < 0) return false;
+  if (typeof row.nextAttemptAt !== 'number') return false;
+  if (row.state !== 'pending' && row.state !== 'failed') return false;
+  if (!payload) return false;
+  if (row.kind === 'company.status') return isCompanyStatusPayload(payload, row.id);
+  if (row.kind === 'quote.create') return isQuoteCreatePayload(payload, row.id);
+  if (row.kind === 'inventory.reserve') return isInventoryReservePayload(payload, row.id);
+  return false;
 }
 
 function recordKey(id: string): string {
@@ -166,7 +227,24 @@ export function failedCount(): number {
   return visibleRecords().filter((item) => item.state === 'failed').length;
 }
 
-export async function enqueue(kind: MutationKind, payload: CompanyStatusQueuePayload, expectedScope = queueScopeSnapshot()): Promise<QueuedMutation> {
+/** Ayarlar ekranı için görünür kuyruk kopyası (yeniden eskiye). */
+export function listQueuedMutations(): QueuedMutation[] {
+  return visibleRecords().sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+function operationIdOf(payload: QueuePayload): string {
+  return payload.operationId;
+}
+
+function validatePayload(kind: MutationKind, payload: QueuePayload): boolean {
+  const asRecord = payload as unknown as Record<string, unknown>;
+  if (kind === 'company.status') return isCompanyStatusPayload(asRecord, payload.operationId);
+  if (kind === 'quote.create') return isQuoteCreatePayload(asRecord, payload.operationId);
+  if (kind === 'inventory.reserve') return isInventoryReservePayload(asRecord, payload.operationId);
+  return false;
+}
+
+export async function enqueue(kind: MutationKind, payload: QueuePayload, expectedScope = queueScopeSnapshot()): Promise<QueuedMutation> {
   const generation = scopeGeneration;
   const assertScope = () => {
     if (generation !== scopeGeneration || !expectedScope || !currentScope || JSON.stringify(expectedScope) !== JSON.stringify(currentScope)) throw new Error('Çalışma alanı değişti; işlem kuyruğa alınmadı.');
@@ -174,10 +252,10 @@ export async function enqueue(kind: MutationKind, payload: CompanyStatusQueuePay
   await hydrateQueue();
   assertScope();
   if (!currentScope) throw new Error('Çevrimdışı işlem için güvenli kullanıcı kapsamı bulunamadı.');
-  if (kind !== 'company.status' || !UUID_PATTERN.test(payload.id) || !UUID_PATTERN.test(payload.operationId) || !STATUS_CODES.has(payload.customerStatusCode)) {
-    throw new Error('Çevrimdışı işlem güvenli biçimde doğrulanamadı.');
-  }
-  const existing = records.get(payload.operationId);
+  if (!validatePayload(kind, payload)) throw new Error('Çevrimdışı işlem güvenli biçimde doğrulanamadı.');
+  const operationId = operationIdOf(payload);
+  if (!UUID_PATTERN.test(operationId)) throw new Error('Çevrimdışı işlem güvenli biçimde doğrulanamadı.');
+  const existing = records.get(operationId);
   if (existing) {
     if (!sameOwner(existing.scope, currentScope)) throw new Error('İşlem farklı hesaba ait.');
     return existing;
@@ -185,7 +263,7 @@ export async function enqueue(kind: MutationKind, payload: CompanyStatusQueuePay
   if (records.size >= MAX_ITEMS) throw new Error('Güvenli çevrimdışı işlem kuyruğu dolu; önce bekleyen işlemleri eşitleyin.');
 
   const item: QueuedMutation = {
-    id: payload.operationId,
+    id: operationId,
     kind,
     payload,
     scope: { ...expectedScope! },
@@ -212,18 +290,60 @@ export async function enqueue(kind: MutationKind, payload: CompanyStatusQueuePay
 
 export type FlushResult = { sent: number; failed: number; remaining: number };
 
+async function replayQuoteCreate(payload: QuoteCreateQueuePayload): Promise<void> {
+  let opportunityId = payload.quote.opportunityId ?? undefined;
+  let createdNewCase = false;
+  if (!opportunityId) {
+    const opportunity = await quoteOpportunityApi.create({
+      companyId: payload.quote.companyId,
+      title: payload.items[0]?.description.slice(0, 255) || 'Yeni Teklif',
+      estimatedValue: itemsNetTotal(payload.items.map((row) => ({ ...row, itemId: undefined }))),
+      currencyCode: payload.quote.currencyCode,
+      probability: 50,
+      ...(payload.quote.divisionId ? { divisionId: payload.quote.divisionId } : {}),
+    });
+    opportunityId = opportunity.id;
+    createdNewCase = true;
+  }
+  const created = await quotesApi.create({ ...payload.quote, opportunityId });
+  for (const row of payload.items) {
+    await quotesApi.addItem(created.id, row);
+  }
+  await quotesApi.terms(created.id, payload.terms);
+  if (createdNewCase && opportunityId) {
+    await quoteOpportunityApi.changeStage(opportunityId, { toStage: 'quote' }).catch(() => undefined);
+  }
+}
+
 async function replay(item: QueuedMutation): Promise<void> {
-  await companies.updateStatus(
-    item.payload.id,
-    {
-      customerStatusCode: item.payload.customerStatusCode,
-      operationId: item.payload.operationId,
-    },
-    {
-      divisionId: item.scope.divisionId,
-      departmentId: item.scope.departmentId,
-    },
-  );
+  if (item.kind === 'company.status') {
+    const payload = item.payload as CompanyStatusQueuePayload;
+    await companies.updateStatus(
+      payload.id,
+      {
+        customerStatusCode: payload.customerStatusCode,
+        operationId: payload.operationId,
+      },
+      {
+        divisionId: item.scope.divisionId,
+        departmentId: item.scope.departmentId,
+      },
+    );
+    return;
+  }
+  if (item.kind === 'quote.create') {
+    await replayQuoteCreate(item.payload as QuoteCreateQueuePayload);
+    return;
+  }
+  if (item.kind === 'inventory.reserve') {
+    const payload = item.payload as InventoryReserveQueuePayload;
+    await inventoryApi.reserve(payload.id, {
+      companyId: payload.companyId,
+      ...(payload.opportunityId ? { opportunityId: payload.opportunityId } : {}),
+      ...(payload.quoteId ? { quoteId: payload.quoteId } : {}),
+      ...(payload.notes ? { notes: payload.notes } : {}),
+    });
+  }
 }
 
 async function performFlush(): Promise<FlushResult> {

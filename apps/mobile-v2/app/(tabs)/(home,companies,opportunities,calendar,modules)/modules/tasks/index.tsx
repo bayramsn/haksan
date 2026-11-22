@@ -3,7 +3,8 @@ import { FlatList, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import { useTaskAssignees, useTaskCounts, useToggleTaskDone } from '@/src/api/tasks.hooks';
 import { useTaskListExt, useTaskSummary } from '@/src/api/crm-general.hooks';
 import type { TaskListQueryExt } from '@/src/api/crm-general.api';
@@ -154,9 +155,9 @@ export default function TasksScreen() {
   const header = (
     <View className="gap-3 pb-2">
       {counts.error ? <ErrorState message="Görev sayıları yüklenemedi." onRetry={() => void counts.refetch()} /> : null}
-      <Text className="font-inter text-[12px] leading-[18px] text-muted-foreground">
-        {params.opportunityId ? 'Liste yalnızca bu fırsata bağlı görevleri gösterir.' : canManage ? 'Bugün ve geciken sayıları, seçili bölümde görebildiğiniz ekip görevlerini kapsar.' : 'Bugün ve geciken sayıları, size atanan veya sizin oluşturduğunuz görevleri kapsar.'}
-      </Text>
+      {params.opportunityId ? (
+        <Text className="font-inter text-[12px] text-muted-foreground">Bu fırsata bağlı görevler.</Text>
+      ) : null}
       {canManage && !params.opportunityId && (summary.data?.length ?? 0) > 0 ? (
         <View className="gap-2">
           <View className="flex-row items-center gap-1.5">
@@ -192,30 +193,12 @@ export default function TasksScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Görevler"
-        subtitle={params.opportunityId ? 'Bu fırsata bağlı takip görevleri.' : 'Atanan işleri takip edin, detayları açın ve tamamlayın.'}
         actions={[
           { icon: 'swap-vertical-outline' as const, label: 'Sıralama', onPress: () => sortSheet.current?.present() },
           ...(canCreate ? [{ icon: 'add' as const, label: 'Yeni Görev', onPress: () => router.push('/modal/task' as Href) }] : []),
         ]}
-      />
+        compact/>
 
-      {!params.opportunityId ? <View className="flex-row gap-3 px-4 pb-3">
-        {([{ value: 'today', label: 'Bugün yapılacak', icon: 'today-outline' },
-          { value: 'overdue', label: 'Geciken görev', icon: 'time-outline' }] as const).map((metric) => (
-          <Pressable key={metric.value} accessibilityRole="button"
-            accessibilityLabel={`${metric.label}: ${counts.data?.[metric.value] ?? 'yükleniyor'}`}
-            accessibilityState={{ selected: view === metric.value }} onPress={() => setView(metric.value)}
-            className={`min-h-[88px] flex-1 gap-2 rounded-surface border p-3 ${view === metric.value ? 'border-primary bg-secondary' : 'border-border bg-card'}`}>
-            <View className="flex-row items-center justify-between">
-              <Ionicons name={metric.icon} size={18} color={metric.value === 'overdue' && (counts.data?.overdue ?? 0) > 0 ? colors.destructive : colors.primary} />
-              <Text className={`font-inter-semibold text-[24px] ${metric.value === 'overdue' && (counts.data?.overdue ?? 0) > 0 ? 'text-destructive' : 'text-foreground'}`} style={{ fontVariant: ['tabular-nums'] }}>
-                {counts.data?.[metric.value] ?? '—'}
-              </Text>
-            </View>
-            <Text className="font-inter-medium text-[12px] text-muted-foreground">{metric.label}</Text>
-          </Pressable>
-        ))}
-      </View> : null}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -259,12 +242,11 @@ export default function TasksScreen() {
       </View>
 
       <View className="min-h-11 flex-row flex-wrap items-center justify-between gap-2 px-4 pb-2">
-        <View className="min-w-0 flex-1">
-          <Text accessibilityLiveRegion="polite" className="font-inter-semibold text-[14px] text-foreground">
-            {viewLabel}{list.data ? ` · ${items.length} / ${list.data.meta.total} görev` : ''}
-          </Text>
-          <Text className="font-inter text-[12px] text-muted-foreground">{TASK_SORT_OPTIONS.find((option) => option.value === sortBy)?.label}{filterCount ? ` · ${filterCount} filtre` : ''}</Text>
-        </View>
+        <Text accessibilityLiveRegion="polite" numberOfLines={1} className="min-w-0 flex-1 font-inter-semibold text-[14px] text-foreground">
+          {viewLabel}
+          {` · ${TASK_SORT_OPTIONS.find((option) => option.value === sortBy)?.label}`}
+          {filterCount ? ` · ${filterCount} filtre` : ''}
+        </Text>
         {narrowed ? <Pressable accessibilityRole="button" onPress={clearFilters} className="min-h-11 justify-center px-2">
           <Text className="font-inter-medium text-[13px] text-primary">Temizle</Text>
         </Pressable> : null}
@@ -348,7 +330,6 @@ export default function TasksScreen() {
                         {item.assignee.fullName}
                       </Text>
                     ) : null}
-                    <Text className="font-inter-medium text-xs text-muted-foreground">{STATUS_LABEL[item.status]}</Text>
                   </View>
                 </Pressable>
                 <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
@@ -375,7 +356,7 @@ export default function TasksScreen() {
         enableDynamicSizing={false}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetScrollView contentContainerStyle={{ gap: 12, paddingBottom: 40, paddingTop: 4, paddingHorizontal: SCREEN_PAD }}>
           <Text className="font-inter-semibold text-base text-foreground">Filtreler</Text>

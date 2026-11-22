@@ -70,7 +70,7 @@ export function AudiencesTab({ canManage }: { canManage: boolean }) {
           {(audiences.data ?? []).map((audience) => (
             <View key={audience.id} className="gap-2 rounded-control border border-border bg-card-subtle p-3">
               <View className="flex-row items-start gap-2">
-                <Text className="flex-1 font-display text-[17px] text-foreground" numberOfLines={1}>{audience.name}</Text>
+                <Text className="flex-1 font-inter-semibold text-[17px] text-foreground" numberOfLines={1}>{audience.name}</Text>
                 <MetaStatusChip status={audience.syncStatus} label={SYNC_STATUS_LABELS[audience.syncStatus] ?? 'Bekliyor'} />
               </View>
               <Text className="font-inter text-xs text-muted-foreground" numberOfLines={2}>{audience.description || 'Açıklama eklenmemiş'}</Text>

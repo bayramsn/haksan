@@ -2,18 +2,20 @@ import { useNavigationContext } from '@/src/modules/useNavigationContext';
 import { startCrmCall } from '@/src/call-assistant/call';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Linking, Pressable, Text, View } from 'react-native';
+import { Alert, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import { useDeleteContact } from '@/src/api/crm.hooks';
 import { useContactListExt, useContactSummaryExt } from '@/src/api/crm-general.hooks';
 import type { ContactListRow } from '@/src/api/crm-general.api';
 import { exportService } from '@/src/api/exports';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import {
+  Button,
   Chip,
   EmptyState,
   ErrorState,
@@ -31,7 +33,6 @@ import { useTheme } from '@/src/theme/theme';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { toast } from '@/src/ui/toast';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
-import { formatDate } from '@/src/lib/format';
 import { SheetMenu } from '@/src/ui/crm/SheetMenu';
 import { mailComposeHref } from '@/src/ui/crm/mail-logic';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
@@ -44,47 +45,6 @@ import {
   type ContactSortValue,
   type ContactTab,
 } from '@/src/features/contacts/contact-list-logic';
-
-function MetaBit({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
-  const { colors } = useTheme();
-  return (
-    <View className="max-w-full shrink flex-row items-center gap-1">
-      <Ionicons name={icon} size={12} color={colors.mutedForeground} />
-      <Text className="shrink font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-        {text}
-      </Text>
-    </View>
-  );
-}
-
-function RowAction({
-  icon,
-  label,
-  onPress,
-  destructive,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  onPress?: () => void;
-  destructive?: boolean;
-}) {
-  const { colors } = useTheme();
-  const disabled = !onPress;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      hitSlop={4}
-      className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
-      style={disabled ? { opacity: 0.35 } : undefined}
-    >
-      <Ionicons name={icon} size={18} color={destructive ? colors.destructive : colors.mutedForeground} />
-    </Pressable>
-  );
-}
 
 function ContactRow({
   item,
@@ -105,62 +65,68 @@ function ContactRow({
   const company = item.company?.shortName ?? item.company?.legalTitle ?? null;
   const phone = item.mobilePhone ?? item.workPhone;
   const email = item.workEmail ?? item.personalEmail;
-  const creator = item.createdByUser?.fullName || item.createdByUser?.email || null;
+  const meta = [
+    company ? `${company}${item.company?.city ? ` · ${item.company.city}` : ''}` : null,
+    [item.title, item.department].filter(Boolean).join(' · ') || null,
+    phone || email || null,
+  ].filter(Boolean).join(' · ');
 
   return (
-    <View className="my-[5px] rounded-[16px] border border-border bg-card" style={{ borderCurve: 'continuous' }}>
-      <Pressable
-        onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={item.fullName}
-        className="flex-row gap-3 px-3 pb-2 pt-3.5 active:opacity-70"
-      >
-        <View className="h-[42px] w-[42px] items-center justify-center rounded-full bg-muted">
-          <Text className="font-inter-semibold text-[14px] text-foreground">{initials(item.fullName)}</Text>
-        </View>
-        <View className="flex-1 gap-1">
-          <View className="flex-row flex-wrap items-center gap-2">
-            <Text className="shrink font-inter-semibold text-[16px] leading-[21px] text-foreground" numberOfLines={2}>
-              {item.fullName}
-            </Text>
-            {item.isPrimary ? <Chip tone="warning" label="Birincil" shrink /> : null}
-            {item.isBlacklisted ? <Chip tone="destructive" label="Kara liste" shrink /> : null}
+    <View className="my-1 overflow-hidden rounded-surface border border-border bg-card">
+      <View className="flex-row items-stretch">
+        <Pressable
+          onPress={onPress}
+          accessibilityRole="button"
+          accessibilityLabel={item.fullName}
+          className="min-w-0 flex-1 flex-row gap-3 p-3.5 active:opacity-70"
+        >
+          <View className="h-9 w-9 items-center justify-center rounded-control bg-secondary">
+            <Text className="font-inter-semibold text-[13px] text-foreground">{initials(item.fullName)}</Text>
           </View>
-          {company ? (
-            <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={2}>
-              {company}
-              {item.company?.city ? ` · ${item.company.city}` : ''}
-            </Text>
-          ) : null}
-          {item.title || item.department || item.decisionRole ? (
-            <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-              {[item.title, item.department, item.decisionRole?.name].filter(Boolean).join(' · ')}
-            </Text>
-          ) : null}
-          {phone || email ? (
-            <View className="gap-1">
-              {phone ? <MetaBit icon="call-outline" text={phone} /> : null}
-              {email ? <MetaBit icon="mail-outline" text={email} /> : null}
+          <View className="min-w-0 flex-1 gap-0.5">
+            <View className="flex-row flex-wrap items-center gap-1">
+              <Text className="shrink font-inter-semibold text-[15px] leading-[20px] text-foreground" numberOfLines={1}>
+                {item.fullName}
+              </Text>
+              {item.isPrimary ? <Chip tone="warning" label="Birincil" shrink /> : null}
+              {item.isBlacklisted ? <Chip tone="destructive" label="Kara liste" shrink /> : null}
             </View>
+            {meta ? (
+              <Text className="font-inter text-[12px] leading-[17px] text-muted-foreground" numberOfLines={2}>
+                {meta}
+              </Text>
+            ) : null}
+          </View>
+        </Pressable>
+      </View>
+      {(onCall || onMail || onEdit || onDelete) ? (
+        <View className="flex-row border-t border-border">
+          {onCall ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Ara" onPress={onCall}
+              className="min-h-11 flex-1 items-center justify-center active:opacity-70">
+              <Ionicons name="call-outline" size={18} color={colors.primary} />
+            </Pressable>
           ) : null}
-          {item.notes ? (
-            <Text className="font-inter text-[12px] italic text-muted-foreground" numberOfLines={1}>
-              {item.notes}
-            </Text>
+          {onMail ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="E-posta" onPress={onMail}
+              className="min-h-11 flex-1 items-center justify-center border-l border-border active:opacity-70">
+              <Ionicons name="mail-outline" size={18} color={colors.primary} />
+            </Pressable>
+          ) : null}
+          {onEdit ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Düzenle" onPress={onEdit}
+              className="min-h-11 flex-1 items-center justify-center border-l border-border active:opacity-70">
+              <Ionicons name="create-outline" size={18} color={colors.primary} />
+            </Pressable>
+          ) : null}
+          {onDelete ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Sil" onPress={onDelete}
+              className="min-h-11 flex-1 items-center justify-center border-l border-border active:opacity-70">
+              <Ionicons name="trash-outline" size={18} color={colors.destructive} />
+            </Pressable>
           ) : null}
         </View>
-        <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
-      </Pressable>
-      <Text className="px-3 pb-2 font-inter text-[12px] text-muted-foreground">
-          {formatDate(item.createdAt)}
-          {creator ? ` · ${creator}` : ''}
-        </Text>
-      <View className="flex-row items-center justify-end border-t border-border px-2">
-        <RowAction icon="call-outline" label="Ara" onPress={onCall} />
-        <RowAction icon="mail-outline" label="E-posta" onPress={onMail} />
-        {onEdit ? <RowAction icon="create-outline" label="Düzenle" onPress={onEdit} /> : null}
-        {onDelete ? <RowAction icon="trash-outline" label="Sil" destructive onPress={onDelete} /> : null}
-      </View>
+      ) : null}
     </View>
   );
 }
@@ -190,6 +156,7 @@ export default function ContactsScreen() {
   }, [params.companyId, params.companyName]);
   const [sort, setSort] = useState<ContactSortValue>('all');
   const [exporting, setExporting] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const filterSheetRef = useRef<BottomSheetModal>(null);
   const sortSheetRef = useRef<BottomSheetModal>(null);
 
@@ -235,34 +202,20 @@ export default function ContactsScreen() {
     );
   }
 
-  const blacklisted = summary.data?.blacklisted ?? 0;
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
       <ScreenHeader
         title="Kontaklar"
-        subtitle="Tüm kişi kayıtlarını görüntüleyin ve yönetin."
         actions={[
           { icon: 'swap-vertical-outline', label: 'Kontakları sırala', onPress: () => sortSheetRef.current?.present() },
           ...(canExport
             ? [{ icon: exporting ? ('hourglass-outline' as const) : ('download-outline' as const), label: 'Excel indir', onPress: () => void exportExcel() }]
             : []),
         ]}
-      />
+        compact/>
 
-      {summary.data ? (
-        <View className="pb-2">
-          <StatStrip
-            items={[
-              { label: 'Toplam Kontak', value: String(summary.data.total), icon: 'people-outline' },
-              { label: 'Birincil', value: String(summary.data.primary), icon: 'star-outline', tone: 'warning' },
-              { label: 'Firma Sayısı', value: String(summary.data.firmCount), icon: 'business-outline', tone: 'info' },
-              { label: 'Kara Liste', value: String(blacklisted), icon: 'ban-outline', tone: blacklisted > 0 ? 'destructive' : 'success' },
-            ]}
-          />
-        </View>
-      ) : null}
 
       <View className="gap-2 pb-2">
         {(user?.divisions?.length ?? 0) > 0 ? (
@@ -286,6 +239,23 @@ export default function ContactsScreen() {
           onFilterPress={() => filterSheetRef.current?.present()}
           filterActive={filterCount > 0}
         />
+        <View style={{ paddingHorizontal: SCREEN_PAD }}>
+          <Button
+            variant="ghost"
+            label={showSummary ? 'Özeti gizle' : 'Özet'}
+            trailingIcon={showSummary ? 'chevron-up' : 'analytics-outline'}
+            onPress={() => setShowSummary((value) => !value)}
+          />
+        </View>
+        {showSummary ? (
+          <StatStrip
+            dense
+            items={[
+              { label: 'Toplam', value: String(summary.data?.total ?? list.data?.total ?? 0) },
+              { label: 'Firma sayısı', value: String(summary.data?.firmCount ?? '—'), tone: 'info' },
+            ]}
+          />
+        ) : null}
         {company ? (
           <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row items-center gap-2">
             <Chip tone="info" label={`Firma: ${company.name}`} shrink />
@@ -379,7 +349,7 @@ export default function ContactsScreen() {
         enableDynamicSizing={false}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetScrollView contentContainerStyle={{ gap: 12, paddingBottom: 40, paddingTop: 4 }}>
           <View style={{ paddingHorizontal: SCREEN_PAD }}>

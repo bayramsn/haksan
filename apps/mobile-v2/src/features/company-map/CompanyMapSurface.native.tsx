@@ -23,7 +23,7 @@ export function CompanyMapSurface({
   onMapPick,
   onLocate,
 }: CompanyMapSurfaceProps) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const mapRef = useRef<MapView>(null);
   const pinKey = pins.map((pin) => pin.id).join('|');
 
@@ -61,6 +61,9 @@ export function CompanyMapSurface({
         initialRegion={TURKEY_REGION}
         showsMyLocationButton={false}
         loadingEnabled
+        userInterfaceStyle={scheme}
+        loadingBackgroundColor={colors.canvas}
+        loadingIndicatorColor={colors.primary}
         onPress={(event) => {
           if (!pickMode) return;
           const { latitude, longitude } = event.nativeEvent.coordinate;
@@ -75,8 +78,8 @@ export function CompanyMapSurface({
             description={pin.subtitle}
             pinColor={toneColor(colors, pin.tone)}
           >
-            <Callout accessibilityLabel={`${pin.title} işlemleri`} onPress={() => onPinPress(pin.id)}>
-              <View className="w-52 gap-1 p-1">
+            <Callout tooltip accessibilityLabel={`${pin.title} işlemleri`} onPress={() => onPinPress(pin.id)}>
+              <View className="min-h-11 w-52 gap-1 rounded-control border border-border bg-card p-3">
                 <Text className="font-inter-semibold text-sm text-foreground">{pin.title}</Text>
                 <Text className="font-inter text-xs text-muted-foreground">{pin.subtitle}</Text>
                 <Text className="pt-1 font-inter-semibold text-xs text-primary">İşlemler</Text>

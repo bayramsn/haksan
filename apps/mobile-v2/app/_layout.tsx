@@ -1,4 +1,5 @@
 import { CallAssistantProvider } from '@/src/call-assistant/Provider';
+import { ChatCallProvider } from '@/src/realtime/ChatCallProvider';
 import { runStartup } from '@/src/security/startup';
 import { StartupRecovery } from '@/src/security/StartupRecovery';
 import '@/global.css';
@@ -10,7 +11,6 @@ import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 // Paket kökünden import bütün font ağırlıklarını asset grafiğine ekliyor.
@@ -27,6 +27,7 @@ import { registerBackgroundSync, startConnectivitySync } from '@/src/offline/syn
 import { flushQueue, hydrateQueue, pendingCount } from '@/src/offline/queue';
 import { hydrateStorage } from '@/src/offline/storage';
 import { applyThemePreference, loadThemePreference } from '@/src/theme/preference';
+import { ThemeSurface } from '@/src/theme/theme';
 import { usePush } from '@/src/push/usePush';
 import { AppErrorBoundary } from '@/src/ui/AppErrorBoundary';
 import { Toaster } from '@/src/ui/toast';
@@ -106,6 +107,7 @@ function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+      <ThemeSurface>
       <SafeAreaProvider>
         {/* CRM/finans/chat yanıtları PII içerir. Şifreli ve kullanıcı+tenant
             kapsamlı bir native cache gelene kadar disk persister kullanılmaz. */}
@@ -115,12 +117,13 @@ function RootLayout() {
               <BiometricLockProvider>
                 <CallAssistantProvider>
                 <BottomSheetModalProvider>
-                  <StatusBar style="auto" />
+                  <ChatCallProvider>
                   <PendingTargetReplayer />
                   <CalendarAutoSync />
                   <Navigator />
                   {/* Başarı/bilgi bildirimleri Alert yerine buradan kayar. */}
                   <Toaster />
+                  </ChatCallProvider>
                 </BottomSheetModalProvider>
                 </CallAssistantProvider>
               </BiometricLockProvider>
@@ -128,6 +131,7 @@ function RootLayout() {
           </QueryClientProvider>
         </AppErrorBoundary>
       </SafeAreaProvider>
+      </ThemeSurface>
     </GestureHandlerRootView>
   );
 }

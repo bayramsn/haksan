@@ -5,7 +5,11 @@ const kebab = (k) => k.replace(/[A-Z0-9]/g, (c) => `-${c.toLowerCase()}`);
 // Semantik renkler CSS değişkenine bağlanır; light/dark değerleri global.css'te.
 // Böylece `bg-card` tek sınıf iki temada da doğru boyar.
 const colors = Object.fromEntries(
-  Object.keys(themes.light).map((key) => [kebab(key), `var(--c-${kebab(key)})`])
+  Object.keys(themes.light).map((key) => [kebab(key),
+    /^#[0-9a-f]{6}$/i.test(themes.light[key]) && /^#[0-9a-f]{6}$/i.test(themes.dark[key])
+      ? `rgb(var(--c-${kebab(key)}-rgb) / <alpha-value>)`
+      : `var(--c-${kebab(key)})`,
+  ])
 );
 
 /** @type {import('tailwindcss').Config} */

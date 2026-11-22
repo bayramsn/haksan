@@ -13,6 +13,7 @@ export type ThemeColors = {
   cardSubtle: string;
   border: string;
   lineStrong: string;
+  controlBorder: string;
   foreground: string;
   mutedForeground: string;
   muted: string;
@@ -21,10 +22,12 @@ export type ThemeColors = {
   brandRed: string;
   operationBlue: string;
   primary: string;
+  primarySoft: string;
   primaryForeground: string;
   secondary: string;
   secondaryForeground: string;
   destructive: string;
+  destructiveForeground: string;
   destructiveSoft: string;
   success: string;
   successSoft: string;
@@ -50,10 +53,11 @@ export type ThemeColors = {
   neutralBorder: string;
 };
 
-const { themes, radius, fonts } = require('../../theme.config') as {
+const { themes, radius, fonts, themeVariables } = require('../../theme.config') as {
   themes: Record<'light' | 'dark', ThemeColors>;
   radius: { control: number; surface: number; overlay: number; pill: number };
   fonts: Record<'sans' | 'sansMedium' | 'sansSemibold' | 'sansBold' | 'display' | 'displaySemibold', string>;
+  themeVariables: (theme: ThemeColors) => Record<string, string>;
 };
 
 export { radius, fonts };
@@ -75,13 +79,19 @@ type Scheme = 'light' | 'dark';
 
 const FixedSchemeContext = createContext<Scheme | null>(null);
 
-const kebab = (key: string) => key.replace(/[A-Z0-9]/g, (c) => `-${c.toLowerCase()}`);
 const schemeVars = Object.fromEntries(
   (['light', 'dark'] as const).map((scheme) => [
     scheme,
-    vars(Object.fromEntries(Object.entries(themes[scheme]).map(([k, v]) => [`--c-${kebab(k)}`, v]))),
+    vars(themeVariables(themes[scheme])),
   ]),
 ) as Record<Scheme, ReturnType<typeof vars>>;
+
+/** Keep utility colors and native icon/control colors on the same selected scheme. */
+export function ThemeSurface({ children }: { children: ReactNode }) {
+  const { scheme, colors } = useTheme();
+  return createElement(View, { style: [{ flex: 1, backgroundColor: colors.canvas }, schemeVars[scheme]] },
+    createElement(StatusBar, { style: scheme === 'dark' ? 'light' : 'dark' }), children);
+}
 
 /**
  * Zemini sabit tonlu ekranlar (auth kâğıdı, illüstrasyonlu onboarding) sistem

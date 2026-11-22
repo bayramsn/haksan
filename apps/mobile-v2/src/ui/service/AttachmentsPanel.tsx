@@ -72,6 +72,7 @@ export function AttachmentsPanel({ entityType, entityId, canUpload }: { entityTy
           accessibilityRole="button"
           accessibilityLabel={`${link.file.originalFilename} dosyasını aç`}
           disabled={openingId === link.file.id}
+          accessibilityState={{ disabled: openingId === link.file.id, busy: openingId === link.file.id }}
           onPress={() => void open(link.file.id)}
           className="min-h-[52px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-60"
         >

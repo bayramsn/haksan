@@ -26,6 +26,7 @@ export function useCreateShipment() {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ['service', 'shipments'] }),
         qc.invalidateQueries({ queryKey: ['inventory'] }),
+        qc.invalidateQueries({ queryKey: ['reports', 'stock-summary'] }),
       ]);
     },
   });
@@ -59,6 +60,7 @@ function settleDeliveries(qc: QueryClient) {
   return Promise.all([
     qc.invalidateQueries({ queryKey: deliveryKeys.all }),
     qc.invalidateQueries({ queryKey: ['inventory'] }),
+    qc.invalidateQueries({ queryKey: ['reports', 'stock-summary'] }),
   ]);
 }
 

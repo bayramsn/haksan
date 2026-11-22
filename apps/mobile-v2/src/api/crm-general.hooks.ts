@@ -355,8 +355,8 @@ export function useTaskSummary(enabled: boolean) {
   return useQuery({ queryKey: ['tasks', 'summary'], queryFn: () => tasksExt.summary(), enabled, staleTime: 60_000 });
 }
 
-export function useTaskRecordEvents(filter: TaskRecordFilter) {
-  const enabled = Object.values(filter).some(Boolean);
+export function useTaskRecordEvents(filter: TaskRecordFilter, allowed = true) {
+  const enabled = allowed && Object.values(filter).some(Boolean);
   return useQuery({ queryKey: ['tasks', 'events', filter], queryFn: () => tasksExt.events(filter), enabled });
 }
 

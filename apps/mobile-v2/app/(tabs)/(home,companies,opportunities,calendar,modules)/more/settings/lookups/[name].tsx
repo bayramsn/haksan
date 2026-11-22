@@ -382,8 +382,8 @@ export default function LookupRowsScreen() {
           const parentId = parent ? item[parent.field] ?? null : null;
           const logo = isBrand ? resolveMediaUrl(item.logoUrl, apiBaseUrl()) : null;
           return (
-            <Card className="my-1.5 gap-2 p-3.5">
-              <View className="flex-row items-start gap-3">
+            <Card className="my-1 gap-1.5 p-3">
+              <View className="flex-row items-start gap-2.5">
                 {isBrand ? (
                   <View className="h-12 w-12 items-center justify-center overflow-hidden rounded-control border border-border bg-card">
                     {logo ? (
@@ -434,6 +434,7 @@ export default function LookupRowsScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`${item.name} yukarı taşı`}
+                  accessibilityState={{ disabled: Boolean(busy || index === 0) }}
                   disabled={busy || index === 0}
                   onPress={() => move(item, -1)}
                   className={`h-11 w-11 items-center justify-center rounded-control border border-border ${busy || index === 0 ? 'opacity-35' : ''}`}
@@ -443,6 +444,7 @@ export default function LookupRowsScreen() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`${item.name} aşağı taşı`}
+                  accessibilityState={{ disabled: Boolean(busy || index === visible.length - 1) }}
                   disabled={busy || index === visible.length - 1}
                   onPress={() => move(item, 1)}
                   className={`h-11 w-11 items-center justify-center rounded-control border border-border ${

@@ -108,9 +108,9 @@ function PriceForm({
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1">
-      <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
         <Card className="gap-1">
-          <Text className="font-display text-lg text-foreground">{title}</Text>
+          <Text className="font-inter-semibold text-lg text-foreground">{title}</Text>
           {subtitle ? <Text className="font-inter text-xs text-muted-foreground">{subtitle}</Text> : null}
           <Text className="pt-1 font-inter text-xs text-muted-foreground">
             Mevcut: {isLabor ? formatPrice(current.list, currency) : `Peşin ${formatPrice(current.cash, currency)} · Liste ${formatPrice(current.list, currency)}`}

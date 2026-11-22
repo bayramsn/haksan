@@ -14,6 +14,8 @@ import { useUnreadCount } from '@/src/api/notifications.hooks';
 import { useChatUnreadCount } from '@/src/api/chat.hooks';
 import { NavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { navigationBottomInset } from '@/src/ui/navigation-inset';
+import { kv } from '@/src/offline/storage';
+import { ONBOARDING_KEY } from '../onboarding';
 import { NavigationGlass } from '@/src/ui/NavigationGlass';
 
 const ITEMS = [
@@ -45,7 +47,8 @@ export default function TabsLayout() {
   useEffect(() => {
     if (user && group && visible[group] === false) router.replace('/(tabs)/(home)' as never);
   }, [user, group, companies, opportunities, calendar]);
-  if (!user) return <Redirect href="/(auth)/login" />;
+  // "/" bu gruba düştüğü için app/index.tsx'teki tanıtım kontrolü hiç çalışmıyordu; ilk açılış burada da tanıtıma gider.
+  if (!user) return <Redirect href={kv.getString(ONBOARDING_KEY) ? '/(auth)/login' : '/onboarding'} />;
   if (group && visible[group] === false) return <Redirect href={'/(tabs)/(home)' as never} />;
   if (Platform.OS === 'ios') return (
     <NavigationBottomInset.Provider value={bottom}><NativeTabs tintColor={colors.primary} iconColor={{ default: colors.mutedForeground, selected: colors.primary }}

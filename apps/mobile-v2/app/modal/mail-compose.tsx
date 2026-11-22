@@ -1,9 +1,15 @@
-import { MAIL_MAX_ATTACHMENTS, MAIL_MAX_ATTACHMENT_BYTES } from '@haksan/shared';
+import { MailBodyEditor } from '@/src/ui/crm/MailBodyEditor';
+import { loadMailDocument, discardMailDocument } from '@/src/ui/crm/mail-document-handoff';
+import { MAIL_MAX_ATTACHMENTS, MAIL_MAX_ATTACHMENT_BYTES, MAIL_MAX_QUOTES } from '@haksan/shared';
 import { pickDocument, uploadEntityAttachment, type UploadedAttachment } from '@/src/native/files';
 import { useCan } from '@/src/auth/AuthProvider';
 import { validateMailAttachment } from '@/src/ui/crm/mail-attachment';
 import { NoteTemplatePicker } from '@/src/ui/documents/TermsTemplatePicker';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useQuoteDetail } from '@/src/api/quotes.hooks';
+import { QuotePickerSheet } from '@/src/ui/documents/pickers';
+import type { SheetHandle } from '@/src/ui/pickers/HostedSheet';
+import { addMailQuote, scopedMailQuotes, type MailQuote } from '@/src/ui/crm/mail-quotes';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -27,23 +33,48 @@ import {
 
 /** Web ComposeMailDialog: mesaj CRM'den çıkar, firma zaman çizelgesine kaydedilir. */
 export default function MailComposeScreen() {
-  const params = useLocalSearchParams<{ to?: string; name?: string; companyId?: string; contactId?: string; opportunityId?: string; subject?: string }>();
+  const params = useLocalSearchParams<{ to?: string; name?: string; companyId?: string; contactId?: string; opportunityId?: string; quoteId?: string; draftId?: string; subject?: string }>();
+  const documentDraft = params.draftId ? loadMailDocument(params.draftId) : null;
+  const [discardedDocument, setDiscardedDocument] = useState(false);
+  const generated = discardedDocument ? null : documentDraft;
+  const draftError = params.draftId && !discardedDocument && !documentDraft ? 'Belge taslağının süresi doldu veya çalışma alanı değişti. Kaydı yeniden açın ya da eki kaldırın.' : undefined;
+  const companyId = generated?.companyId || params.companyId;
   const router = useRouter();
   const qc = useQueryClient();
   const { colors } = useTheme();
   const account = useMailAccountStatus();
-  const recipients = useMailRecipients(params.companyId);
+  const recipients = useMailRecipients(companyId);
   const send = useSendMail();
 
   const canUpload = useCan('files.create');
+  const canReadQuotes = useCan('quotes.read');
+  const canReadProduct = useCan('products.read');
+  const canReadProforma = useCan('proformas.read');
+  const canReadContract = useCan('contracts.read');
+  const canExportReport = useCan('reports.export');
+  const canReadDocument = !generated || (generated.payload.reportDocument ? canExportReport : generated.payload.productDocument ? canReadProduct : generated.payload.document?.kind === 'proforma' ? canReadProforma : canReadContract);
+  const quoteSheet = useRef<SheetHandle>(null);
+  const sending = useRef(false);
+  const [pickedQuotes, setPickedQuotes] = useState<MailQuote[]>([]);
+  const [dismissedQuote, setDismissedQuote] = useState<string>();
+  const initialQuoteId = params.quoteId && dismissedQuote !== `${companyId}:${params.quoteId}` ? params.quoteId : undefined;
+  const initialQuote = useQuoteDetail(canReadQuotes && initialQuoteId ? initialQuoteId : '');
+  const initialQuoteReady = Boolean(initialQuote.data && initialQuote.data.companyId === companyId);
+  const initialQuoteWaiting = Boolean(initialQuoteId && canReadQuotes && initialQuote.isPending);
+  const initialQuoteError = initialQuoteId && !initialQuoteWaiting && (!canReadQuotes || initialQuote.isError || !initialQuoteReady)
+    ? 'Başlangıç teklifi doğrulanamadı veya bu firmaya ait değil. Yeniden deneyin ya da eki kaldırın.' : undefined;
+  const selectedQuotes = scopedMailQuotes(companyId, [
+    ...(initialQuoteId && initialQuoteReady && initialQuote.data ? [initialQuote.data] : []),
+    ...pickedQuotes,
+  ]);
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [to, setTo] = useState(params.to ?? '');
+  const [to, setTo] = useState(documentDraft?.to ?? params.to ?? '');
   const [contactId, setContactId] = useState<string | undefined>(params.contactId);
   const [cc, setCc] = useState<string[]>([]);
   const [ccManual, setCcManual] = useState('');
   const [ccError, setCcError] = useState<string | undefined>();
-  const [subject, setSubject] = useState(params.subject ?? '');
+  const [subject, setSubject] = useState(documentDraft?.subject ?? params.subject ?? '');
   const [body, setBody] = useState(() => initialMailBody(params.name));
 
   const options = recipients.data ?? { contacts: [], colleagues: [] };
@@ -103,41 +134,51 @@ export default function MailComposeScreen() {
   }
 
   function submit() {
-    if (send.isPending || uploading) return;
+    if (sending.current || send.isPending || uploading) return;
+    if (params.draftId && !discardedDocument && loadMailDocument(params.draftId) !== generated) return toast.error('Belge taslağının süresi doldu. Belgeyi yeniden açın.');
+    if (draftError || !canReadDocument) return toast.error(draftError ?? 'Belgeye erişim yetkiniz yok.');
+    if (generated && selectedQuotes.length) return toast.error('Teklif ve teknik/ticari belge eki aynı mesajda gönderilemez.');
+    if (!ready) return toast.error('Bağlı ve aktif gönderici hesabınızı kontrol edin.');
+    if (initialQuoteWaiting || initialQuoteError || (selectedQuotes.length && !canReadQuotes)) return toast.error(initialQuoteError ?? 'Teklif ekleri henüz doğrulanmadı.');
     const error = validateMailDraft({ to, subject, body });
     if (error) {
       toast.error(error);
       return;
     }
+    sending.current = true;
     send.mutate(
       {
         to: to.trim(),
         cc: cc.length ? cc : undefined,
         subject: subject.trim(),
         body: body.trim(),
-        companyId: params.companyId || undefined,
+        companyId: companyId || undefined,
         contactId: contactId || undefined,
         fileIds: attachments.length ? attachments.map((item) => item.fileId) : undefined,
+        quotes: selectedQuotes.length ? selectedQuotes.map(({ id }) => ({ id })) : undefined,
+        ...(generated?.payload ?? {}),
       },
       {
         onSuccess: () => {
+          if (params.draftId) discardMailDocument(params.draftId);
           void qc.invalidateQueries({ queryKey: activityKeys.all });
-          if (params.companyId) void qc.invalidateQueries({ queryKey: companyKeys.detail(params.companyId) });
+          if (companyId) void qc.invalidateQueries({ queryKey: companyKeys.detail(companyId) });
           toast.success(`E-posta gönderildi · ${account.data?.email ?? 'Webmail hesabınız'} üzerinden teslim edildi.`);
           router.back();
         },
         onError: (err) => toast.error(`E-posta gönderilemedi · ${err.message || 'Webmail bağlantınızı kontrol edin.'}`),
+        onSettled: () => { sending.current = false; },
       },
     );
   }
 
-  const canSend = ready && !send.isPending && !uploading && Boolean(to.trim() && subject.trim() && body.trim()) && body.length <= MAIL_BODY_MAX_LENGTH;
+  const canSend = ready && !draftError && canReadDocument && !(generated && selectedQuotes.length) && !send.isPending && !uploading && !initialQuoteWaiting && !initialQuoteError && (!selectedQuotes.length || canReadQuotes) && Boolean(to.trim() && subject.trim() && body.trim()) && body.length <= MAIL_BODY_MAX_LENGTH;
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni e-posta', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <Text className="font-inter text-sm text-muted-foreground">
             Mesaj CRM’den çıkar, gönderilmiş ileti firma zaman çizelgesine kaydedilir.
           </Text>
@@ -255,27 +296,42 @@ export default function MailComposeScreen() {
 
           <View className="gap-1.5">
             <Text className="font-inter-medium text-[13px] text-muted-foreground">Mesaj</Text>
-            <TextInput
-              accessibilityLabel="Mesaj"
-              value={body}
-              onChangeText={setBody}
-              multiline
-              editable={!send.isPending}
-              textAlignVertical="top"
-              placeholderTextColor={colors.mutedForeground}
-              className="min-h-[180px] rounded-control bg-input-background px-3.5 py-3 font-inter text-base text-foreground"
-            />
+            <MailBodyEditor value={body} onChange={setBody} disabled={send.isPending} maxLength={MAIL_BODY_MAX_LENGTH} />
             <Text className={`text-right font-inter text-[10px] ${body.length > MAIL_BODY_MAX_LENGTH ? 'text-destructive' : 'text-muted-foreground'}`}>
               {body.length.toLocaleString('tr-TR')} / 10.000
             </Text>
           </View>
 
+          {params.draftId && !discardedDocument ? <Card className="gap-2">
+            <Text className="font-inter-semibold text-sm text-foreground">{generated?.label ?? 'Belge eki'}</Text>
+            <Text className="font-inter text-xs text-muted-foreground">Belge, gönderirken sunucuda PDF'e çevrilir.</Text>
+            {draftError || !canReadDocument ? <Text accessibilityRole="alert" className="font-inter text-sm text-destructive">{draftError ?? 'Belgeye erişim yetkiniz yok.'}</Text> : null}
+            <Button label="Belge ekini kaldır" variant="ghost" disabled={send.isPending} onPress={() => { if(params.draftId) discardMailDocument(params.draftId); setDiscardedDocument(true); }} />
+          </Card> : null}
+          {!generated && (companyId || initialQuoteId) ? <Card className="gap-3">
+            <Text className="font-inter-semibold text-sm text-foreground">Teklif ekleri ({selectedQuotes.length}/{MAIL_MAX_QUOTES})</Text>
+            <Text className="font-inter text-xs text-muted-foreground">Seçilen teklifler sunucuda PDF olarak oluşturulup e-postaya eklenir.</Text>
+            {initialQuoteWaiting ? <View className="flex-row items-center gap-2"><Loading /><Text className="font-inter text-xs text-muted-foreground">Teklif doğrulanıyor</Text></View> : null}
+            {initialQuoteError ? <View className="gap-2">
+              <Text accessibilityRole="alert" className="font-inter text-sm text-destructive">{initialQuoteError}</Text>
+              {canReadQuotes ? <Button label="Teklifi yeniden kontrol et" variant="ghost" disabled={send.isPending} onPress={() => void initialQuote.refetch()} /> : null}
+              <Button label="Doğrulanamayan teklif ekini kaldır" variant="ghost" disabled={send.isPending} onPress={() => setDismissedQuote(`${companyId}:${params.quoteId}`)} />
+            </View> : null}
+            {selectedQuotes.map((quote) => <View key={quote.id} className="flex-row items-center gap-2">
+              <Text className="flex-1 font-inter text-sm text-foreground">{quote.documentNo} · R{quote.revisionNo}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={`${quote.documentNo} teklif ekini kaldır`} disabled={send.isPending} accessibilityState={{ disabled: send.isPending }} onPress={() => {
+                if (quote.id === initialQuoteId) setDismissedQuote(`${companyId}:${params.quoteId}`);
+                setPickedQuotes((rows) => rows.filter((row) => row.id !== quote.id));
+              }} className="h-11 w-11 items-center justify-center"><Ionicons name="close-circle-outline" size={22} color={colors.mutedForeground} /></Pressable>
+            </View>)}
+            {canReadQuotes && companyId ? <Button label="Teklif ekle" variant="ghost" disabled={send.isPending || initialQuoteWaiting || Boolean(initialQuoteError) || selectedQuotes.length >= MAIL_MAX_QUOTES} onPress={() => quoteSheet.current?.present()} /> : <Text className="font-inter text-xs text-muted-foreground">Teklif seçimi için firma ve teklif görüntüleme yetkisi gerekir.</Text>}
+          </Card> : null}
           {params.opportunityId ? <Card className="gap-3">
             <Text className="font-inter-semibold text-sm text-foreground">Dosya ekleri ({attachments.length}/{MAIL_MAX_ATTACHMENTS})</Text>
             <Text className="font-inter text-xs text-muted-foreground">PDF, DOCX, XLSX veya görsel. Toplam en fazla {MAIL_MAX_ATTACHMENT_BYTES / 1024 / 1024} MB. Yüklenen dosyalar fırsatın belgelerinde de saklanır.</Text>
             {attachments.map((item) => <View key={item.fileId} className="flex-row items-center gap-2">
               <Text className="flex-1 font-inter text-sm text-foreground">{item.fileName}</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel={`${item.fileName} ekini kaldır`} disabled={send.isPending || uploading} onPress={() => setAttachments((current) => current.filter((row) => row.fileId !== item.fileId))} className="h-11 w-11 items-center justify-center"><Ionicons name="close-circle-outline" size={22} color={colors.mutedForeground} /></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={`${item.fileName} ekini kaldır`} accessibilityState={{ disabled: Boolean(send.isPending || uploading) }} disabled={send.isPending || uploading} onPress={() => setAttachments((current) => current.filter((row) => row.fileId !== item.fileId))} className="h-11 w-11 items-center justify-center"><Ionicons name="close-circle-outline" size={22} color={colors.mutedForeground} /></Pressable>
             </View>)}
             {canUpload ? <Button label="Dosya ekle" variant="ghost" loading={uploading} disabled={send.isPending || attachments.length >= MAIL_MAX_ATTACHMENTS} onPress={() => void addAttachment()} /> : null}
           </Card> : null}
@@ -307,6 +363,12 @@ export default function MailComposeScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      {canReadQuotes && companyId ? <QuotePickerSheet key={companyId} sheetRef={quoteSheet} companyId={companyId} excludeCancelled selectedId={initialQuoteId} onSelect={(quote) => {
+        if (sending.current || send.isPending) return;
+        const result = addMailQuote(selectedQuotes, { id: quote.id, companyId: quote.company?.id ?? '', documentNo: quote.documentNo, revisionNo: quote.revisionNo }, companyId);
+        if (result.error) toast.error(result.error);
+        else setPickedQuotes(result.rows);
+      }} /> : null}
     </SafeAreaView>
   );
 }

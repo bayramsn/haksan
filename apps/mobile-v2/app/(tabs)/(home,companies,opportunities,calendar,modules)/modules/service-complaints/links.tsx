@@ -1,3 +1,4 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useState } from 'react';
 import { Alert, Text, View } from 'react-native';
@@ -17,6 +18,7 @@ const isActive = (link: ComplaintLink) => link.isActive && !link.revokedAt;
 /** Web Şikayet Kutusu → "Public Linkler" görünümü. */
 export default function ComplaintLinksScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const canCreate = useCan('service_tickets.create');
   const canManage = useCan('service_tickets.update');
@@ -60,7 +62,7 @@ export default function ComplaintLinksScreen() {
       <Card className="mb-3 gap-2">
         <View className="flex-row items-start gap-2">
           <View className="flex-1 gap-0.5">
-            <Text className="font-display-semibold text-[16px] text-foreground">{link.title || 'Servis Şikayet Formu'}</Text>
+            <Text className="font-inter-semibold text-[16px] text-foreground">{link.title || 'Servis Şikayet Formu'}</Text>
             <Text className="font-inter text-[13px] text-muted-foreground">{link.company?.shortName || link.company?.legalTitle || 'Genel link'}</Text>
             {link.machine ? (
               <Text className="font-inter text-xs text-muted-foreground">{[link.machine.model, link.machine.serialNumber].filter(Boolean).join(' · ')}</Text>
@@ -96,7 +98,7 @@ export default function ComplaintLinksScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Public Linkler" subtitle={list.data ? `${list.data.total} link` : undefined} />
+      <DetailHeader title="Public Linkler" compact />
       {list.isPending ? (
         <ListSkeleton />
       ) : list.error ? (
@@ -107,7 +109,7 @@ export default function ComplaintLinksScreen() {
           style={{ flex: 1 }}
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingTop: 12, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingTop: 12, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
           renderItem={({ item }) => render(item)}
           onEndReachedThreshold={0.5}
           onEndReached={() => {

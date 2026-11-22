@@ -1,6 +1,9 @@
+import { CONTRACT_NOTE_METADATA, contractFillContext } from './contract-note-variants';
+import { useCompany } from '@/src/api/companies.hooks';
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { ProformaPrintVariant } from './ProformaPrintVariant';
-import { postPdfAndShare } from '@/src/native/files';
 import { shareSavedDocument } from './document-pdf';
+import { pdfIo } from './document-pdf-io';
 import { TermsTemplatePicker } from './TermsTemplatePicker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
@@ -63,6 +66,7 @@ const optionalDays = (value: unknown) => (typeof value === 'number' && Number.is
  */
 export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }: { kind: Kind; quoteId?: string; documentId?: string }) {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const isEdit = Boolean(documentId);
   const canCreate = useCan(kind === 'proforma' ? 'proformas.create' : 'contracts.create');
   const canUpdate = useCan(kind === 'proforma' ? 'proformas.update' : 'contracts.update');
@@ -70,6 +74,8 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
   const [quoteId, setQuoteId] = useState(initialQuoteId ?? '');
   const [quoteLabel, setQuoteLabel] = useState<string | null>(null);
   const quote = useQuoteDetail(quoteId);
+  const canReadCompany = useCan('companies.read');
+  const buyer = useCompany(canReadCompany ? quote.data?.companyId ?? '' : '');
   const currencies = useLookup('currencies');
 
   const createProforma = useCreateProforma();
@@ -260,11 +266,11 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
       toast.success(message);
       if (thenPdf) {
         setPdfBusy(true);
-        try { await shareSavedDocument(kind, saved.id || documentId || '', documentNo, (path, filename) => postPdfAndShare(path, filename, kind === 'proforma' && printVariant ? { variantKey: printVariant } : undefined)); }
+        try { await shareSavedDocument(kind, saved.id || documentId || '', documentNo, pdfIo); }
         catch (error) { toast.error(`Kayıt kaydedildi; PDF alınamadı. Belge detayından tekrar deneyin. ${error instanceof Error ? error.message : ''}`); }
         finally { setPdfBusy(false); }
       }
-      router.replace(`/modules/${kind === 'proforma' ? 'proformas' : 'contracts'}/${saved.id || documentId}`);
+      router.replace(recordDestination(`/modules/${kind === 'proforma' ? 'proformas' : 'contracts'}/${saved.id || documentId}`));
     };
     const fail = (error: Error) => toast.error(error.message);
 
@@ -400,8 +406,11 @@ export function LinkedDocumentForm({ kind, quoteId: initialQuoteId, documentId }
             />
             <DocumentTotalsCard totals={totals} currencyCode={currencyCode} />
 
-            <TermsTemplatePicker scope={kind === 'contract' ? 'contract_terms' : 'proforma_terms'} value={{ payment, delivery, warranty }} onApply={markTerms} />
+            <TermsTemplatePicker scope={kind === 'contract' ? 'contract_terms' : 'proforma_terms'} value={{ payment, delivery, warranty }} onApply={markTerms}
+              fillContext={contractFillContext({ buyer: buyer.data?.shortName || buyer.data?.legalTitle || str(record(snapshot?.company)?.legalTitle), date, items: quote.data?.items, warranty })}
+              onBuiltInSelected={key => { const preset = CONTRACT_NOTE_METADATA[key]; if (preset) { setMeta(prev => ({ ...prev, ...preset, estimatedDeliveryDaysMin: String(preset.estimatedDeliveryDaysMin), estimatedDeliveryDaysMax: String(preset.estimatedDeliveryDaysMax) })); setTermsDirty(true); } }} />
             <DocumentTermsFields
+              numbered={kind === 'proforma'}
               title={kind === 'contract' ? 'Sözleşme Şartları' : 'Proforma Şartları'}
               hint={`Değişiklik yalnız bu ${kind === 'contract' ? 'sözleşmeye' : 'proformaya'} işlenir; bağlı teklifin şartları olduğu gibi kalır.`}
               payment={payment}

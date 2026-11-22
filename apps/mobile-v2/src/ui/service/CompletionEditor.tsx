@@ -114,7 +114,7 @@ export function CompletionEditor({ ticket, context, canUpdate }: { ticket: Servi
       <View className="gap-2 rounded-control border border-border bg-muted px-3 py-2.5">
         <View className="flex-row flex-wrap items-center gap-2">
           <Ionicons name="document-text-outline" size={18} color={colors.primary} />
-          <Text className="font-display-semibold text-[15px] text-foreground">Doktor Makina Servis Formu</Text>
+          <Text className="font-inter-semibold text-[15px] text-foreground">Doktor Makina Servis Formu</Text>
         </View>
         <View className="flex-row flex-wrap gap-2">
           {draft.signedAt ? <Chip tone="success" label={`İmzalandı · ${draft.signedAt.slice(0, 16).replace('T', ' ')}`} /> : null}
@@ -126,7 +126,7 @@ export function CompletionEditor({ ticket, context, canUpdate }: { ticket: Servi
       <FormSection title="Form">
         {field('Form No', draft.formNo, (v) => set('formNo', v))}
         {editable ? (
-          <DayField label="Servis Tarihi" value={draft.kurulumTarihi} onChange={(v) => set('kurulumTarihi', v ?? '')} />
+          <DayField label="Servis Tarihi" value={draft.kurulumTarihi} onChange={(v) => set('kurulumTarihi', v ?? '')} disabled={!editable} />
         ) : (
           field('Servis Tarihi', draft.kurulumTarihi, () => undefined)
         )}
@@ -161,12 +161,14 @@ export function CompletionEditor({ ticket, context, canUpdate }: { ticket: Servi
       <FormSection title="Servis Bilgileri">
         {field('Müşteri Şikayeti', draft.musteriSikayeti, (v) => set('musteriSikayeti', v), area)}
         <ChoiceChips<ServiceFormType>
+          disabled={!editable}
           label="Servis Tipi"
           value={draft.serviceType}
           options={(Object.keys(SERVICE_FORM_TYPE_LABELS) as ServiceFormType[]).map((value) => ({ value, label: SERVICE_FORM_TYPE_LABELS[value] }))}
           onChange={(v) => editable && set('serviceType', v)}
         />
         <ChoiceChips<Responsibility>
+          disabled={!editable}
           label="Yükümlülük"
           value={draft.responsibility}
           options={(Object.keys(RESPONSIBILITY_LABELS) as Responsibility[]).map((value) => ({ value, label: RESPONSIBILITY_LABELS[value] }))}
@@ -214,7 +216,7 @@ export function CompletionEditor({ ticket, context, canUpdate }: { ticket: Servi
       </FormSection>
 
       <FormSection title="Ücretler">
-        <ChoiceChips label="Para Birimi" value={draft.currency} options={CURRENCIES.map((code) => ({ value: code, label: code }))} onChange={(v) => editable && set('currency', v)} />
+        <ChoiceChips label="Para Birimi" value={draft.currency} options={CURRENCIES.map((code) => ({ value: code, label: code }))} onChange={(v) => editable && set('currency', v)} disabled={!editable} />
         <View className="flex-row gap-2">
           <View className="flex-1">{field('Servis Ücreti (İşçilik)', String(draft.servisUcreti), (v) => set('servisUcreti', num(v)), { keyboardType: 'decimal-pad' })}</View>
           <View className="flex-1">{field('Ulaşım Ücreti', String(draft.ulasimUcreti), (v) => set('ulasimUcreti', num(v)), { keyboardType: 'decimal-pad' })}</View>

@@ -108,7 +108,7 @@ export default function CalendarImportScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Takvim içe aktar (.ics)', headerShown: true }} />
-      <ScrollView contentContainerClassName="gap-4 p-4 pb-8">
+      <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3">
         <Text className="font-inter text-sm text-muted-foreground">
           Apple Takvim, Google Takvim veya başka bir uygulamadan dışa aktardığın .ics dosyasını yükle. Etkinlikler kişisel
           takvimine eklenir; aynı dosya tekrar yüklenirse mevcut kayıtlar güncellenir.
@@ -133,7 +133,7 @@ export default function CalendarImportScreen() {
                 { label: 'Daha önce alınmış', value: result.summary.duplicates },
               ].map((tile) => (
                 <Card key={tile.label} className="flex-1 items-center gap-1 p-3">
-                  <Text className="font-display text-lg text-foreground">{tile.value}</Text>
+                  <Text className="font-inter-semibold text-lg text-foreground">{tile.value}</Text>
                   <Text className="text-center font-inter text-xs text-muted-foreground">{tile.label}</Text>
                 </Card>
               ))}

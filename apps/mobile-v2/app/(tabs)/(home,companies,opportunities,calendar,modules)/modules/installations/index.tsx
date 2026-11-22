@@ -1,25 +1,24 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useInstallations } from '@/src/api/operations.hooks';
 import { useDeliveries } from '@/src/api/logistics.hooks';
 import type { Delivery } from '@/src/api/logistics.api';
 import type { Installation } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
+import { firstParam, matchesOpportunityOrCompany } from '@/src/features/opportunities/case-scope';
 import { formatDate } from '@/src/lib/format';
 import { chipClass, toneColor, useTheme, type Tone } from '@/src/theme/theme';
-import { Button, Chip, EmptyState, ErrorState, Fab, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
+import { Button, Chip, EmptyState, ErrorState, Fab, ListSkeleton, Loading, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
 import { Tabs } from '@/src/ui/data';
 import { SyncStatus } from '@/src/ui/SyncStatus';
-import { JourneySteps } from '@/src/ui/service/JourneySteps';
 import {
-  INSTALLATION_JOURNEY,
   installationKpis,
-  installationStep,
   installationsForTab,
   LOCATION_TYPE_LABELS,
   upcomingInstallations,
@@ -63,22 +62,21 @@ function InstallationRow({ item, onPress }: { item: Installation; onPress: () =>
           <Ionicons name="hardware-chip-outline" size={19} color={toneColor(colors, tone)} />
         </View>
         <View className="flex-1 gap-0.5">
-          <Text className="font-inter-semibold text-[16px] text-foreground" numberOfLines={2}>{machine || 'Kurulum kaydı'}</Text>
+          <Text className="font-inter-semibold text-[16px] text-foreground" numberOfLines={1}>{machine || 'Kurulum kaydı'}</Text>
           <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-            {customer}
+            {[
+              customer,
+              item.customerDevice?.serialNumber ? `SN ${item.customerDevice.serialNumber}` : null,
+              item.assignedTo?.fullName ?? 'Atanmadı',
+              item.scheduledDate ? formatDate(item.scheduledDate) : 'Planlanmadı',
+              item.locationType
+                ? [LOCATION_TYPE_LABELS[item.locationType] ?? item.locationType, durationLabel(item.durationMinutes)].filter(Boolean).join(' · ')
+                : null,
+            ].filter(Boolean).join(' · ')}
           </Text>
-          {item.customerDevice?.serialNumber ? <Text className="font-inter text-xs text-muted-foreground">SN · {item.customerDevice.serialNumber}</Text> : null}
-          <Text className="font-inter text-xs text-muted-foreground">Sorumlu: {item.assignedTo?.fullName ?? 'Atanmadı'}</Text>
-          <Text className="font-inter text-xs text-muted-foreground">Randevu: {item.scheduledDate ? formatDate(item.scheduledDate) : 'Planlanmadı'}</Text>
-          {item.locationType ? (
-            <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-              {[LOCATION_TYPE_LABELS[item.locationType] ?? item.locationType, durationLabel(item.durationMinutes)].filter(Boolean).join(' · ')}
-            </Text>
-          ) : null}
         </View>
       </View>
       <View className="flex-row flex-wrap gap-2"><Chip tone={tone} label={item.status?.name ?? 'Planlandı'} /></View>
-      <JourneySteps steps={INSTALLATION_JOURNEY} current={installationStep(item)} compact />
     </Pressable>
   );
 }
@@ -97,10 +95,11 @@ function LegacyDeliveryRow({ item, onPress }: { item: Delivery; onPress: () => v
           {item.company?.shortName ?? item.company?.legalTitle ?? 'Firma'}
         </Text>
         <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-          {tezgah.model ? `${tezgah.model} · ${tezgah.seriNo || 'Seri no yok'}` : 'Makine bilgisi yok'}
-        </Text>
-        <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-          {[item.deliveryDate ? formatDate(item.deliveryDate) : '—', item.signedBy || '—'].join(' · ')}
+          {[
+            tezgah.model ? `${tezgah.model} · ${tezgah.seriNo || 'Seri no yok'}` : 'Makine bilgisi yok',
+            item.deliveryDate ? formatDate(item.deliveryDate) : null,
+            item.signedBy || null,
+          ].filter(Boolean).join(' · ')}
         </Text>
       </View>
       <View className="flex-row"><Chip tone={item.status === 'completed' ? 'success' : 'warning'} label={item.status === 'completed' ? 'Kurulum Tutanağı' : 'Tutanak Bekliyor'} /></View>
@@ -110,30 +109,42 @@ function LegacyDeliveryRow({ item, onPress }: { item: Delivery; onPress: () => v
 
 export default function InstallationsScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
+  const params = useLocalSearchParams<{ opportunityId?: string; companyId?: string }>();
+  const scopeOpportunityId = firstParam(params.opportunityId);
+  const scopeCompanyId = firstParam(params.companyId);
+  const caseScope = { opportunityId: scopeOpportunityId || null, companyId: scopeCompanyId || null };
   const { colors } = useTheme();
   const canCreate = useCan('installations.create');
   const canReadDeliveries = useCan('shipments.read');
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<InstallationTab>('open');
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const serverSearch = useDebouncedValue(search.trim());
 
   const list = useInstallations({ search: serverSearch || undefined });
   const deliveries = useDeliveries(canReadDeliveries);
-  const items = useMemo(() => list.data?.items ?? [], [list.data]);
+  const items = useMemo(
+    () => (list.data?.items ?? []).filter((row) => matchesOpportunityOrCompany(row, caseScope)),
+    [caseScope.companyId, caseScope.opportunityId, list.data],
+  );
   const deliveryRows = useMemo(() => {
-    const rows = canReadDeliveries ? deliveries.data?.items ?? [] : [];
+    const rows = (canReadDeliveries ? deliveries.data?.items ?? [] : []).filter((row) =>
+      matchesOpportunityOrCompany(row, caseScope),
+    );
     const term = serverSearch.toLocaleLowerCase('tr-TR');
     return term ? rows.filter((row) => {
       const machine = (row.formData?.tezgah ?? {}) as { model?: string; seriNo?: string };
       return [row.company?.shortName, row.company?.legalTitle, row.signedBy, machine.model, machine.seriNo].filter(Boolean).join(' ').toLocaleLowerCase('tr-TR').includes(term);
     }) : rows;
-  }, [canReadDeliveries, deliveries.data, serverSearch]);
-  const deliveryCount = canReadDeliveries ? (serverSearch ? deliveryRows.length : deliveries.data?.total ?? deliveryRows.length) : 0;
+  }, [canReadDeliveries, caseScope.companyId, caseScope.opportunityId, deliveries.data, serverSearch]);
+  const deliveryCount = deliveryRows.length;
 
+  const loadedCount = list.data?.items?.length ?? 0;
   useEffect(() => {
-    if (list.hasNextPage && !list.isFetchingNextPage && items.length < LOAD_LIMIT) void list.fetchNextPage();
-  }, [items.length, list]);
+    if (list.hasNextPage && !list.isFetchingNextPage && loadedCount < LOAD_LIMIT) void list.fetchNextPage();
+  }, [loadedCount, list]);
 
   const kpis = installationKpis(items, deliveryCount);
   const counts = {
@@ -157,35 +168,33 @@ export default function InstallationsScreen() {
     ];
   }, [deliveryRows, items, tab]);
 
-  const header = (
-    <View className="gap-3 pb-2">
-      <View className="gap-2 rounded-overlay border border-border bg-card p-3.5">
-        <Text accessibilityRole="header" className="font-display-semibold text-[16px] text-foreground">Yaklaşan Ziyaretler</Text>
-        <Text className="font-inter text-xs text-muted-foreground">Sıradaki saha çıkışları</Text>
-        {upcoming.length === 0 ? (
-          <Text className="py-3 text-center font-inter text-xs text-muted-foreground">Planlı ziyaret yok</Text>
-        ) : (
-          upcoming.map((item) => (
-            <Pressable
-              key={item.id}
-              accessibilityRole="button"
-              onPress={() => router.push(`/modules/installations/${item.id}` as Href)}
-              className="min-h-[44px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-            >
-              <View className={`h-9 w-9 items-center justify-center rounded-control border ${chipClass.warning}`}>
-                <Ionicons name="calendar-outline" size={16} color={toneColor(colors, 'warning')} />
-              </View>
-              <View className="flex-1">
-                <Text className="font-inter-medium text-[13px] text-foreground" numberOfLines={1}>
-                  {item.company?.shortName ?? item.company?.legalTitle ?? '—'}
-                </Text>
-                <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>{item.assignedTo?.fullName ?? '—'}</Text>
-              </View>
-              <Text className="font-inter text-[11px] text-muted-foreground">{item.scheduledDate ? formatDate(item.scheduledDate) : '—'}</Text>
-            </Pressable>
-          ))
-        )}
-      </View>
+  const upcomingVisitsPanel = (
+    <View className="gap-2 rounded-overlay border border-border bg-card p-3.5">
+      <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Yaklaşan Ziyaretler</Text>
+      <Text className="font-inter text-xs text-muted-foreground">Sıradaki saha çıkışları</Text>
+      {upcoming.length === 0 ? (
+        <Text className="py-3 text-center font-inter text-xs text-muted-foreground">Planlı ziyaret yok</Text>
+      ) : (
+        upcoming.map((item) => (
+          <Pressable
+            key={item.id}
+            accessibilityRole="button"
+            onPress={() => router.push(`/modules/installations/${item.id}` as Href)}
+            className="min-h-[44px] flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
+          >
+            <View className={`h-9 w-9 items-center justify-center rounded-control border ${chipClass.warning}`}>
+              <Ionicons name="calendar-outline" size={16} color={toneColor(colors, 'warning')} />
+            </View>
+            <View className="flex-1">
+              <Text className="font-inter-medium text-[13px] text-foreground" numberOfLines={1}>
+                {item.company?.shortName ?? item.company?.legalTitle ?? '—'}
+              </Text>
+              <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>{item.assignedTo?.fullName ?? '—'}</Text>
+            </View>
+            <Text className="font-inter text-[11px] text-muted-foreground">{item.scheduledDate ? formatDate(item.scheduledDate) : '—'}</Text>
+          </Pressable>
+        ))
+      )}
     </View>
   );
 
@@ -194,21 +203,16 @@ export default function InstallationsScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Kurulumlar"
-        subtitle="Makine kurulum süreçlerini ve randevularını takip edin."
-        actions={canReadDeliveries ? [{ icon: 'clipboard-outline', label: 'Teslimat Kayıtları', onPress: () => router.push('/modules/deliveries' as Href) }] : []}
-      />
+        actions={canReadDeliveries ? [{ icon: 'clipboard-outline', label: 'Teslimat Kayıtları', onPress: () => router.push({ pathname: '/modules/deliveries', params: { ...(scopeOpportunityId ? { opportunityId: scopeOpportunityId } : {}), ...(scopeCompanyId ? { companyId: scopeCompanyId } : {}) } } as Href) }] : []}
+        compact/>
 
       <View className="gap-2 pb-2">
-        <StatStrip
-          items={[
-            { label: 'Toplam Kurulum', value: String(list.data?.total ?? kpis.total) },
-            { label: 'Planlı', value: String(kpis.planned), tone: 'warning' },
-            { label: 'Tamamlandı', value: String(kpis.completed), tone: 'success' },
-            { label: 'Kurulum Tutanağı', value: String(kpis.forms), tone: 'info' },
-          ]}
-        />
+        {scopeOpportunityId || scopeCompanyId ? (
+          <Text className="px-4 font-inter text-[12px] text-muted-foreground">
+            {scopeOpportunityId ? 'Bu fırsata bağlı kayıtlar' : 'Bu firmaya bağlı kayıtlar'}
+          </Text>
+        ) : null}
         <SearchBar value={search} onChange={setSearch} placeholder="Firma, makine veya konum" />
-        {list.hasNextPage ? <Text className="px-4 font-inter text-xs text-muted-foreground">Aşama sayıları yüklenen {items.length} kurulum içindir. Diğer kayıtlar kaydırdıkça yüklenir.</Text> : null}
         <Tabs
           tabs={[
             { value: 'open', label: `Açık (${counts.open})` },
@@ -218,6 +222,29 @@ export default function InstallationsScreen() {
           value={tab}
           onChange={setTab}
         />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen ? (
+          <View className="gap-2">
+            <StatStrip
+              dense
+              items={[
+                { label: 'Toplam Kurulum', value: String(list.data?.total ?? kpis.total) },
+                { label: 'Planlı', value: String(kpis.planned), tone: 'warning' },
+                { label: 'Tamamlandı', value: String(kpis.completed), tone: 'success' },
+                { label: 'Kurulum Tutanağı', value: String(kpis.forms), tone: 'info' },
+              ]}
+            />
+            {tab === 'open' ? upcomingVisitsPanel : null}
+          </View>
+        ) : null}
       </View>
 
       {list.isPending ? (
@@ -231,12 +258,12 @@ export default function InstallationsScreen() {
           data={rows}
           keyExtractor={(row) => (row.kind === 'header' ? 'header' : `${row.kind}-${row.item.id}`)}
           getItemType={(row) => row.kind}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
-          ListHeaderComponent={tab === 'open' ? header : null}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
+          ListHeaderComponent={null}
           renderItem={({ item: row }) =>
             row.kind === 'header' ? (
               <View className="gap-0.5 pb-1 pt-4">
-                <Text accessibilityRole="header" className="font-display-semibold text-[16px] text-foreground">{row.title}</Text>
+                <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">{row.title}</Text>
                 <Text className="font-inter text-xs text-muted-foreground">{row.hint}</Text>
               </View>
             ) : row.kind === 'delivery' ? (

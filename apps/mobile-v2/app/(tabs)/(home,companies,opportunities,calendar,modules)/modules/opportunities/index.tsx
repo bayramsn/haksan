@@ -75,10 +75,6 @@ function amountText(item: SalesOpportunityRow): string | null {
   return Number(item.estimatedValue ?? 0) ? formatAmount(item.estimatedValue, item.currency?.code ?? 'TRY') : null;
 }
 
-function contactLine(item: SalesOpportunityRow): string {
-  return [item.leadContactName !== partyName(item) ? item.leadContactName : null, item.leadPhone, item.leadEmail].filter(Boolean).join(' · ');
-}
-
 function lostDetail(item: SalesOpportunityRow): string[] {
   return [
     item.lostReason?.name ?? 'Kayıp nedeni belirtilmedi',
@@ -102,60 +98,48 @@ function SalesRow({
   const stage = asQualification(item.qualificationStage);
   const risk = riskOf(item);
   const party = partyName(item);
-  const contact = contactLine(item);
   const amount = amountText(item);
-  const machine = (stage === 'win' ? item.wonProductName : null) ?? item.requestedMachine ?? item.title;
+  const overdue = stage !== 'win' && stage !== 'lost' && !!item.nextActionAt && Date.parse(item.nextActionAt) < Date.now();
   const nextLine = item.nextAction
     ? `${item.nextAction}${item.nextActionAt ? ` · ${formatDate(item.nextActionAt)}` : ''}`
     : 'Sonraki aktivite planlanmamış';
-  const detailLine = [
-    machine,
-    contact || null,
-    item.stage ? `Operasyon: ${item.stage.name}` : null,
-    `Atanan: ${ownerName ?? 'Atanmadı'}`,
-    formatDate(item.createdAt),
-  ]
-    .filter(Boolean)
-    .join(' · ');
 
   return (
-    <View className="my-1 flex-row rounded-overlay border border-border bg-card">
+    <View className="my-1 flex-row rounded-surface border border-border bg-card">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${party} fırsat detayını aç`}
         onPress={onOpen}
-        className="min-h-[52px] flex-1 gap-1 px-3.5 py-2.5 active:opacity-70"
+        className="min-h-[52px] min-w-0 flex-1 gap-2 p-3.5 active:opacity-70"
       >
-        <View className="flex-row items-center gap-1.5">
-          <Text className="min-w-0 flex-1 font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
-            {party}
-          </Text>
-          {amount ? <Text className="font-inter-semibold text-[13px] text-primary">{amount}</Text> : null}
+        <View className="flex-row items-start gap-2">
+          <View className="min-w-0 flex-1 gap-0.5">
+            <Text className="font-inter-semibold text-[15px] leading-[20px] text-foreground" numberOfLines={2}>
+              {party}
+            </Text>
+            {amount ? (
+              <Text className="font-inter-semibold text-[14px] text-primary" style={{ fontVariant: ['tabular-nums'] }}>{amount}</Text>
+            ) : null}
+          </View>
+          <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
         </View>
-        <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-          {detailLine}
+        <Text className={`font-inter text-[12px] leading-[17px] ${overdue ? 'text-warning' : 'text-muted-foreground'}`} numberOfLines={2}>
+          {overdue ? `Gecikti · ${nextLine}` : nextLine}
         </Text>
         <View className="flex-row flex-wrap items-center gap-1">
-          <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
-          <Chip tone={risk.tone} label={risk.label} />
+          {risk.tone === 'destructive' || risk.tone === 'warning' ? <Chip tone={risk.tone} label={risk.label} /> : null}
           {!item.company ? <Chip tone="warning" label="Firma bekliyor" /> : null}
+          {ownerName ? <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>{ownerName}</Text> : null}
         </View>
-        <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
-          {nextLine}
-        </Text>
-        {stage === 'lost'
-          ? lostDetail(item).map((line, index) => (
-              <Text key={index} className={`font-inter text-[11px] ${index === 0 ? 'text-destructive' : 'text-muted-foreground'}`} numberOfLines={1}>
-                {line}
-              </Text>
-            ))
-          : null}
+        {stage === 'lost' ? (
+          <Text className="font-inter text-[11px] text-destructive" numberOfLines={1}>{lostDetail(item)[0]}</Text>
+        ) : null}
       </Pressable>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${party} hızlı işlemleri`}
         onPress={onMenu}
-        className="min-w-[44px] items-center justify-center active:opacity-60"
+        className="min-h-11 min-w-[44px] items-center justify-center self-center rounded-control active:opacity-60"
       >
         <Ionicons name="ellipsis-vertical" size={18} color={colors.foreground} />
       </Pressable>
@@ -186,29 +170,21 @@ function ArchiveRow({
   return (
     <View className="my-1 gap-2 rounded-overlay border border-border bg-card px-3.5 py-3">
       <Pressable accessibilityRole="button" accessibilityLabel={`${party} fırsat detayını aç`} onPress={onOpen} className="min-h-[44px] gap-1 active:opacity-70">
-        <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
-          {party}
-        </Text>
-        <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-          {[item.lostProductName || item.requestedMachine, `#${item.id.slice(0, 8).toUpperCase()}`].filter(Boolean).join(' · ')}
-        </Text>
         <View className="flex-row items-center gap-2">
+          <Text className="min-w-0 flex-1 font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
+            {party}
+          </Text>
           <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
-          <Text className="font-inter text-[11px] text-muted-foreground">Kapanış: {item.closedAt ? formatDate(item.closedAt) : '—'}</Text>
         </View>
-        {lost
-          ? lostDetail(item).map((line, index) => (
-              <Text key={index} className={`font-inter text-[11px] ${index === 0 ? 'text-destructive' : 'text-muted-foreground'}`} numberOfLines={2}>
-                {line}
-              </Text>
-            ))
-          : null}
-        {stage === 'win' ? (
-          <>
-            <Text className="font-inter-medium text-[12px] text-success">{item.wonProductName || 'Satılan makine kaydı yok'}</Text>
-            <Text className="font-inter text-[11px] text-muted-foreground">{item.wonReason || 'Kapanış nedeni belirtilmedi'}</Text>
-          </>
-        ) : null}
+        <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
+          {[
+            item.lostProductName || item.requestedMachine,
+            `#${item.id.slice(0, 8).toUpperCase()}`,
+            `Kapanış: ${item.closedAt ? formatDate(item.closedAt) : '—'}`,
+            lost ? lostDetail(item)[0] : null,
+            stage === 'win' ? (item.wonProductName || 'Satılan makine kaydı yok') : null,
+          ].filter(Boolean).join(' · ')}
+        </Text>
       </Pressable>
       <View className="flex-row gap-2">
         {!lost || canReopenLost ? (
@@ -579,9 +555,8 @@ export default function OpportunitiesScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <ScreenHeader
         title="Fırsatlar"
-        subtitle={view === 'kanban' ? 'Aşama seçin, kartları inceleyin ve satış akışını yönetin.' : 'Satış kartları, kanban ve geçmiş'}
+        compact
         actions={[
-          { icon: 'options-outline', label: 'Fırsatları filtrele', onPress: openFilters, dot: view !== 'kanban' && activeFilterCount > 0 },
           { icon: 'ellipsis-horizontal', label: 'Diğer işlemler', onPress: () => moreRef.current?.present() },
         ]}
       />
@@ -685,11 +660,6 @@ export default function OpportunitiesScreen() {
             }}
             refreshing={list.isRefetching}
             onRefresh={() => void list.refetch()}
-            ListHeaderComponent={
-              <Text className="pb-1 font-inter text-[12px] text-muted-foreground">
-                {`Toplam ${list.data?.total ?? 0} fırsat${rows.length !== loadedRows.length ? ` · filtrede ${rows.length}` : ''}`}
-              </Text>
-            }
             ListEmptyComponent={<EmptyState title="Fırsat bulunamadı" hint="Arama veya filtreleri değiştirerek tekrar deneyin." icon="search-outline" />}
             ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
           />
@@ -722,11 +692,6 @@ export default function OpportunitiesScreen() {
           }}
           refreshing={archive.isRefetching}
           onRefresh={() => void archive.refetch()}
-          ListHeaderComponent={
-            <Text className="pb-1 font-inter text-[12px] text-muted-foreground">
-              {`Toplam ${archive.data?.total ?? 0} arşiv fırsatı (WIN + LOST) · silinmedi, kayıtta duruyor`}
-            </Text>
-          }
           ListEmptyComponent={
             <EmptyState
               title="Kapatılmış fırsat yok"

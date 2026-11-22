@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
 import { loginSchema, resolveLoginIdentifier } from '@haksan/shared';
 import { useAuth } from '@/src/auth/AuthProvider';
+import { useBiometricLock } from '@/src/security/BiometricLockProvider';
 import { authPaper } from '@/src/theme/theme';
 import { Button, HeroTitle, IconField } from '@/src/ui';
 import { Logo } from '@/src/ui/Logo';
@@ -25,6 +26,8 @@ export default function LoginScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const { signIn } = useAuth();
+  const { enabled: biometricEnabled } = useBiometricLock();
+  const suppressIosAutoFill = Platform.OS === 'ios' && biometricEnabled;
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ identifier?: string; password?: string }>({});
@@ -73,7 +76,7 @@ export default function LoginScreen() {
       edges={['top', 'bottom', 'left', 'right']}
     >
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="flex-grow pb-6" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 640, alignSelf: 'center' }} contentContainerClassName="flex-grow pb-6" keyboardShouldPersistTaps="handled">
           <Enter>
             <View className="px-6 pt-2">
               <Logo width={156} />
@@ -98,9 +101,9 @@ export default function LoginScreen() {
                 value={identifier}
                 onChangeText={(v) => edit('identifier', v)}
                 autoCapitalize="none"
-                autoComplete="username"
+                autoComplete={suppressIosAutoFill ? 'off' : 'username'}
                 autoCorrect={false}
-                textContentType="username"
+                textContentType={suppressIosAutoFill ? 'none' : 'username'}
                 keyboardType="email-address"
                 error={errors.identifier}
                 returnKeyType="next"
@@ -113,8 +116,8 @@ export default function LoginScreen() {
                 value={password}
                 onChangeText={(v) => edit('password', v)}
                 autoCapitalize="none"
-                autoComplete="current-password"
-                textContentType="password"
+                autoComplete={suppressIosAutoFill ? 'off' : 'current-password'}
+                textContentType={suppressIosAutoFill ? 'none' : 'password'}
                 error={errors.password}
                 returnKeyType="go"
                 onSubmitEditing={() => void submit()}

@@ -65,7 +65,7 @@ export default function LeadRulesScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <Card className="my-1.5 gap-2 p-3.5">
+          <Card className="my-1 gap-1.5 p-3">
             <View className="flex-row flex-wrap items-center gap-2">
               <Text className="shrink font-inter-semibold text-[15px] text-foreground">{item.name}</Text>
               <Chip tone="neutral" label={`Öncelik ${item.priority}`} />

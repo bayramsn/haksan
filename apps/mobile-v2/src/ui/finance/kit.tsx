@@ -1,3 +1,4 @@
+import { useOperationsLayout } from './useOperationsLayout';
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,13 +33,13 @@ export function FormScreen({
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title, headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" contentContainerStyle={{ width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerClassName="gap-3 px-4 pb-6 pt-3" contentContainerStyle={{ width: '100%', maxWidth: 720, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
           {children}
         </ScrollView>
         {footer ??
           (onSubmit ? (
-            <View className="border-t border-border bg-card px-4 py-3">
-              <View style={{ width: '100%', maxWidth: 688, alignSelf: 'center' }} className="flex-row gap-3">
+            <View className="border-t border-border bg-card px-4 py-2.5">
+              <View style={{ width: '100%', maxWidth: 688, alignSelf: 'center' }} className="flex-row gap-2">
               <View className="flex-1">
                 <Button label="Vazgeç" variant="ghost" onPress={goBack} />
               </View>
@@ -152,7 +153,7 @@ export function KpiTile({
   const { colors } = useTheme();
   const body = (
     <View
-      className={`flex-1 gap-1.5 rounded-surface border bg-card p-3 ${selected ? 'border-primary' : 'border-border'}`}
+      className={`min-h-[88px] flex-1 gap-1.5 rounded-surface border p-3 ${selected ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
       style={{ borderCurve: 'continuous' }}
     >
       <View className="flex-row items-center gap-2">
@@ -164,9 +165,8 @@ export function KpiTile({
         </Text>
       </View>
       <Text
-        className="font-inter-bold text-[20px] text-foreground"
-        numberOfLines={1}
-        adjustsFontSizeToFit
+        className="font-inter-bold text-[20px] leading-[26px] text-foreground"
+        numberOfLines={2}
         style={{ fontVariant: ['tabular-nums'] }}
       >
         {value}
@@ -194,15 +194,16 @@ export function KpiTile({
 
 /** İkili satırlar halinde KPI ızgarası. */
 export function KpiGrid({ children }: { children: ReactNode[] }) {
+  const { columns, listPad } = useOperationsLayout();
   const items = children.filter(Boolean);
   const rows: ReactNode[][] = [];
-  for (let index = 0; index < items.length; index += 2) rows.push(items.slice(index, index + 2));
+  for (let index = 0; index < items.length; index += columns) rows.push(items.slice(index, index + columns));
   return (
-    <View style={{ paddingHorizontal: SCREEN_PAD }} className="gap-2.5">
+    <View style={{ paddingHorizontal: listPad }} className="gap-3">
       {rows.map((row, index) => (
-        <View key={index} className="flex-row gap-2.5">
+        <View key={index} className="flex-row gap-3">
           {row}
-          {row.length < 2 ? <View className="flex-1" /> : null}
+          {Array.from({ length: columns - row.length }, (_, emptyIndex) => <View key={`empty-${emptyIndex}`} className="flex-1" />)}
         </View>
       ))}
     </View>
@@ -228,7 +229,7 @@ export function Panel({
     >
       <View className="flex-row items-start justify-between gap-3">
         <View className="flex-1">
-          <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">
+          <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-foreground">
             {title}
           </Text>
           {subtitle ? <Text className="font-inter text-xs text-muted-foreground">{subtitle}</Text> : null}

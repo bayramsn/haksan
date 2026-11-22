@@ -237,6 +237,7 @@ export function WarrantyEditor({ ticketId, device, canUpdate }: { ticketId: stri
       {canUpdate ? (
         <ChoiceChips
           label="Süreç durumu"
+          disabled={busy}
           value={claim.status}
           options={STATUS_OPTIONS}
           onChange={(status) =>
@@ -287,7 +288,7 @@ export function WarrantyEditor({ ticketId, device, canUpdate }: { ticketId: stri
           <View className="flex-1"><Field label="Tedarikçi / Garanti Maliyeti" value={cost} onChangeText={setCost} keyboardType="decimal-pad" placeholder="0" editable={canUpdate} /></View>
           <View className="flex-1"><Field label="Müşteriye Yansıtılacak" value={charge} onChangeText={setCharge} keyboardType="decimal-pad" placeholder="0" editable={canUpdate} /></View>
         </View>
-        <ChoiceChips label="Para" value={currency} options={CURRENCIES.map((code) => ({ value: code, label: code }))} onChange={setCurrency} />
+        <ChoiceChips label="Para" value={currency} options={CURRENCIES.map((code) => ({ value: code, label: code }))} onChange={setCurrency} disabled={!canUpdate} />
         {canUpdate ? (
           <View className="flex-row gap-2">
             <Button
@@ -369,8 +370,9 @@ export function WarrantyEditor({ ticketId, device, canUpdate }: { ticketId: stri
                 accessibilityRole="button"
                 accessibilityLabel={`${part.description} satırını kaldır`}
                 disabled={busy}
+                accessibilityState={{ disabled: busy }}
                 onPress={() => removePart(index)}
-                className="h-11 w-11 items-center justify-center active:opacity-60"
+                className={`h-11 w-11 items-center justify-center ${busy ? 'opacity-50' : 'active:opacity-60'}`}
               >
                 <Ionicons name="close" size={20} color={colors.destructive} />
               </Pressable>

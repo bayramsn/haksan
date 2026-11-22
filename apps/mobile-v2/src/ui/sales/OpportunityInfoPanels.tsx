@@ -50,7 +50,6 @@ function LinkedTasks({ opportunityId }: { opportunityId: string }) {
         </Pressable>
       ))}
       {total > 5 ? <View className="gap-2">
-        <Text className="font-inter text-[12px] text-muted-foreground">{total} görevden ilk 5 gösteriliyor.</Text>
         <Button label="Tüm takip görevlerini aç" variant="ghost"
           onPress={() => router.push({ pathname: '/modules/tasks', params: { opportunityId, view: 'all' } } as unknown as Href)} />
       </View> : null}

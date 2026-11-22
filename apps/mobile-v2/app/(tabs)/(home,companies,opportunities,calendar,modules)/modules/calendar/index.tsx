@@ -24,7 +24,6 @@ import {
   TR_WEEKDAYS,
   addDays,
   calendarRange,
-  calendarSourceLabel,
   canEditCalendarEvent,
   dateKey,
   daysInRange,
@@ -33,7 +32,6 @@ import {
   moveCursor,
   normalizeEventType,
   periodLabel,
-  todayEventCount,
   upcomingEvents,
   type CalendarEventType,
   type CalendarView,
@@ -196,7 +194,6 @@ export default function CalendarScreen() {
   function renderEvent(event: CalendarEventFull, keyPrefix = '') {
     const style = styleOf(event);
     const type = normalizeEventType(event.eventType);
-    const source = calendarSourceLabel(event.source);
     const at = new Date(event.startsAt);
     const time = event.allDay ? 'Tüm gün' : `${formatTime(event.startsAt)} – ${formatTime(event.endsAt)}`;
     const dimmed = Boolean(event.deletedAt || event.completedAt);
@@ -206,8 +203,13 @@ export default function CalendarScreen() {
           title={event.title}
           lines={[
             view === 'list' || keyPrefix ? `${at.getDate()} ${TR_MONTHS[at.getMonth()]} · ${time}` : time,
-            [event.company?.shortName ?? event.company?.legalTitle, event.location].filter(Boolean).join(' · ') || null,
-            [isSuperAdmin && ownerUserId === 'all' ? event.owner?.fullName : null, source].filter(Boolean).join(' · ') || null,
+            [
+              event.company?.shortName ?? event.company?.legalTitle,
+              event.location,
+              isSuperAdmin && ownerUserId === 'all' ? event.owner?.fullName ?? null : null,
+            ]
+              .filter(Boolean)
+              .join(' · ') || null,
           ]}
           icon={event.completedAt ? 'checkmark-circle-outline' : style.icon}
           iconTone={event.completedAt ? 'success' : style.tone}
@@ -228,14 +230,11 @@ export default function CalendarScreen() {
   const selectedEvents = byDay.get(dateKey(selected)) ?? [];
   const sections = view === 'list' ? listSections(events) : [];
   const agendaDays = view === 'week' || view === 'day' ? daysInRange(range.from, range.to) : [];
-  const visibleCount = allEvents.filter((event) => !event.deletedAt).length;
-
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
       <ScreenHeader
         title="Takvim"
-        subtitle="Telefon takvimleri, toplantılar ve müşteri ziyaretleri tek akışta."
         actions={
           canCreate
             ? [
@@ -244,19 +243,14 @@ export default function CalendarScreen() {
               ]
             : []
         }
-      />
+        compact/>
 
       <ScrollView
         contentContainerClassName="gap-3"
-        contentContainerStyle={{ paddingBottom: 40 + GLASS_TAB_BAR_HEIGHT }}
+        contentContainerStyle={{ paddingBottom: 40 + GLASS_TAB_BAR_HEIGHT , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.primary} />}
       >
         <View style={{ paddingHorizontal: SCREEN_PAD }} className="gap-3">
-          <View className="flex-row flex-wrap items-center gap-2">
-            <Chip tone="info" label={`Bugün ${todayEventCount(allEvents)}`} />
-            <Chip tone="neutral" label={`Bu görünümde ${visibleCount}`} />
-          </View>
-
           <View className="flex-row rounded-control border border-border bg-card p-1" accessibilityRole="tablist">
             {VIEWS.map((item) => {
               const active = view === item;
@@ -286,7 +280,7 @@ export default function CalendarScreen() {
             >
               <Ionicons name="chevron-back" size={18} color={colors.foreground} />
             </Pressable>
-            <Text className="flex-1 text-center font-display text-lg text-foreground" numberOfLines={1}>
+            <Text className="flex-1 text-center font-inter-semibold text-lg text-foreground" numberOfLines={1}>
               {periodLabel(view, cursor)}
             </Text>
             <Pressable
@@ -348,14 +342,16 @@ export default function CalendarScreen() {
 
         {filtersOpen ? <FilterChips options={typeOptions} value={typeFilter} onChange={setTypeFilter} allLabel="Tümü" /> : null}
 
-        <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row flex-wrap gap-x-3 gap-y-1">
-          {CALENDAR_EVENT_TYPES.map((type: CalendarEventType) => (
-            <View key={type} className="flex-row items-center gap-1">
-              <View className="h-2 w-2 rounded-full" style={{ backgroundColor: toneColor(colors, CALENDAR_TYPE_STYLE[type].tone) }} />
-              <Text className="font-inter text-xs text-muted-foreground">{CALENDAR_TYPE_LABELS[type]}</Text>
-            </View>
-          ))}
-        </View>
+        {filtersOpen ? (
+          <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row flex-wrap gap-x-3 gap-y-1">
+            {CALENDAR_EVENT_TYPES.map((type: CalendarEventType) => (
+              <View key={type} className="flex-row items-center gap-1">
+                <View className="h-2 w-2 rounded-full" style={{ backgroundColor: toneColor(colors, CALENDAR_TYPE_STYLE[type].tone) }} />
+                <Text className="font-inter text-xs text-muted-foreground">{CALENDAR_TYPE_LABELS[type]}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {query.isPending ? (
           <Loading />

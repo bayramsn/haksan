@@ -50,7 +50,7 @@ export default function MetaConversationModal() {
         <View className="border-b border-border px-4 py-2">
           <Text className="font-inter text-xs text-muted-foreground">{PLATFORM_LABELS[platform]} · Atama yok</Text>
         </View>
-        <ScrollView
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
           ref={scrollRef}
           className="flex-1"
           contentContainerClassName="gap-2 p-4"

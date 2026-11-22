@@ -115,13 +115,13 @@ export default function TradeFairFollowUpModal() {
     </View> : null}
     {row.companyId && row.contactId || companyDone ? <Text className="text-sm text-foreground">Firmalar'a eklendi{row.linkedCompanyName ? `: ${row.linkedCompanyName}` : ''}</Text> : canUpdate && canCreateContact ? <View className="gap-2">
       {canReadCompany ? <CompanySelect label="Mevcut firmaya ekle (isteğe bağlı)" value={companyName} selectedId={companyId} onSelect={(item) => { setCompanyId(item?.id ?? null); setCompanyName(item?.label ?? ''); }} disabled={busy} /> : null}
-      <Pressable accessibilityRole="button" disabled={busy || (!companyId && (!canCreateCompany || !divisionId))} onPress={() => convert('company')} className="min-h-[44px] justify-center rounded-control border border-border px-3"><Text className="font-inter-medium text-sm text-primary">{companyId ? 'Seçili firmaya kontak ekle' : "Yeni firma ve kontak oluştur"}</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityState={{ disabled: Boolean(busy || (!companyId && (!canCreateCompany || !divisionId))) }} disabled={busy || (!companyId && (!canCreateCompany || !divisionId))} onPress={() => convert('company')} className="min-h-[44px] justify-center rounded-control border border-border px-3"><Text className="font-inter-medium text-sm text-primary">{companyId ? 'Seçili firmaya kontak ekle' : "Yeni firma ve kontak oluştur"}</Text></Pressable>
       {!companyId && !divisionId ? <Text className="text-xs text-muted-foreground">Yeni firma için bölüm seçin.</Text> : null}
       {!companyId && !canCreateCompany ? <Text className="text-xs text-muted-foreground">Kontak eklemek için mevcut bir firma seçin.</Text> : null}
     </View> : null}
     {row.opportunityId || opportunityDone ? <Text className="text-sm text-foreground">Fırsat oluşturuldu</Text> : canUpdate && canCreateOpportunity && canUpdateOpportunity ? <View className="gap-2">
       <View pointerEvents={busy ? 'none' : 'auto'}><ChoiceChips label="Fırsat aşaması" value={stage} onChange={setStage} options={[{ value: 'lead', label: 'Lead' }, { value: 'c', label: 'C' }, { value: 'b', label: 'B' }, { value: 'a', label: 'A' }, { value: 'a_plus', label: 'A+' }]} /></View>
-      <Pressable accessibilityRole="button" disabled={busy} onPress={() => convert('opportunity')} className="min-h-[44px] justify-center rounded-control border border-border px-3"><Text className="font-inter-medium text-sm text-primary">Fırsat oluştur</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityState={{ disabled: Boolean(busy) }} disabled={busy} onPress={() => convert('opportunity')} className="min-h-[44px] justify-center rounded-control border border-border px-3"><Text className="font-inter-medium text-sm text-primary">Fırsat oluştur</Text></Pressable>
     </View> : null}
   </ModalForm>;
 }

@@ -105,3 +105,19 @@ test('servis teklifi taslağı, doğrulama ve normalizasyon', () => {
 test('joinedNotes boş notları atar', () => {
   assert.equal(joinedNotes([{ text: ' a ' }, { text: '' }, { text: 'b' }]), 'a\n\nb');
 });
+
+test('web service signature snapshot survives mobile read-edit-save without refreshing from a live signature', () => {
+  const signature = { id: 'snapshot-id', name: 'Eski Yetkili', title: 'Satış Müdürü', imageUrl: '/signatures/media/old-file' };
+  const initial = { ...defaultServiceQuote({}, now, 1), signature };
+  const read = readServiceQuote(initial);
+  assert.deepEqual(read.signature, signature);
+  assert.notEqual(read.signature, signature);
+  const edited = normalizeServiceQuote({ ...read, subject: 'Yeni kapsam' }, 'CNC-SRV-2026/0042', now);
+  assert.deepEqual(edited.signature, signature);
+});
+test('invalid service signature values are ignored and clearing signature remains explicit in the saved quote', () => {
+  const initial = defaultServiceQuote({}, now, 1);
+  assert.equal(readServiceQuote({ ...initial, signature: { id: 'only-id' } }).signature, undefined);
+  const normalized = normalizeServiceQuote({ ...initial, signature: undefined }, 'CNC-SRV-2026/0042', now);
+  assert.equal(JSON.parse(JSON.stringify(normalized)).signature, undefined);
+});

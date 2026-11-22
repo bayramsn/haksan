@@ -25,7 +25,7 @@ export default function AdminMailSignaturesScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingTop: 12, paddingBottom: 32 }}
         ListHeaderComponent={
-          <View className="gap-3 pb-2">
+          <View className="gap-2 pb-2">
             <Help>Süper admin olarak kullanıcılar için görsel imza yükleyebilir veya mevcut imzalarını kaldırabilirsiniz.</Help>
             <SearchBar value={query} onChange={setQuery} placeholder="Kullanıcı seçin" />
           </View>

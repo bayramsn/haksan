@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useAssistantFormDraft } from '@/src/call-assistant/useAssistantFormDraft';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Pressable, ScrollView, Text, View } from 'react-native';
@@ -105,6 +106,7 @@ function SelectorField({
 
 export function ActivityFormScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const params = useLocalSearchParams<{
     assistantDraftId?: string | string[];
     id?: string | string[];
@@ -271,12 +273,12 @@ export function ActivityFormScreen() {
         return;
       }
       if (assistant.active) {
-        try { const created = await assistant.save(parsed.data as unknown as Record<string, unknown>); router.replace(`/modules/activities/${created.resourceId}` as Href); }
+        try { const created = await assistant.save(parsed.data as unknown as Record<string, unknown>); router.replace(recordDestination(`/modules/activities/${created.resourceId}`)); }
         catch (error) { setFormError(error instanceof Error ? error.message : 'Not kaydedilemedi'); }
         return;
       }
       create.mutate(parsed.data as ActivityCreateInput, {
-        onSuccess: (created) => router.replace(`/modules/activities/${created.id}` as Href),
+        onSuccess: (created) => router.replace(recordDestination(`/modules/activities/${created.id}`)),
         onError: (error) => setFormError(error.message),
       });
       return;
@@ -306,7 +308,7 @@ export function ActivityFormScreen() {
       return;
     }
     update.mutate({ id, patch: parsed.data as ActivityUpdateInput }, {
-      onSuccess: () => router.replace(`/modules/activities/${id}` as Href),
+      onSuccess: () => router.replace(recordDestination(`/modules/activities/${id}`)),
       onError: (error) => setFormError(error.message),
     });
   }
@@ -324,7 +326,7 @@ export function ActivityFormScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: assistant.active ? 'Görüşme notu' : editing ? 'Aktiviteyi düzenle' : 'Yeni aktivite', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <View className="gap-3">
             {assistant.error ? <View className="gap-2"><Text className="text-destructive">{assistant.error}</Text><Button label="Taslağı tekrar yükle" variant="ghost" onPress={() => void assistant.retry()} /></View> : null}
             <Eyebrow>Bağlantılar</Eyebrow>
@@ -357,7 +359,7 @@ export function ActivityFormScreen() {
           <Text className="font-inter text-xs text-muted-foreground">Aktivite kaydı çevrimiçi bağlantı gerektirir; sunucu firma, kontak, satış kartı ve bölüm erişimini yeniden doğrular.</Text>
           {formError ? <Text selectable accessibilityLiveRegion="assertive" className="font-inter text-sm text-destructive">{formError}</Text> : null}
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View>
           <View className="flex-[2]"><Button label={assistant.active ? 'Notu Kaydet' : editing ? 'Değişiklikleri Kaydet' : 'Aktiviteyi Oluştur'} loading={saving || assistant.loading} disabled={saving || assistant.blocked} onPress={() => void submit()} /></View>
         </View>

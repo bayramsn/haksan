@@ -1,17 +1,19 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
 import { useMaintenancePlans } from '@/src/api/operations.hooks';
 import { dueLabel, formatDate } from '@/src/lib/format';
 import type { Tone } from '@/src/theme/theme';
-import { EmptyState, ErrorState, FilterChips, ListRow, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader } from '@/src/ui';
+import { EmptyState, ErrorState, FilterChips, ListRow, ListSkeleton, Loading, ScreenHeader } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 
 export default function MaintenancePlansScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const [dueSoon, setDueSoon] = useState<'due' | null>(null);
 
@@ -21,7 +23,7 @@ export default function MaintenancePlansScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Bakım Planları" subtitle="Periyodik bakım takvimini ve yaklaşan bakımları izleyin." />
+      <ScreenHeader title="Bakım Planları" compact />
 
       <View className="gap-2 pb-2">
         <FilterChips
@@ -29,7 +31,6 @@ export default function MaintenancePlansScreen() {
           value={dueSoon}
           onChange={setDueSoon}
         />
-        <Text className="px-4 font-inter text-xs text-muted-foreground">{items.length} plan yüklendi{list.data ? ` · ${list.data.total} kayıt` : ''}</Text>
       </View>
 
       {list.isPending ? (
@@ -47,19 +48,14 @@ export default function MaintenancePlansScreen() {
           style={{ flex: 1 }}
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
           renderItem={({ item }) => {
             const due = dueLabel(item.nextDueDate);
             const tone: Tone = !item.isActive ? 'neutral' : due?.overdue ? 'destructive' : 'success';
             return (
               <ListRow
-                title={item.title}
-                lines={[
-                  item.company?.shortName ?? item.company?.legalTitle ?? null,
-                  `Her ${item.intervalDays} günde bir`,
-                  item.lastServiceDate ? `Son bakım: ${formatDate(item.lastServiceDate)}` : 'Son bakım henüz kaydedilmedi',
-                  `Sonraki bakım: ${formatDate(item.nextDueDate)}`,
-                ]}
+                title={item.company?.shortName ?? item.company?.legalTitle ?? item.title}
+                lines={[`Sonraki bakım: ${formatDate(item.nextDueDate)}`]}
                 icon="build-outline"
                 iconTone={tone}
                 chip={{ label: item.isActive ? (due?.text ?? 'Aktif') : 'Pasif', tone }}

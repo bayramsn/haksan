@@ -3,6 +3,10 @@ const path = require('path');
 const { withDangerousMod, withXcodeProject } = require('expo/config-plugins');
 
 const MARKER = '# haksan: ios-build-fixes';
+const OLD_CONSTANTS_SCRIPT = 'bash -l "$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh"';
+// SDK 54's Constants script leaves `basename $PROJECT_DIR` unquoted. Only this
+// child receives a space-free Pods guard; config resolution keeps the real root.
+const CONSTANTS_SCRIPT = 'PROJECT_ROOT="${PROJECT_ROOT:-$PROJECT_DIR/../..}" PROJECT_DIR=Pods bash -l "$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh"';
 
 /**
  * - Expo Constants ve Expo Updates betikleri genişletilmiş yolu `bash -c` içinde
@@ -19,7 +23,7 @@ function fixBundleScript(script) {
 const SNIPPET = `
     ${MARKER}
     {
-      'EXConstants' => ['[CP-User] Generate app.config for prebuilt Constants.manifest', 'bash -l "$PODS_TARGET_SRCROOT/../scripts/get-app-config-ios.sh"'],
+      'EXConstants' => ['[CP-User] Generate app.config for prebuilt Constants.manifest', '${CONSTANTS_SCRIPT}'],
       'EXUpdates' => ['[CP-User] Generate updates resources for expo-updates', 'bash -l "$PODS_TARGET_SRCROOT/../scripts/create-updates-resources-ios.sh"'],
     }.each do |target_name, (phase_name, script)|
       installer.pods_project.targets
@@ -39,6 +43,7 @@ const SNIPPET = `
 `;
 
 function applyFix(podfile) {
+  podfile = podfile.replaceAll(`'${OLD_CONSTANTS_SCRIPT}'`, `'${CONSTANTS_SCRIPT}'`);
   if (podfile.includes(MARKER)) return podfile;
   const anchor = /(react_native_post_install\([\s\S]*?\n\s*\))/;
   if (!anchor.test(podfile)) {
@@ -70,3 +75,4 @@ module.exports = function withIosBuildFixes(config) {
 
 module.exports.applyFix = applyFix;
 module.exports.fixBundleScript = fixBundleScript;
+module.exports.constantsScript = CONSTANTS_SCRIPT;

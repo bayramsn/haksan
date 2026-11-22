@@ -3,23 +3,21 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
-import { Redirect, useRouter, type Href } from 'expo-router';
+import { Redirect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { exportService } from '@/src/api/exports';
 import { useDeliveries } from '@/src/api/logistics.hooks';
 import type { Delivery } from '@/src/api/logistics.api';
 import { useCan } from '@/src/auth/AuthProvider';
+import { firstParam, matchesOpportunityOrCompany } from '@/src/features/opportunities/case-scope';
 import { formatDate } from '@/src/lib/format';
 import { chipClass, toneColor, useTheme } from '@/src/theme/theme';
 import { Chip, EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 import { SyncStatus } from '@/src/ui/SyncStatus';
-import { JourneySteps } from '@/src/ui/service/JourneySteps';
 import {
-  DELIVERY_JOURNEY,
   DELIVERY_STATUS_LABELS,
   deliveryKpis,
-  deliveryStep,
   isDeliveryFormReady,
   isSigned,
   upcomingDeliveries,
@@ -50,15 +48,13 @@ function DeliveryRow({ item, onPress }: { item: Delivery; onPress: () => void })
     >
       <View className="flex-row items-start gap-3">
         <View className="flex-1 gap-0.5">
-          <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>{machine || 'Teslimat kaydı'}</Text>
-          <Text className="font-inter text-xs text-muted-foreground" numberOfLines={2}>
-            {[customer, tezgah.seriNo].filter(Boolean).join(' · ')}
+          <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>{machine || 'Teslimat kaydı'}</Text>
+          <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
+            {[customer, tezgah.seriNo, item.deliveryDate ? formatDate(item.deliveryDate) : null].filter(Boolean).join(' · ')}
           </Text>
-          <Text className="font-inter text-xs text-muted-foreground">{item.deliveryDate ? formatDate(item.deliveryDate) : '—'}</Text>
         </View>
         <Chip tone={item.status === 'completed' ? 'success' : 'warning'} label={DELIVERY_STATUS_LABELS[item.status] ?? item.status} />
       </View>
-      <JourneySteps steps={DELIVERY_JOURNEY} current={deliveryStep(item) - 1} compact />
       <View className="flex-row flex-wrap gap-2">
         <Chip tone={formReady ? 'success' : 'warning'} label={formReady ? 'Form hazır' : 'Form bekliyor'} />
         <Chip tone={signed ? 'success' : 'neutral'} label={signed ? item.signedBy ?? '' : 'İmza bekliyor'} />
@@ -71,18 +67,29 @@ function DeliveryRow({ item, onPress }: { item: Delivery; onPress: () => void })
 export default function DeliveriesScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const router = useRouter();
+  const params = useLocalSearchParams<{ opportunityId?: string; companyId?: string }>();
+  const scopeOpportunityId = firstParam(params.opportunityId);
+  const scopeCompanyId = firstParam(params.companyId);
   const { colors } = useTheme();
   const canRead = useCan('shipments.read');
   const canCreate = useCan('shipments.create');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const list = useDeliveries(canRead);
-  const rows = useMemo(() => list.data?.items ?? [], [list.data]);
+  const rows = useMemo(
+    () =>
+      (list.data?.items ?? []).filter((row) =>
+        matchesOpportunityOrCompany(row, { opportunityId: scopeOpportunityId || null, companyId: scopeCompanyId || null }),
+      ),
+    [list.data, scopeCompanyId, scopeOpportunityId],
+  );
 
+  const loadedCount = list.data?.items?.length ?? 0;
   useEffect(() => {
-    if (list.hasNextPage && !list.isFetchingNextPage && rows.length < LOAD_LIMIT) void list.fetchNextPage();
-  }, [list, rows.length]);
+    if (list.hasNextPage && !list.isFetchingNextPage && loadedCount < LOAD_LIMIT) void list.fetchNextPage();
+  }, [list, loadedCount]);
 
   if (!canRead) return <Redirect href={'/modules/installations' as Href} />;
 
@@ -109,11 +116,11 @@ export default function DeliveriesScreen() {
 
   const openDelivery = (id: string) => router.push(`/modules/deliveries/${id}` as Href);
 
-  const header = upcoming.length ? (
+  const upcomingRoute = upcoming.length ? (
     <View className="mb-2 gap-2 rounded-overlay border border-border bg-card p-3.5">
       <View className="flex-row items-center justify-between gap-3">
         <View className="flex-1">
-          <Text accessibilityRole="header" className="font-display-semibold text-[16px] text-foreground">Yaklaşan teslim rotası</Text>
+          <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Yaklaşan teslim rotası</Text>
           <Text className="font-inter text-xs text-muted-foreground">İmza ve form hazırlığı gereken sıradaki kayıtlar</Text>
         </View>
         <Chip tone="warning" label={`${kpis.pending} bekleyen`} />
@@ -142,23 +149,34 @@ export default function DeliveriesScreen() {
     </View>
   ) : null;
 
+  const header = overviewOpen ? (
+    <View className="gap-2">
+      <StatStrip
+        dense
+        items={[
+          { label: 'Toplam Teslimat', value: String(list.data?.total ?? kpis.total) },
+          { label: 'Tamamlandı', value: String(kpis.completed), tone: 'success' },
+          { label: 'Bekleyen', value: String(kpis.pending), tone: 'warning' },
+        ]}
+      />
+      {upcomingRoute}
+    </View>
+  ) : null;
+
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
       <ScreenHeader
         title="Teslimat Kayıtları"
-        subtitle={list.data ? `${list.data.total} kayıt` : 'Müşteri teslim formu ve imza süreci.'}
         actions={[{ icon: exporting ? 'hourglass-outline' : 'download-outline', label: "Excel'e aktar", onPress: () => void (exporting ? null : runExport()) }]}
-      />
+        compact/>
       <View className="gap-2 pb-2">
+        {scopeOpportunityId || scopeCompanyId ? (
+          <Text className="px-4 font-inter text-[12px] text-muted-foreground">
+            {scopeOpportunityId ? 'Bu fırsata bağlı kayıtlar' : 'Bu firmaya bağlı kayıtlar'}
+          </Text>
+        ) : null}
         <SearchBar value={search} onChange={setSearch} placeholder="Makine, firma veya seri no ara" />
-        <StatStrip
-          items={[
-            { label: 'Toplam Teslimat', value: String(list.data?.total ?? kpis.total) },
-            { label: 'Tamamlandı', value: String(kpis.completed), tone: 'success' },
-            { label: 'Bekleyen', value: String(kpis.pending), tone: 'warning' },
-          ]}
-        />
         <FilterChips
           options={[
             { value: 'completed' as const, label: 'Tamamlandı' },
@@ -167,6 +185,15 @@ export default function DeliveriesScreen() {
           value={statusFilter}
           onChange={setStatusFilter}
         />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="mx-4 min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
       </View>
 
       {list.isPending ? (

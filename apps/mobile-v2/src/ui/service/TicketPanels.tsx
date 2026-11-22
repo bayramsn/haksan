@@ -96,7 +96,7 @@ export function TimerCard({ ticket, canUpdate }: { ticket: ServiceTicket; canUpd
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center gap-2">
           <Ionicons name="stopwatch-outline" size={18} color={colors.primary} />
-          <Text className="font-display-semibold text-[16px] text-foreground">Saha Sayacı</Text>
+          <Text className="font-inter-semibold text-[16px] text-foreground">Saha Sayacı</Text>
         </View>
         <Chip
           tone={timer.status === 'running' ? 'success' : timer.status === 'paused' ? 'warning' : 'neutral'}

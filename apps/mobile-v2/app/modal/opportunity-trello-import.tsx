@@ -197,7 +197,7 @@ export default function TrelloImportScreen() {
       {preview ? (
         <>
           <View className="flex-row flex-wrap gap-2">
-            <Chip tone="neutral" label={`Toplam ${preview.summary.total}`} />
+            <Chip tone="neutral" label={`Önizleme ${preview.summary.total}`} />
             <Chip tone={pending ? 'destructive' : 'success'} label={`Karar bekleyen ${pending}`} />
             <Chip tone="neutral" label={`Bilinçli atlanan ${skipped}`} />
             <Chip tone="neutral" label={`Mükerrer ${preview.summary.skip}`} />
@@ -264,7 +264,7 @@ export default function TrelloImportScreen() {
                 {decision.action === 'create' ? <Chip tone="success" label="Yeni Potansiyel" /> : null}
                 {decision.action === 'skip' ? <Chip tone="neutral" label="Atlanacak" /> : null}
               </View>
-              <Text className="font-display text-lg text-foreground">{row.title}</Text>
+              <Text className="font-inter-semibold text-lg text-foreground">{row.title}</Text>
               <View className="flex-row flex-wrap items-center gap-x-3">
                 <Text className="font-inter text-xs text-muted-foreground">{row.boardName || 'Pano yok'} / {row.listName || 'Liste yok'}</Text>
                 {row.cardUrl ? (
@@ -354,7 +354,7 @@ export default function TrelloImportScreen() {
                             addSecondaryEmail: false,
                           })
                         }
-                        className={`min-h-11 flex-row items-start gap-3 rounded-control border p-3 active:opacity-70 ${selected ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
+                        className={`min-h-11 flex-row items-start gap-3 rounded-control border p-3 active:opacity-70 ${selected ? 'border-primary bg-primary-soft' : 'border-border bg-card'}`}
                       >
                         <View className="min-w-0 flex-1 gap-0.5">
                           <Text className="font-inter-semibold text-xs text-foreground">{match.legalTitle}</Text>

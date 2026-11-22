@@ -109,6 +109,7 @@ export type CompanyListQuery = {
   relationTypeCode?: 'customer' | 'supplier' | 'supplier_customer' | 'competitor';
   customerStatusCode?: 'potential' | 'active' | 'passive' | 'blacklist';
   city?: string;
+  district?: string;
   sector?: string;
   sortBy?: 'name' | 'createdAt';
   sortDir?: 'asc' | 'desc';
@@ -490,6 +491,8 @@ export const qualificationStageLabels: Record<QualificationStage, string> = {
 export type OpportunityListItem = {
   id: string;
   title: string;
+  /** Servisten "Satışa ilet" ile açıldıysa kaynak servis kaydı. */
+  sourceServiceTicketId?: string | null;
   description: string | null;
   companyId: string | null;
   qualificationStage: string | null;
@@ -507,7 +510,13 @@ export type OpportunityListItem = {
   ownerUserId: string | null;
   createdAt: string;
   updatedAt: string;
-  company: { id: string; legalTitle: string; shortName: string | null } | null;
+  company: {
+    id: string;
+    legalTitle: string;
+    shortName: string | null;
+    /** Liste cevabında birincil firma adresi (lead şehir boşken kart adresi). */
+    primaryAddress?: { province?: string | null; district?: string | null; fullAddress?: string | null } | null;
+  } | null;
   primaryContact: { id: string; fullName: string } | null;
   stage: { id: string; code: string; name: string } | null;
   currency: { id: string; code: string } | null;
@@ -680,6 +689,9 @@ export const opportunityApprovalTypeLabels: Record<OpportunityApprovalType, stri
 export type OpportunityApprovals = Partial<Record<OpportunityApprovalType, 'pending' | 'approved' | 'rejected'>>;
 
 export const opportunities = {
+  /** Lead temas kaydı (canlı `POST /opportunities/:id/contact-events`, sunucu `leadContactEventSchema`). */
+  recordContact: (id: string, body: { idempotencyKey: string; channel: string; outcome: string; note?: string; nextAction?: string; nextActionAt?: Date }) =>
+    request<OpportunityDetail>(`/opportunities/${id}/contact-events`, { method: 'POST', body }),
   list: (query: OpportunityListQuery & { page: number; pageSize: number }) =>
     request<Paginated<OpportunityListItem>>('/opportunities', { query }),
   get: (id: string) => request<OpportunityDetail>(`/opportunities/${id}`),
@@ -1045,6 +1057,12 @@ export type ServiceTicket = {
   companyId: string;
   contactId: string | null;
   customerDeviceId: string | null;
+  /** Makinenin satışı (servis ↔ satış bağı, 0169). */
+  opportunityId?: string | null;
+  /** Başlık yalnız `opportunities.read` olana dolu gelir. */
+  salesOpportunity?: { id: string; title: string | null } | null;
+  /** "Satışa ilet" ile açılan lead; boşsa henüz iletilmedi. */
+  forwardedLeadId?: string | null;
   subject: string;
   description: string | null;
   severity: 'low' | 'normal' | 'high' | 'critical' | string;
@@ -1074,6 +1092,8 @@ export type ServiceTicketListQuery = {
   search?: string;
   phase?: 'open' | 'ongoing' | 'done';
   severity?: 'low' | 'normal' | 'high' | 'critical';
+  companyId?: string;
+  opportunityId?: string;
   sortDir?: 'asc' | 'desc';
 };
 
@@ -1244,6 +1264,8 @@ export type CustomerDevice = {
   productTypeName: string | null;
   cashPrice?: string | null;
   currencyCode?: string | null;
+  /** warranty_statuses — API list/get join (`inventory.service` customer devices). */
+  status?: { id: string; code: string; name: string } | null;
   technicalSpecs?: { key: string; value: string; unit?: string | null }[];
 };
 
@@ -1253,6 +1275,9 @@ export const service = {
   ticketSummary: (query: Omit<ServiceTicketListQuery, 'sortDir'> = {}) =>
     request<ServiceTicketSummary>('/service-tickets/summary', { query }),
   ticket: (id: string) => request<ServiceTicket>(`/service-tickets/${id}`),
+  /** Servisten satışa lead; kayıt başına bir kez (ikincisi 409). */
+  createSalesLead: (id: string, need: string) =>
+    request<{ id: string; title: string }>(`/service-tickets/${id}/sales-lead`, { method: 'POST', body: { need } }),
   removeTicket: (id: string) => request<{ ok: true }>(`/service-tickets/${id}`, { method: 'DELETE' }),
   /** service.controller.ts `ticketCreate` alan kümesi. */
   createTicket: (

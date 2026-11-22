@@ -51,7 +51,7 @@ export default function InventoryScanScreen() {
   if (!permission) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Seri No Tara" />
+        <DetailHeader title="Seri No Tara" compact />
         <Loading />
       </SafeAreaView>
     );
@@ -60,7 +60,7 @@ export default function InventoryScanScreen() {
   if (!permission.granted) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Seri No Tara" />
+        <DetailHeader title="Seri No Tara" compact />
         <View className="flex-1 items-center justify-center gap-4 px-8">
           <Ionicons name="camera-outline" size={42} color={colors.mutedForeground} />
           <Text className="text-center font-inter text-sm leading-5 text-muted-foreground">
@@ -77,7 +77,7 @@ export default function InventoryScanScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-black" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Seri No Tara" />
+      <DetailHeader title="Seri No Tara" compact />
       <CameraView
         style={{ flex: 1 }}
         facing="back"

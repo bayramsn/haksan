@@ -34,6 +34,7 @@ function FilePick({
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${label} seç`}
+        accessibilityState={{ disabled: Boolean(disabled) }}
         disabled={disabled}
         onPress={onPick}
         className="min-h-12 flex-row items-center gap-3 rounded-control border border-dashed border-border px-3 active:bg-muted"
@@ -139,7 +140,7 @@ export default function CompanyImportScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Firma ve kontak içe aktarımı', headerShown: true }} />
-      <ScrollView contentContainerClassName="gap-4 p-4 pb-10">
+      <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3">
         <Text className="font-inter text-sm text-muted-foreground">
           Firma NO ile kontakları doğru firmaya bağlar; var olan kayıtları boş alanlarla silmeden günceller.
         </Text>

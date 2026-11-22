@@ -197,7 +197,7 @@ export default function WebmailSettingsScreen() {
         ) : null}
       </Card>
 
-      <Card className="gap-3">
+      <Card className="gap-2 p-3">
         <View className="flex-row items-start justify-between gap-2">
           <View className="flex-1 gap-0.5">
             <Text className="font-inter-semibold text-[15px] text-foreground">
@@ -252,7 +252,7 @@ export default function WebmailSettingsScreen() {
       </Card>
 
       {status?.configured ? (
-        <Card className="gap-3">
+        <Card className="gap-2 p-3">
           <View className="flex-row items-start justify-between gap-2">
             <View className="flex-1 gap-0.5">
               <Text className="font-inter-semibold text-[15px] text-foreground">E-posta imzası</Text>
@@ -286,7 +286,7 @@ export default function WebmailSettingsScreen() {
         </Card>
       ) : null}
 
-      <Card className="gap-3">
+      <Card className="gap-2 p-3">
         <View className="gap-0.5">
           <Text className="font-inter-semibold text-[15px] text-foreground">Görsel mail imzası</Text>
           <Help>Yüklediğiniz imza tüm CRM e-postalarınıza otomatik eklenir. PNG, JPG veya WEBP · en fazla 2 MB.</Help>

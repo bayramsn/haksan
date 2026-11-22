@@ -309,7 +309,7 @@ export default function TradeFairFormModal() {
         <Field label="CRM ürününde ara" value={productSearch} onChangeText={setProductSearch} placeholder="Seçilen bölümde ürün adı ara" maxLength={200} editable={!readOnly && !saving && Boolean(form.divisionId)} />
         <PickerField label="İlgilenilen CRM ürünleri" value={null} placeholder={!form.divisionId ? 'Önce bölüm seçin' : products.isPending ? 'Ürünler yükleniyor…' : 'Ürün ekle (en fazla 20)'} icon="cube-outline" onPress={() => openSheet('product')} disabled={readOnly || saving || !form.divisionId || products.isPending || (form.productModelIds?.length ?? 0) >= 20} />
         {products.error ? <Pressable accessibilityRole="button" onPress={() => void products.refetch()}><Text className="text-sm text-destructive">Ürünler yüklenemedi. Yeniden dene</Text></Pressable> : null}
-        {(form.productModelIds ?? []).map((id) => <Pressable key={id} accessibilityRole="button" accessibilityLabel="Ürünü çıkar" disabled={readOnly || saving} onPress={() => set('productModelIds', form.productModelIds?.filter((v) => v !== id))} className="min-h-[44px] flex-row items-center gap-2 rounded-control border border-border px-3"><Text className="flex-1 text-sm text-foreground">{productNames[id] ?? selectedProducts.find((p) => p.id === id)?.name ?? 'Bağlı ürün'}</Text>{!readOnly ? <Ionicons name="close" size={18} color={colors.mutedForeground} /> : null}</Pressable>)}
+        {(form.productModelIds ?? []).map((id) => <Pressable key={id} accessibilityRole="button" accessibilityLabel="Ürünü çıkar" accessibilityState={{ disabled: Boolean(readOnly || saving) }} disabled={readOnly || saving} onPress={() => set('productModelIds', form.productModelIds?.filter((v) => v !== id))} className="min-h-[44px] flex-row items-center gap-2 rounded-control border border-border px-3"><Text className="flex-1 text-sm text-foreground">{productNames[id] ?? selectedProducts.find((p) => p.id === id)?.name ?? 'Bağlı ürün'}</Text>{!readOnly ? <Ionicons name="close" size={18} color={colors.mutedForeground} /> : null}</Pressable>)}
         {err('productModelIds') ? <Text className="text-xs text-destructive">{err('productModelIds')}</Text> : null}
       </View>
       <PickerField label="Ürün kategorisi" value={form.productCategory || null} placeholder="Kategori seçin veya yazın" icon="pricetags-outline" onPress={() => openSheet('category')} disabled={readOnly || saving} />
@@ -355,6 +355,7 @@ export default function TradeFairFormModal() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`${a.file.originalFilename} dosyasını sil`}
+                accessibilityState={{ disabled: Boolean(saving) }}
                 disabled={saving}
                 onPress={() => confirmRemoveAttachment(a.file.id, a.file.originalFilename)}
                 className="h-11 w-11 items-center justify-center active:opacity-60"
@@ -371,6 +372,7 @@ export default function TradeFairFormModal() {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`${local.name} dosyasını çıkar`}
+              accessibilityState={{ disabled: Boolean(saving) }}
               disabled={saving}
               onPress={() => setPending((list) => list.filter((_, j) => j !== index))}
               className="h-11 w-11 items-center justify-center active:opacity-60"

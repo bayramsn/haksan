@@ -1,18 +1,22 @@
+import { NumberedTermsPreview } from '@/src/ui/documents/NumberedTermsPreview';
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
+import { FormSection } from '@/src/ui/forms/FormSection';
 import { useQuery } from '@tanstack/react-query';
 import { request } from '@/src/api/client';
 import { quoteTotalsPreview } from '@/src/ui/documents/quote-preview';
 import { deliveryForSavedPriceList, laserPriceListForDelivery, validateQuoteConfigurations } from '@/src/ui/documents/quote-configuration';
-import { postPdfAndShare } from '@/src/native/files';
 import { shareSavedDocument } from '@/src/ui/documents/document-pdf';
+import { pdfIo } from '@/src/ui/documents/document-pdf-io';
 import { DISCOUNT_APPROVAL_THRESHOLD_PERCENT, companyUpdateSchema, discountPercent, requiresDiscountApproval } from '@haksan/shared';
 import { quoteCompanyDraft, quoteCompanyPatch, type QuoteCompanyDraft } from '@/src/ui/documents/quote-company-details';
 import { quoteLinesUntouched, quoteOpportunityDefaults } from '@/src/ui/documents/quote-opportunity-defaults';
 import { productsApi } from '@/src/api/endpoints';
 import { productsExtraApi } from '@/src/api/products.api';
 import { TermsTemplatePicker } from '@/src/ui/documents/TermsTemplatePicker';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
+import * as Crypto from 'expo-crypto';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCompany, useUpdateCompanyFields } from '@/src/api/companies.hooks';
 import { useContact, useLookup, useOpportunity } from '@/src/api/crm.hooks';
@@ -22,7 +26,7 @@ import type { QuoteCreateInput, QuoteTermsInput } from '@/src/api/quotes.api';
 import { useSignatures } from '@/src/api/settings.hooks';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { formatAmount } from '@/src/lib/format';
-import { Button, DetailSkeleton, ErrorState, Eyebrow, Field, SubtleCard } from '@/src/ui';
+import { Button, DetailSkeleton, ErrorState, Field, SubtleCard } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 import { ChoiceChips, CompanyPickerSheet, OpportunityPickerSheet, ModalForm, PickerField, ToggleRow, TotalLine } from '@/src/ui/documents/pickers';
 import { emptyQuoteItem, QuoteItemsEditor } from '@/src/ui/documents/QuoteItemsEditor';
@@ -147,6 +151,7 @@ export default function QuoteFormScreen() {
   const editId = typeof params.id === 'string' ? params.id : '';
   const isEdit = Boolean(editId);
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const { user, scope } = useAuth();
   const canCreate = useCan('quotes.create');
   const canUpdate = useCan('quotes.update');
@@ -436,11 +441,11 @@ export default function QuoteFormScreen() {
       toast.success(message);
       if (thenPdf) {
         setPdfBusy(true);
-        try { await shareSavedDocument('quote', savedId, documentNo, postPdfAndShare); }
+        try { await shareSavedDocument('quote', savedId, documentNo, pdfIo); }
         catch (error) { toast.error(`Teklif kaydedildi; PDF alınamadı. Detaydan tekrar deneyin. ${error instanceof Error ? error.message : ''}`); }
         finally { setPdfBusy(false); }
       }
-      router.replace(`/modules/quotes/${savedId}`);
+      router.replace(recordDestination(`/modules/quotes/${savedId}`));
     };
     if (isEdit) {
       update.mutate(
@@ -453,9 +458,16 @@ export default function QuoteFormScreen() {
       return;
     }
     create.mutate(
-      { quote, items: parsed.items, terms },
+      { quote, items: parsed.items, terms, operationId: Crypto.randomUUID() },
       {
-        onSuccess: (created) => void saved(created.id, opportunityId ? 'Teklif oluşturuldu' : 'Teklif ve satış kartı oluşturuldu'),
+        onSuccess: (created) => {
+          if (!created) {
+            toast.success('Teklif kuyruğa alındı; bağlantı gelince oluşturulacak');
+            router.back();
+            return;
+          }
+          void saved(created.id, opportunityId ? 'Teklif oluşturuldu' : 'Teklif ve satış kartı oluşturuldu');
+        },
         onError: (error) => toast.error(error.message),
       }
     );
@@ -472,8 +484,8 @@ export default function QuoteFormScreen() {
         onSecondarySubmit={() => submit(true)}
         loading={busy}
       >
-        <View className="gap-3">
-          <Eyebrow>Müşteri</Eyebrow>
+        <View className="flex-row flex-wrap items-center justify-between gap-3 rounded-surface bg-secondary p-4"><View className="gap-1"><Text className="font-inter-medium text-[12px] text-muted-foreground">Teklif özeti · {items.length} kalem</Text><Text accessibilityLiveRegion="polite" className="font-inter-bold text-[24px] text-primary" style={{ fontVariant: ['tabular-nums'] }}>{preview?.grand != null ? formatAmount(preview.grand, currencyCode) : preview === null ? 'Kalem bilgilerini tamamlayın' : 'Kur bekleniyor'}</Text></View><Text className="font-inter text-[12px] text-muted-foreground">{vatEnabled ? 'KDV hesaplanıyor' : 'KDV hesaplanmıyor'}</Text></View>
+        <FormSection title="Müşteri ve firma" hint="Teklifin muhatabı ve belge adresi" icon="business-outline">
           <PickerField
             label="Firma *"
             value={companyName || null}
@@ -566,10 +578,9 @@ export default function QuoteFormScreen() {
             value={signatureId}
             onChange={setSignatureId}
           />
-        </View>
+        </FormSection>
 
-        <View className="gap-3">
-          <Eyebrow>Teklif</Eyebrow>
+        <FormSection title="Teklif bilgileri" hint="Tarih, geçerlilik ve para birimi" icon="calendar-outline">
           <Field
             label="Teklif no"
             value={documentNo}
@@ -610,7 +621,7 @@ export default function QuoteFormScreen() {
             value={currencyCode}
             onChange={setCurrencyCode}
           />
-        </View>
+        </FormSection>
 
         <View className="gap-1">
           <ToggleRow label="KDV hesapla" value={vatEnabled} onChange={setVatEnabled} />
@@ -637,8 +648,7 @@ export default function QuoteFormScreen() {
         />
         {errors.items ? <Text className="font-inter text-xs text-destructive">{errors.items}</Text> : null}
 
-        <View className="gap-3">
-          <Eyebrow>Genel iskonto</Eyebrow>
+        <FormSection title="İskonto ve toplamlar" hint="İndirimleri ve son tutarı kontrol edin" icon="calculator-outline">
           <ChoiceChips
             label="İskonto tipi"
             options={[
@@ -688,10 +698,10 @@ export default function QuoteFormScreen() {
               ) : null}
             </SubtleCard>
           ) : null}
-        </View>
+        </FormSection>
 
-        <View className="gap-3">
-          <Eyebrow>Şartlar</Eyebrow>
+        <FormSection title="Şartlar ve teslimat" hint="Ödeme, garanti ve teslim bilgileri" icon="reader-outline" collapsible initiallyOpen={false} hasError={Boolean(errors.terms || errors.deliveryDaysMin || errors.deliveryDaysMax)}>
+          {errors.terms ? <Text accessibilityRole="alert" className="font-inter text-[13px] text-destructive">{errors.terms}</Text> : null}
           <TermsTemplatePicker scope="quote_terms" value={{ payment: paymentTerms, delivery: deliveryTerms, warranty: warrantyTerms }}
             onApply={(next) => { setPaymentTerms(next.payment); setDeliveryTerms(next.delivery); setWarrantyTerms(next.warranty); }} />
           <Field label="Ödeme şartları" value={paymentTerms} onChangeText={setPaymentTerms} multiline maxLength={2000} />
@@ -752,7 +762,8 @@ export default function QuoteFormScreen() {
           <ToggleRow label="KDV fiyata dahil" value={vatIncluded} onChange={setVatIncluded} />
           <ToggleRow label="Navlun + sigorta satıcıda" value={freightPaidBySeller} onChange={setFreightPaidBySeller} />
           <Field label="Notlar" value={notes} onChangeText={setNotes} multiline maxLength={4000} />
-        </View>
+          <NumberedTermsPreview style="alpha" values={[{ label: 'Teklif notları', value: notes }]} />
+        </FormSection>
       </ModalForm>
       <CompanyPickerSheet sheetRef={companySheet} selectedId={companyId} onSelect={chooseCompany} />
       {companyId ? <OpportunityPickerSheet sheetRef={opportunitySheet} companyId={companyId} view="active" selectedId={opportunityId ?? undefined} onSelect={(next) => { setOpportunityId(next.id); setPickedOpportunityTitle(next.title); }} /> : null}

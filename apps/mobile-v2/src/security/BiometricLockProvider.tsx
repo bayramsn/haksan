@@ -1,9 +1,10 @@
 import { runStartup } from './startup';
 import { StartupRecovery } from './StartupRecovery';
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AppState, Platform, Text, View } from 'react-native';
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Platform, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LocalAuthentication from 'expo-local-authentication';
+import * as SplashScreen from 'expo-splash-screen';
 import * as SecureStore from '@/src/security/secure-store';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/auth/AuthProvider';
@@ -12,7 +13,6 @@ import { Button } from '@/src/ui';
 import { Logo } from '@/src/ui/Logo';
 
 const ENABLED_KEY = 'haksan_biometric_lock_enabled';
-const BACKGROUND_LOCK_DELAY_MS = 30_000;
 
 type BiometricLockState = {
   enabled: boolean;
@@ -42,19 +42,19 @@ async function authenticate(reason: string): Promise<boolean> {
 }
 
 export function BiometricLockProvider({ children }: { children: ReactNode }) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, loading, scopeBoundary } = useAuth();
   const { colors } = useTheme();
   const [ready, setReady] = useState(false);
   const [startupFailed, setStartupFailed] = useState(false);
   const [startupAttempt, setStartupAttempt] = useState(0);
   const [enabled, setEnabledState] = useState(false);
   const [available, setAvailable] = useState(false);
-  const [locked, setLocked] = useState(false);
+  const [verifiedAccount, setVerifiedAccount] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const backgroundedAt = useRef<number | null>(null);
-  // Etkinleştirme sırasında kullanıcı zaten doğrulandı; enabled state'ini
-  // izleyen cold-start etkisinin aynı oturumda ikinci kez sormasını engeller.
-  const skipNextEnableLock = useRef(false);
+  const verifying = useRef(false);
+  const prompted = useRef<string | null>(null);
+  const account = user ? JSON.stringify([user.tenantId, user.id]) : null;
+  const locked = Boolean(enabled && account && verifiedAccount !== account);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,57 +71,44 @@ export function BiometricLockProvider({ children }: { children: ReactNode }) {
       const active = stored === 'true';
       setEnabledState(active);
       setAvailable(capable);
-      setLocked(active && Boolean(user));
       setReady(true);
     }).catch(() => { if (!cancelled) setStartupFailed(true); });
     return () => { cancelled = true; };
   }, [startupAttempt]);
 
   useEffect(() => {
-    if (!ready) return;
-    if (!user) {
-      setLocked(false);
-      return;
+    if (!account) {
+      prompted.current = null;
+      setVerifiedAccount(null);
     }
-    if (enabled) {
-      if (skipNextEnableLock.current) {
-        skipNextEnableLock.current = false;
-        setLocked(false);
-      } else {
-        setLocked(true);
-      }
-    }
-  }, [enabled, ready, user?.id]);
-
-  useEffect(() => {
-    const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active') {
-        const elapsed = backgroundedAt.current ? Date.now() - backgroundedAt.current : 0;
-        backgroundedAt.current = null;
-        if (enabled && user && elapsed >= BACKGROUND_LOCK_DELAY_MS) setLocked(true);
-      } else if (next === 'background' || next === 'inactive') {
-        backgroundedAt.current ??= Date.now();
-      }
-    });
-    return () => subscription.remove();
-  }, [enabled, user]);
+  }, [account]);
 
   const unlock = useCallback(async () => {
-    if (!enabled || !user) {
-      setLocked(false);
-      return true;
-    }
+    if (!enabled || !account || verifiedAccount === account) return true;
+    if (verifying.current) return false;
+    verifying.current = true;
     setBusy(true);
     try {
-      const success = await authenticate('Haksan kilidini açın');
-      if (success) setLocked(false);
+      const success = await authenticate('Haksan girişini doğrulayın');
+      if (success) setVerifiedAccount(account);
       return success;
+    } catch {
+      return false;
     } finally {
+      verifying.current = false;
       setBusy(false);
     }
-  }, [enabled, user]);
+  }, [account, enabled, verifiedAccount]);
+
+  useEffect(() => {
+    if (!ready || loading || !locked || !account || prompted.current === account) return;
+    prompted.current = account;
+    void SplashScreen.hideAsync().catch(() => undefined).then(unlock);
+  }, [account, loading, locked, ready, unlock]);
 
   const changeEnabled = useCallback(async (next: boolean) => {
+    if (verifying.current) return false;
+    verifying.current = true;
     setBusy(true);
     try {
       if (next) {
@@ -129,20 +116,22 @@ export function BiometricLockProvider({ children }: { children: ReactNode }) {
         setAvailable(capable);
         if (!capable || !(await authenticate('Biyometrik kilidi etkinleştirin'))) return false;
         await SecureStore.setItemAsync(ENABLED_KEY, 'true');
-        skipNextEnableLock.current = true;
+        setVerifiedAccount(account);
         setEnabledState(true);
-        setLocked(false);
         return true;
       }
       if (enabled && !(await authenticate('Biyometrik kilidi kapatın'))) return false;
       await SecureStore.deleteItemAsync(ENABLED_KEY);
       setEnabledState(false);
-      setLocked(false);
+      setVerifiedAccount(null);
       return true;
+    } catch {
+      return false;
     } finally {
+      verifying.current = false;
       setBusy(false);
     }
-  }, [enabled]);
+  }, [account, enabled]);
 
   const value = useMemo<BiometricLockState>(
     () => ({ enabled, available, busy, setEnabled: changeEnabled, unlock }),
@@ -176,7 +165,7 @@ export function BiometricLockProvider({ children }: { children: ReactNode }) {
             />
           </View>
         </SafeAreaView>
-      ) : children}
+      ) : <Fragment key={scopeBoundary}>{children}</Fragment>}
     </Context.Provider>
   );
 }

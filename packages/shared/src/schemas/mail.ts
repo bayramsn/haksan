@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { emailSchema } from './common';
 import { companyListQuerySchema } from './company';
+import { PROFORMA_NOTE_OPTIONS } from '../commercial-print/notes';
 
 const safeMailSubjectSchema = z
   .string()
@@ -111,14 +112,19 @@ export const mailSendSchema = z
     /** Ürünün teknik föyü; sunucu ürün okuma ve bölüm erişimini doğrular. */
     productDocument: z.object({ id: z.string().uuid(), pdf: printDocumentPdfSchema }).strict().optional(),
     /**
-     * Proforma / sözleşme gibi belge kayıtlarının "Yazdır / PDF Kaydet" çıktısı. `documentId`
-     * ile birlikte gelir; sunucu kaydı görebildiğini doğrulayıp HTML'i PDF'e çevirir.
+     * Proforma / sözleşme eki. PDF verilmezse sunucu yetkili kaydın dondurulmuş
+     * verisini kullanır; eski web istemcileri kendi baskı HTML'ini verebilir.
      */
     document: z
       .object({
         id: z.string().uuid(),
         kind: z.enum(['proforma', 'contract']),
-        pdf: printDocumentPdfSchema,
+        pdf: printDocumentPdfSchema.optional(),
+        variantKey: z.string().refine((key) => PROFORMA_NOTE_OPTIONS.some((option) => option.key === key), 'Geçersiz proforma şablonu').optional(),
+      })
+      .strict()
+      .refine((value) => !value.variantKey || (value.kind === 'proforma' && !value.pdf), {
+        path: ['variantKey'], message: 'Şablon seçimi yalnız sunucuda üretilen proforma için kullanılabilir',
       })
       .optional(),
     /**
@@ -158,6 +164,11 @@ export type MailRecipientOption = z.infer<typeof mailRecipientOptionSchema>;
 export const mailRecipientsSchema = z.object({
   contacts: z.array(mailRecipientOptionSchema),
   colleagues: z.array(mailRecipientOptionSchema),
+  /** Leasing proformasında CC yalnız teklif firmasını içerir. */
+  ccContacts: z.array(mailRecipientOptionSchema).optional(),
+  defaultTo: emailSchema.nullable().optional(),
+  /** Asıl satılan firmanın başlangıçta seçili CC adresi. */
+  defaultCc: z.array(emailSchema).optional(),
 });
 export type MailRecipients = z.infer<typeof mailRecipientsSchema>;
 

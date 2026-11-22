@@ -17,23 +17,13 @@ config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
 ];
-// Monorepoda eski apps/mobile (Expo 57 / RN 0.86) hoist edilmiş olsa bile
-// Metro'nun mobile-v2'nin kendi RN/Expo ağacına bağlanması gerekir; aksi halde
-// EAS eager bundle codegen hatası verir (VirtualViewExperimentalNativeComponent).
-const pin = (name) => {
-  const local = path.resolve(projectRoot, 'node_modules', name);
-  return require('fs').existsSync(local) ? local : path.resolve(workspaceRoot, 'node_modules', name);
-};
-config.resolver.extraNodeModules = {
-  ...(config.resolver.extraNodeModules ?? {}),
-  'react-native': pin('react-native'),
-  react: pin('react'),
-  'react-dom': pin('react-dom'),
-  expo: pin('expo'),
-};
-// disableHierarchicalLookup KAPALI kalmalı: npm bazı paketleri (expo-asset,
-// expo-file-system) node_modules/expo/node_modules altına yuvalıyor ve
-// kapatıldığında Metro onları göremiyor.
+const { runtimePackages, resolveRuntime } = require('./scripts/metro-runtime.cjs');
+const packages = runtimePackages(projectRoot);
+config.resolver.extraNodeModules = { ...(config.resolver.extraNodeModules ?? {}), ...packages };
+const previousResolver = config.resolver.resolveRequest;
+config.resolver.resolveRequest = (context, moduleName, platform) => resolveRuntime(packages, context, moduleName, platform, previousResolver ?? context.resolveRequest);
+// Keep hierarchical lookup for ordinary JS packages; native runtime packages
+// resolve only through the canonical map, including Expo's nested dependencies.
 
 /**
  * Metro varsayılanı çekirdek başına bir dönüştürücü işçi açar (M serisinde 8-12

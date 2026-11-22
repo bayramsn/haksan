@@ -1,3 +1,4 @@
+import { ScopeSummary } from '@/src/ui/ScopeSummary';
 import { ProfileButton } from '@/src/ui/ProfileButton';
 import { HomeChatBubble } from '@/src/ui/HomeChatBubble';
 import { Children, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -5,33 +6,34 @@ import { LayoutAnimation, Platform, Pressable, RefreshControl, ScrollView, Text,
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { LineChart } from 'react-native-gifted-charts';
 import * as Haptics from 'expo-haptics';
 import { useQueryClient } from '@tanstack/react-query';
 import { useDashboard } from '@/src/api/dashboard';
 import { useCalendarEvents } from '@/src/api/calendar.hooks';
-import { useCompletedPayments, monthlyTotalsByCurrency } from '@/src/api/finance.hooks';
+import { useCompletedPayments } from '@/src/api/finance.hooks';
 import { useQuoteList, useQuoteSummary } from '@/src/api/crm.hooks';
 import { useServiceTickets, useShipments } from '@/src/api/operations.hooks';
 import { useStockSummary } from '@/src/api/inventory.hooks';
 import { useUnreadCount } from '@/src/api/notifications.hooks';
 import { useLeadSummary, useSalesAnalytics } from '@/src/api/sales.hooks';
 import { useTaskCounts } from '@/src/api/tasks.hooks';
-import { useAuth } from '@/src/auth/AuthProvider';
+import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { useCanAccessModule, useCanOpenHref } from '@/src/modules/useModuleAccess';
 import { useTheme } from '@/src/theme/theme';
 import { formatAmount, formatCompact, formatDate, formatTime } from '@/src/lib/format';
 import { Card, Chip, ErrorState, SCREEN_PAD } from '@/src/ui';
 import { Tabs } from '@/src/ui/data';
-import { Funnel, KpiCard, PanelCard, PanelRow } from '@/src/ui/dashboard';
+import { KpiCard, PanelCard, PanelRow } from '@/src/ui/dashboard';
 import { GlassNavigationControl } from '@/src/ui/NavigationGlass';
 import { Logo } from '@/src/ui/Logo';
-import { Enter, Skeleton } from '@/src/ui/motion';
+import { Skeleton } from '@/src/ui/motion';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import {
   BarList,
+  buildMobileManagementInsights,
   DashboardBriefing,
   DashboardTasksPanel,
+  ManagementOpsSummary,
   MonthlySalesChart,
   MyTargetsPanel,
   opportunitiesHref,
@@ -88,13 +90,13 @@ function KpiGrid({ children }: { children: ReactNode }) {
 
 function ReportSection({
   title,
-  hint,
+  hint = '',
   open,
   onToggle,
   children,
 }: {
   title: string;
-  hint: string;
+  hint?: string;
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -113,10 +115,12 @@ function ReportSection({
         className="min-h-[52px] flex-row items-center gap-2 px-3.5 py-3 active:opacity-80"
       >
         <View className="min-w-0 flex-1">
-          <Text className="font-display-semibold text-[16px] text-foreground">{title}</Text>
-          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-            {hint}
-          </Text>
+          <Text className="font-inter-semibold text-[16px] text-foreground">{title}</Text>
+          {hint ? (
+            <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
+              {hint}
+            </Text>
+          ) : null}
         </View>
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.mutedForeground} />
       </Pressable>
@@ -130,13 +134,19 @@ export default function DashboardScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const { colors } = useTheme();
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const wide = width >= 720;
   const { user } = useAuth();
   const canOpen = useCanOpenHref();
   const canReadOpps = useCanAccessModule('opportunities');
   const canReadTasks = useCanAccessModule('tasks');
   const canReadService = useCanAccessModule('service-tickets');
+  const canReadQuotes = useCanAccessModule('quotes');
+  const canCreateOpportunity = useCan('opportunities.create');
+  const canCreateQuote = useCan('quotes.create');
+  const canCreateTask = useCan('tasks.create');
+  const canCreateActivity = useCan('activities.create');
+  const [operationsOpen, setOperationsOpen] = useState(false);
   const [section, setSection] = useState<Section>('bugun');
   const [reportPane, setReportPane] = useState<ReportPane>('ozet');
   // Hedef uyarısı bildirimi `?section=rapor&pane=hedefler` ile gelir.
@@ -145,7 +155,8 @@ export default function DashboardScreen() {
     if (focusParams.section === 'rapor') setSection('rapor');
     if (focusParams.pane === 'ozet' || focusParams.pane === 'grafikler' || focusParams.pane === 'hedefler') setReportPane(focusParams.pane);
   }, [focusParams.section, focusParams.pane]);
-  const [openReport, setOpenReport] = useState({ ozet: true, grafikler: true, hedefler: true });
+  // Mobilde rapor bölümleri kapalı başlar; kullanıcı açar (dağınıklık azaltma).
+  const [openReport, setOpenReport] = useState({ ozet: false, grafikler: false, hedefler: false });
   const { data, isPending, isRefetching, error, refetch } = useDashboard();
   const unreadNotifications = useUnreadCount();
   const homeHeader = <View style={{ paddingHorizontal: SCREEN_PAD, paddingTop: 4, paddingBottom: 8 }} className="flex-row items-center justify-between">
@@ -193,7 +204,7 @@ export default function DashboardScreen() {
   }, []);
 
   const completedPayments = useCompletedPayments(salesTrendRange);
-  const quoteList = useQuoteList(thisMonthRange, section === 'rapor');
+  const quoteList = useQuoteList(thisMonthRange, canReadQuotes);
   const shipmentList = useShipments('active');
   const stockSummary = useStockSummary();
   const todayEvents = useCalendarEvents(todayRange);
@@ -238,27 +249,17 @@ export default function DashboardScreen() {
     [canReadTasks, taskCounts.data, leadSummary.data, data, analytics.data, openRows]
   );
   const counts = briefingCounts(signals);
+  const agenda = useMemo(() => [...(todayEvents.data ?? []), ...(upcomingEvents.data ?? [])]
+    .filter(event => !event.completedAt)
+    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
+    .slice(0, 4), [todayEvents.data, upcomingEvents.data]);
+  const quickActions = [
+    { label: 'Fırsat', icon: 'add-circle-outline' as const, href: '/modal/new-opportunity', module: '/modules/opportunities', allowed: canCreateOpportunity },
+    { label: 'Teklif', icon: 'document-text-outline' as const, href: '/modal/quote-form', module: '/modules/quotes', allowed: canCreateQuote },
+    { label: 'Görev', icon: 'checkbox-outline' as const, href: '/modal/task', module: '/modules/tasks', allowed: canCreateTask },
+    { label: 'Görüşme', icon: 'chatbubble-ellipses-outline' as const, href: '/modal/activity', module: '/modules/activities', allowed: canCreateActivity },
+  ].filter(item => item.allowed && canOpen(toHref(item.module)));
 
-  const salesTrendGroups = useMemo(
-    () => monthlyTotalsByCurrency(completedPayments.data ?? [], 6, 'in').filter((group) => group.total > 0),
-    [completedPayments.data]
-  );
-  const trend = salesTrendGroups[0];
-  const trendMonths = trend?.months ?? [];
-  const collectionsDelta = useMemo(() => {
-    if (trendMonths.length < 2) return undefined;
-    const current = trendMonths[trendMonths.length - 1]?.total ?? 0;
-    const previous = trendMonths[trendMonths.length - 2]?.total ?? 0;
-    if (previous <= 0) return undefined;
-    return { percent: Math.round(((current - previous) / previous) * 100) };
-  }, [trendMonths]);
-  const collectionsThisMonth = completedPayments.data
-    ? salesTrendGroups
-        .map((group) => `${formatCompact(group.months[group.months.length - 1]?.total ?? 0)} ${group.currencyCode}`)
-        .join(' · ') || '0'
-    : null;
-
-  const quotesThisMonth = quoteList.data ? quoteList.data.total : null;
   const activeShipments = shipmentList.data ? shipmentList.data.total : null;
   const stockCount = (code: string) => stockSummary.data?.find((row) => row.status === code)?.count ?? 0;
   const stockTotal = (stockSummary.data ?? []).reduce((sum, row) => sum + row.count, 0);
@@ -294,6 +295,7 @@ export default function DashboardScreen() {
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
         <SyncStatus />
         {homeHeader}
+      <View className="px-4"><ScopeSummary /></View>
         <ScrollView contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingTop: 8, paddingBottom: 96 + GLASS_TAB_BAR_HEIGHT, gap: 14 }}>
           <Skeleton width={148} height={34} rounded={8} />
           <Skeleton height={130} rounded={16} />
@@ -314,6 +316,7 @@ export default function DashboardScreen() {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top']}>
         {homeHeader}
+      <View className="px-4"><ScopeSummary /></View>
         <ErrorState message={error?.message ?? 'Panel yüklenemedi.'} onRetry={() => void refetch()} />
         <HomeChatBubble />
       </SafeAreaView>
@@ -325,14 +328,6 @@ export default function DashboardScreen() {
   const overdueValue = data.overdueReceivables
     ? data.overdueReceivables.byCurrency.map((row) => `${formatCompact(row.amount)} ${row.currencyCode}`).join(' · ') || '0'
     : '—';
-
-  const topStage = data.stages[0];
-  const bottomStage = data.stages[data.stages.length - 1];
-  const conversionRate = topStage && bottomStage && topStage.value > 0 ? Math.round((bottomStage.value / topStage.value) * 100) : null;
-  const FUNNEL_ROWS = 5;
-  const restTotal = data.stages.slice(FUNNEL_ROWS).reduce((sum, s) => sum + s.value, 0);
-  const funnelStages =
-    data.stages.length > FUNNEL_ROWS ? [...data.stages.slice(0, FUNNEL_ROWS), { code: '', label: 'Diğer', value: restTotal }] : data.stages;
 
   const radar = departmentScores({
     openOpportunities: data.openOpportunities ?? 0,
@@ -370,6 +365,7 @@ export default function DashboardScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
       {homeHeader}
+      <View className="px-4"><ScopeSummary /></View>
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingTop: 4, paddingBottom: 96 + GLASS_TAB_BAR_HEIGHT, gap: 14 }}
         refreshControl={
@@ -380,9 +376,10 @@ export default function DashboardScreen() {
           />
         }
       >
-        <Text accessibilityRole="header" className="font-display-semibold text-[24px] leading-[28px] text-foreground" style={{ marginTop: -6 }}>
-          Ana Sayfa
-        </Text>
+        <View className="gap-1 pb-1">
+          <Text className="font-inter text-[12px] text-muted-foreground">{new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}</Text>
+          <Text accessibilityRole="header" className="font-inter-semibold text-[24px] leading-[32px] text-foreground">{section === 'bugun' ? `Merhaba, ${user?.fullName?.split(' ')[0] || 'ekip'}` : 'Raporlar'}</Text>
+        </View>
 
         <Tabs<Section>
           tabs={[
@@ -396,52 +393,63 @@ export default function DashboardScreen() {
         {section === 'bugun' ? (
           <>
             <DashboardBriefing
-              firstName={user?.fullName?.split(' ')[0] ?? 'ekip'}
+              compact
+              firstName={user?.fullName?.split(' ')[0] || 'ekip'}
               counts={counts}
-              onToday={press('/calendar')}
-              onOverdue={press(toHref('/modules/receivables'))}
+              onToday={canOpen('/calendar') ? () => go('/calendar') : undefined}
+              onOverdue={
+                canOpen(toHref('/modules/receivables')) && (data.overdueReceivables?.count ?? 0) > 0
+                  ? () => go(toHref('/modules/receivables'))
+                  : canReadTasks && canOpen(toHref('/modules/tasks?view=overdue')) && (taskCounts.data?.overdue ?? 0) > 0
+                    ? () => go(toHref('/modules/tasks?view=overdue'))
+                    : undefined
+              }
             />
 
-            <View className="flex-row flex-wrap gap-2">
-              {([
-                { label: 'İşlerim', icon: 'checkbox-outline', href: '/modules/tasks' },
-                { label: 'Takvim', icon: 'calendar-outline', href: '/calendar' },
-                { label: 'Teklifler', icon: 'document-text-outline', href: '/modules/quotes' },
-              ] as const).filter((item) => canOpen(toHref(item.href))).map((item) => (
-                <Pressable key={item.label} accessibilityRole="button" onPress={() => go(toHref(item.href))}
-                  className="min-h-12 flex-row items-center justify-center gap-2 rounded-control border border-border bg-card px-4 active:opacity-70">
-                  <Ionicons name={item.icon} size={18} color={colors.primary} />
-                  <Text className="font-inter-medium text-[13px] text-foreground">{item.label}</Text>
-                </Pressable>
-              ))}
-            </View>
             <SignalList
               title="Öncelikli İşler"
-              hint="Geciken ve yakın takip gerektiren kayıtlar"
               signals={signals}
               limit={5}
               empty="Takip gerektiren öncelikli kayıt yok."
             />
-            <DashboardTasksPanel compact />
-            <Enter>
-              <KpiGrid>
-                <KpiCard icon="alert-circle-outline" label="Geciken ödeme" value={overdueValue} onPress={press(toHref('/modules/receivables'))} />
-                <KpiCard icon="construct-outline" label="Açık servis" value={num(data.openServices)} onPress={press(toHref('/modules/service-tickets'))} />
-                <KpiCard icon="calendar-outline" label="Bugünkü etkinlik" value={todayEvents.data ? String(todayEvents.data.length) : '—'} onPress={press('/calendar')} />
-                <KpiCard icon="briefcase-outline" label="Açık fırsat" value={money(openTotal)} onPress={press(opportunitiesHref({ focus: 'open' }))} />
-              </KpiGrid>
-            </Enter>
+
+            {quickActions.length ? <View className="gap-2 py-1">
+              <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Hızlı oluştur</Text>
+              <View className="flex-row flex-wrap gap-2">
+                {quickActions.map(item => <Pressable key={item.href} accessibilityRole="button" accessibilityLabel={`Yeni ${item.label.toLocaleLowerCase('tr-TR')} oluştur`} onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push(toHref(item.href)); }} style={{ flexBasis: width < 380 || fontScale >= 1.4 ? '47%' : '22%', flexGrow: 1 }} className="min-h-[72px] items-center justify-center gap-1.5 rounded-surface border border-border bg-card px-2 py-2.5 active:opacity-70">
+                  <View className="h-9 w-9 items-center justify-center rounded-full bg-primary/10"><Ionicons name={item.icon} size={20} color={colors.primary} /></View>
+                  <Text className="font-inter-medium text-[12px] text-center text-foreground" numberOfLines={2}>{item.label}</Text>
+                </Pressable>)}
+              </View>
+            </View> : null}
+
+            {canOpen('/calendar') ? <Card className="gap-2">
+              <View className="flex-row items-center justify-between gap-2">
+                <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Ajandam</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel="Takvimin tamamını aç" onPress={() => go('/calendar')} className="min-h-11 justify-center px-2"><Text className="font-inter-medium text-[13px] text-primary">Tümü</Text></Pressable>
+              </View>
+              {todayEvents.isPending || upcomingEvents.isPending ? <Skeleton height={64} rounded={12} /> : todayEvents.error || upcomingEvents.error ? <ErrorState message="Ajanda yüklenemedi." onRetry={() => { void todayEvents.refetch(); void upcomingEvents.refetch(); }} /> : !agenda.length ? <View className="gap-1 rounded-control bg-canvas p-4"><Text className="font-inter-medium text-[14px] text-foreground">Ajandanızda boşluk var</Text><Text className="font-inter text-[13px] text-muted-foreground">Yeni ziyaret için takvimi açın.</Text></View> : agenda.slice(0, 3).map(event => {
+                const today = new Date(event.startsAt).toDateString() === new Date().toDateString();
+                return <Pressable key={event.id} accessibilityRole="button" accessibilityLabel={`${event.title}, ${formatDate(event.startsAt)}, ${formatTime(event.startsAt)}`} onPress={() => go('/calendar')} className="min-h-[64px] flex-row items-center gap-3 border-t border-border py-2.5 active:opacity-70">
+                  <View className="w-14 items-center gap-1 rounded-control bg-primary/10 py-2"><Text className="font-inter-semibold text-[14px] text-primary">{event.allDay ? 'Gün boyu' : formatTime(event.startsAt)}</Text><Text className="font-inter text-[11px] text-muted-foreground">{today ? 'Bugün' : new Date(event.startsAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}</Text></View>
+                  <View className="flex-1 gap-1"><Text className="font-inter-medium text-[14px] text-foreground" numberOfLines={2}>{event.title}</Text><Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>{event.company?.shortName || event.company?.legalTitle || event.location || 'Takvim etkinliği'}</Text></View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
+                </Pressable>;
+              })}
+            </Card> : null}
 
             {canReadOpps ? (
               <Card className="gap-2">
-                <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">
-                  Açık Satış Kartları
-                </Text>
-                <Text className="font-inter text-[12px] text-muted-foreground">Sıradaki aksiyon tarihine göre</Text>
-                {analytics.isPending ? null : openSalesCards.length === 0 ? (
+                <View className="flex-row items-center justify-between gap-2">
+                  <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Açık fırsatlar</Text>
+                  <Pressable accessibilityRole="button" accessibilityLabel="Tüm fırsatları aç" onPress={() => go(opportunitiesHref({ focus: 'open' }))} className="min-h-11 justify-center px-2">
+                    <Text className="font-inter-medium text-[13px] text-primary">Tümü</Text>
+                  </Pressable>
+                </View>
+                {analytics.isPending ? <Skeleton height={64} rounded={12} /> : openSalesCards.length === 0 ? (
                   <Text className="font-inter text-[13px] text-muted-foreground">Açık satış kartı yok</Text>
                 ) : (
-                  openSalesCards.map((row) => {
+                  openSalesCards.slice(0, 4).map((row) => {
                     const stage = asQualification(row.qualificationStage);
                     return (
                       <Pressable
@@ -459,12 +467,7 @@ export default function DashboardScreen() {
                             {row.nextAction ? `${row.nextAction}${row.nextActionAt ? ` · ${formatDate(row.nextActionAt)}` : ''}` : 'Sonraki aktivite planlanmamış'}
                           </Text>
                         </View>
-                        <View className="items-end gap-1">
-                          <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
-                          {Number(row.estimatedValue ?? 0) ? (
-                            <Text className="font-inter-semibold text-[12px] text-primary">{formatAmount(row.estimatedValue, row.currency?.code ?? 'TRY')}</Text>
-                          ) : null}
-                        </View>
+                        <Chip tone={STAGE_TONE[stage]} label={QUALIFICATION_LABELS[stage]} />
                       </Pressable>
                     );
                   })
@@ -472,9 +475,14 @@ export default function DashboardScreen() {
               </Card>
             ) : null}
 
+            <ReportSection title="Daha fazla" open={operationsOpen} onToggle={() => setOperationsOpen(value => !value)}>
+            {canReadQuotes ? <Card className="gap-3">
+              <View className="flex-row items-center justify-between"><View className="gap-1"><Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-foreground">Son teklifler</Text><Text className="font-inter text-[12px] text-muted-foreground">Bu ay</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Tüm teklifleri aç" onPress={() => go('/modules/quotes')} className="min-h-11 justify-center px-2"><Text className="font-inter-medium text-[13px] text-primary">Tümü</Text></Pressable></View>
+              {quoteList.isPending ? <Skeleton height={64} rounded={12} /> : quoteList.error ? <ErrorState message="Teklifler yüklenemedi." onRetry={() => void quoteList.refetch()} /> : !quoteList.data?.items.length ? <Text className="py-3 font-inter text-[13px] text-muted-foreground">Bu ay henüz teklif yok.</Text> : [...quoteList.data.items].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).slice(0, 3).map(quote => <Pressable key={quote.id} accessibilityRole="button" onPress={() => go(toHref(`/modules/quotes/${quote.id}`))} className="min-h-[64px] gap-1 border-t border-border py-2.5 active:opacity-70"><View className="flex-row items-center justify-between gap-3"><Text className="flex-1 font-inter-medium text-[14px] text-foreground" numberOfLines={1}>{quote.company?.shortName || quote.company?.legalTitle || quote.documentNo}</Text><Text className="font-inter-semibold text-[13px] text-primary" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{formatAmount(quote.grandTotal, quote.currency?.code ?? 'TRY')}</Text></View><Text className="font-inter text-[12px] text-muted-foreground">{quote.documentNo} · {quote.status?.name || 'Durum yok'}</Text></Pressable>)}
+            </Card> : null}
             {canReadService ? (
               <Card className="gap-2">
-                <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">
+                <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-foreground">
                   Açık Servis Talepleri
                 </Text>
                 {openTickets.isPending ? null : openTickets.error ? (
@@ -518,49 +526,8 @@ export default function DashboardScreen() {
                 <PanelRow icon="car-outline" label="Sevkiyatta" value={stockSummary.data ? String(stockCount('in_transit')) : '—'} onPress={press('/modules/inventory')} />
               </PanelCard>
 
-              <PanelCard title="Bugünkü Etkinlikler" onMore={press('/modules/calendar')}>
-                {todayEvents.isPending ? null : (todayEvents.data ?? []).length === 0 ? (
-                  <Text className="py-4 text-center font-inter text-[12px] text-muted-foreground">Bugün planlanmış etkinlik yok.</Text>
-                ) : (
-                  (todayEvents.data ?? []).slice(0, 4).map((event, index) => (
-                    <View key={event.id} className="flex-row items-center gap-2 py-2">
-                      <Ionicons name="calendar-outline" size={15} color={index === 0 ? colors.primary : colors.mutedForeground} />
-                      <Text className="flex-1 font-inter text-[12px] text-foreground" numberOfLines={1}>
-                        {event.title}
-                      </Text>
-                      <Text className="font-inter-semibold text-[12px]" style={{ color: index === 0 ? colors.primary : colors.mutedForeground }}>
-                        {formatTime(event.startsAt)}
-                      </Text>
-                    </View>
-                  ))
-                )}
-              </PanelCard>
             </View>
-
-            <PanelCard title="Yaklaşan Etkinlikler" onMore={press('/modules/calendar')}>
-              {(upcomingEvents.data ?? []).length === 0 ? (
-                <Text className="font-inter text-[12px] text-muted-foreground">Önümüzdeki 14 günde etkinlik yok.</Text>
-              ) : (
-                (upcomingEvents.data ?? []).slice(0, 3).map((event) => (
-                  <Pressable
-                    key={event.id}
-                    accessibilityRole="button"
-                    accessibilityLabel={event.title}
-                    onPress={press('/modules/calendar')}
-                    className="min-h-[44px] flex-row items-center gap-2.5 py-2 active:opacity-70"
-                  >
-                    <View className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.primary }} />
-                    <Text className="font-inter-medium text-[13px]" style={{ color: colors.primary }} numberOfLines={1}>
-                      {new Date(event.startsAt).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', weekday: 'long' })}
-                    </Text>
-                    <Text className="flex-1 font-inter text-[13px] text-foreground" numberOfLines={1}>
-                      {event.title}
-                    </Text>
-                    <Text className="font-inter text-[13px] text-muted-foreground">{formatTime(event.startsAt)}</Text>
-                  </Pressable>
-                ))
-              )}
-            </PanelCard>
+            </ReportSection>
           </>
         ) : null}
 
@@ -577,25 +544,25 @@ export default function DashboardScreen() {
             />
 
             {reportPane === 'ozet' ? (
-              <ReportSection title="KPI Özeti" hint="Müşteri, ciro, teklif ve operasyon" open={openReport.ozet} onToggle={() => toggleReport('ozet')}>
+              <ReportSection title="KPI Özeti" open={openReport.ozet} onToggle={() => toggleReport('ozet')}>
                 <KpiGrid>
                   <KpiCard icon="people-outline" label="Aktif Müşteri" value={num(data.activeCustomers)} onPress={press('/modules/companies')} />
                   <KpiCard icon="wallet-outline" label="Kazanılan ciro" value={money(wonTotal)} onPress={press(opportunitiesHref({ focus: 'won' }))} />
                   <KpiCard icon="briefcase-outline" label="Fırsat (açık)" value={money(openTotal)} onPress={press(opportunitiesHref({ focus: 'open' }))} />
                   <KpiCard icon="alert-circle-outline" label="Geciken ödeme" value={overdueValue} onPress={press(toHref('/modules/receivables'))} />
                   <KpiCard icon="construct-outline" label="Açık servis" value={num(data.openServices)} onPress={press(toHref('/modules/service-tickets'))} />
-                  <KpiCard icon="hardware-chip-outline" label="Aktif Makine" value={num(data.activeMachines)} onPress={press(toHref('/modules/customer-devices'))} />
-                  <KpiCard icon="document-text-outline" label="Bu Ay Teklifler" value={num(quotesThisMonth)} onPress={press('/modules/quotes')} />
-                  <KpiCard
-                    icon="cash-outline"
-                    label="Tahsilat"
-                    value={collectionsThisMonth ?? '—'}
-                    delta={collectionsDelta}
-                    deltaNote={collectionsDelta ? '(Geçen aya göre)' : undefined}
-                    onPress={press('/modules/payments')}
-                  />
-                  <KpiCard icon="car-outline" label="Sevkiyat" value={num(activeShipments)} onPress={press('/modules/shipments')} />
                 </KpiGrid>
+
+                <ManagementOpsSummary
+                  insights={buildMobileManagementInsights({
+                    overdueReceivables: data.overdueReceivables?.count ?? null,
+                    openServices: data.openServices ?? null,
+                    openOpportunities: data.openOpportunities ?? openRows.length,
+                    quoteConversion,
+                    stockReserved: stockSummary.data ? stockCount('reserved') : null,
+                    signals,
+                  })}
+                />
 
                 {canReadOpps ? (
                   analytics.error ? (
@@ -610,82 +577,11 @@ export default function DashboardScreen() {
 
                 <DashboardTasksPanel />
                 <TeamActivityPanel />
-
-                <View className={wide ? 'flex-row items-stretch' : 'gap-3'} style={wide ? { gap: GAP } : undefined}>
-                  <PanelCard title="Satış Trendi" hint={trend ? '(Son 6 Ay)' : undefined} onMore={() => setReportPane('grafikler')}>
-                    {trend ? (
-                      <View className="gap-1.5">
-                        <View className="flex-row items-center gap-1.5">
-                          <View className="h-2 w-2 rounded-full" style={{ backgroundColor: colors.primary }} />
-                          <Text className="font-inter text-[11px] text-muted-foreground">Tahsilat ({trend.currencyCode})</Text>
-                        </View>
-                        <LineChart
-                          data={trendMonths.map((b) => ({ value: b.total, label: b.label }))}
-                          areaChart
-                          curved
-                          width={wide ? 112 : Math.min(220, width - 96)}
-                          height={110}
-                          initialSpacing={8}
-                          spacing={20}
-                          color={colors.chart1}
-                          startFillColor={colors.chart1}
-                          endFillColor={colors.chart1}
-                          startOpacity={0.25}
-                          endOpacity={0.02}
-                          thickness={2}
-                          dataPointsRadius={3}
-                          dataPointsColor={colors.chart1}
-                          noOfSections={4}
-                          yAxisTextStyle={{ color: colors.chartAxis, fontSize: 8 }}
-                          xAxisLabelTextStyle={{ color: colors.chartAxis, fontSize: 8 }}
-                          yAxisLabelWidth={30}
-                          yAxisColor={colors.chartGrid}
-                          xAxisColor={colors.chartGrid}
-                          isAnimated
-                        />
-                      </View>
-                    ) : (
-                      <Text className="py-6 text-center font-inter text-[12px] text-muted-foreground">Son 6 ayda tahsilat kaydı yok.</Text>
-                    )}
-                  </PanelCard>
-
-                  <PanelCard title="Fırsat Aşama Özeti" onMore={press('/modules/opportunities')}>
-                    {data.stages.length > 0 ? (
-                      <View className="gap-2.5">
-                        <View className="flex-row items-center gap-2.5">
-                          <Funnel steps={funnelStages.map((s) => s.value)} width={46} height={22 * funnelStages.length} />
-                          <View className="flex-1">
-                            {funnelStages.map((stage) => (
-                              <View key={stage.label} className="h-[22px] flex-row items-center justify-between gap-1">
-                                <Text className="flex-1 font-inter text-[12px] text-foreground" numberOfLines={1}>
-                                  {stage.label}
-                                </Text>
-                                <Text className="font-inter-semibold text-[13px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>
-                                  {stage.value}
-                                </Text>
-                              </View>
-                            ))}
-                          </View>
-                        </View>
-                        {conversionRate !== null ? (
-                          <View className="border-t border-border pt-2">
-                            <Text className="font-inter text-[12px] text-foreground">Dönüşüm Oranı</Text>
-                            <Text className="font-inter-bold text-[20px]" style={{ color: colors.primary }}>
-                              %{conversionRate}
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    ) : (
-                      <Text className="py-6 text-center font-inter text-[12px] text-muted-foreground">Açık fırsat yok.</Text>
-                    )}
-                  </PanelCard>
-                </View>
               </ReportSection>
             ) : null}
 
             {reportPane === 'grafikler' ? (
-              <ReportSection title="Grafikler & Huniler" hint="Aylık satış, aşama ve departman" open={openReport.grafikler} onToggle={() => toggleReport('grafikler')}>
+              <ReportSection title="Grafikler & Huniler" open={openReport.grafikler} onToggle={() => toggleReport('grafikler')}>
                 <KpiGrid>
                   <KpiCard icon="document-text-outline" label="Teklif dönüşümü" value={quoteConversion == null ? '—' : `%${quoteConversion}`} onPress={press('/modules/quotes')} />
                   <KpiCard icon="construct-outline" label="Açık servis" value={num(data.openServices)} onPress={press(toHref('/modules/service-tickets'))} />
@@ -717,7 +613,7 @@ export default function DashboardScreen() {
             ) : null}
 
             {reportPane === 'hedefler' ? (
-              <ReportSection title="Hedefler" hint="Kişisel ve ekip hedefleri" open={openReport.hedefler} onToggle={() => toggleReport('hedefler')}>
+              <ReportSection title="Hedefler" open={openReport.hedefler} onToggle={() => toggleReport('hedefler')}>
                 <MyTargetsPanel />
               </ReportSection>
             ) : null}

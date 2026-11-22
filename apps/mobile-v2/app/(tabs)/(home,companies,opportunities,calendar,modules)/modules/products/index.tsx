@@ -1,5 +1,6 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationContext } from '@/src/modules/useNavigationContext';
-import { hasProductPrice, productPriceLabel } from '@/src/ui/products/product-price';
+import { productPriceLabel } from '@/src/ui/products/product-price';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -10,7 +11,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { useAllProducts } from '@/src/api/products.hooks';
 import type { CatalogProduct } from '@/src/api/products.api';
-import { formatAmount } from '@/src/lib/format';
 import { useTheme } from '@/src/theme/theme';
 import { EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
@@ -21,7 +21,6 @@ import {
   EMPTY_TAXONOMY,
   catalogView,
   changeTaxonomy,
-  productSeriesLabel,
   taxonomyOptions,
   visibleCatalog,
   type Taxonomy,
@@ -36,7 +35,6 @@ const TAXONOMY_FIELDS: { key: keyof Taxonomy; label: string }[] = [
 
 function ProductCard({ product, onPress }: { product: CatalogProduct; onPress: () => void }) {
   const { colors } = useTheme();
-  const currency = product.currency?.code ?? 'USD';
   return (
     <Pressable
       accessibilityRole="button"
@@ -53,26 +51,19 @@ function ProductCard({ product, onPress }: { product: CatalogProduct; onPress: (
         <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
           {[product.brand?.name, product.modelCode].filter(Boolean).join(' · ')}
         </Text>
-        <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
-          {[productSeriesLabel(product), product.productType?.name ?? product.category?.name].filter(Boolean).join(' · ')}
-        </Text>
       </View>
       <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
       </View>
-      <View className="flex-row flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-        <Text className="font-inter-semibold text-[15px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>
-          Liste: {productPriceLabel(product.listPrice, product.currency?.code)}
-        </Text>
-        <Text className="font-inter text-[13px] text-muted-foreground" style={{ fontVariant: ['tabular-nums'] }}>
-          Peşin: {productPriceLabel(product.cashPrice, product.currency?.code)}
-        </Text>
-      </View>
+      <Text className="font-inter-semibold text-[15px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>
+        {productPriceLabel(product.listPrice, product.currency?.code)}
+      </Text>
     </Pressable>
   );
 }
 
 export default function ProductsScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const { user, scope } = useAuth();
   const roles = user?.roles ?? [];
@@ -83,6 +74,7 @@ export default function ProductsScreen() {
   const [series, setSeries] = useState('all');
   const [taxonomy, setTaxonomy] = useState<Taxonomy>(EMPTY_TAXONOMY);
   const [showFilters, setShowFilters] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   useNavigationContext('products', ({ query }) => { setSearch(query ?? ''); setFamily('all'); setSeries('all'); setTaxonomy(EMPTY_TAXONOMY); });
 
   const list = useAllProducts();
@@ -101,29 +93,13 @@ export default function ProductsScreen() {
     <View className="gap-3 pb-2">
       <ScreenHeader
         title="Ürünler"
-        subtitle="Ürün modellerini ve fiyatlarını görüntüleyin."
         actions={[
           { icon: 'mail-outline', label: 'Genel Kataloglar', onPress: () => router.push('/modal/product-catalog-mail' as Href) },
           ...(canCreate
             ? [{ icon: 'cloud-upload-outline' as const, label: 'İçe Aktar', onPress: () => router.push('/modal/product-import' as Href) }]
             : []),
         ]}
-      />
-      <KpiGrid>
-        {[
-          <KpiTile
-            key="total"
-            icon="cube-outline"
-            tone="stage"
-            label="Toplam Ürün"
-            value={String(view.kpis.total)}
-            selected={view.family === 'all'}
-            onPress={() => setFamily('all')}
-          />,
-          <KpiTile key="families" icon="albums-outline" tone="info" label="Kategori" value={String(view.kpis.families)} sub="ürün ailesi" />,
-          <KpiTile key="series" icon="layers-outline" tone="warning" label="Seri" value={String(view.kpis.series)} sub="model serisi" />,
-        ]}
-      </KpiGrid>
+        compact/>
       <SearchBar
         value={search}
         onChange={setSearch}
@@ -162,6 +138,32 @@ export default function ProductsScreen() {
           allLabel="Tüm Seriler"
         />
       ) : null}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: overviewOpen }}
+        onPress={() => setOverviewOpen((value) => !value)}
+        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+      >
+        <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+      </Pressable>
+      {overviewOpen ? (
+        <KpiGrid>
+          {[
+            <KpiTile
+              key="total"
+              icon="cube-outline"
+              tone="stage"
+              label="Toplam Ürün"
+              value={String(view.kpis.total)}
+              selected={view.family === 'all'}
+              onPress={() => setFamily('all')}
+            />,
+            <KpiTile key="families" icon="albums-outline" tone="info" label="Kategori" value={String(view.kpis.families)} sub="ürün ailesi" />,
+            <KpiTile key="series" icon="layers-outline" tone="warning" label="Seri" value={String(view.kpis.series)} sub="model serisi" />,
+          ]}
+        </KpiGrid>
+      ) : null}
     </View>
   );
 
@@ -170,12 +172,12 @@ export default function ProductsScreen() {
       <SyncStatus />
       {list.isPending ? (
         <>
-          <ScreenHeader title="Ürünler" />
+          <ScreenHeader title="Ürünler" compact/>
           <ListSkeleton />
         </>
       ) : list.error ? (
         <>
-          <ScreenHeader title="Ürünler" />
+          <ScreenHeader title="Ürünler" compact/>
           <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
         </>
       ) : (
@@ -185,7 +187,7 @@ export default function ProductsScreen() {
           data={view.rows}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={header}
-          contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
           renderItem={({ item }) => (
             <View style={{ paddingHorizontal: SCREEN_PAD }}>
               <ProductCard product={item} onPress={() => router.push(`/modules/products/${item.id}` as Href)} />

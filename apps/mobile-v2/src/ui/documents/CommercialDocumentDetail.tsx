@@ -15,9 +15,12 @@ import { useCommercialDocument, type DocumentKind } from '@/src/api/documents.ho
 import { useQuoteDetail } from '@/src/api/quotes.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
 import { formatAmount, formatDate, formatDateTime } from '@/src/lib/format';
-import { useState } from 'react';
-import { documentPdfRequest } from './document-pdf';
-import { downloadAndShareFile, postPdfAndShare } from '@/src/native/files';
+import { useRef, useState } from 'react';
+import { stageMailDocument } from '@/src/ui/crm/mail-document-handoff';
+import { useMailAccountStatus } from '@/src/api/crm-general.hooks';
+import { shareSavedDocument } from './document-pdf';
+import { pdfIo } from './document-pdf-io';
+import { downloadAndShareFile } from '@/src/native/files';
 import { Button, Card, Chip, DetailHeader, DetailSkeleton, EmptyState, ErrorState, Eyebrow } from '@/src/ui';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
 import { toast } from '@/src/ui/toast';
@@ -45,7 +48,7 @@ function TermBlock({ label, value }: { label: string; value: string | null }) {
   return (
     <View className="gap-1">
       <Text className="font-inter-medium text-xs text-muted-foreground">{label}</Text>
-      <Text className="font-inter text-sm text-foreground">{value}</Text>
+      <Text selectable className="font-inter text-[15px] leading-[22px] text-foreground">{value}</Text>
     </View>
   );
 }
@@ -59,6 +62,8 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const router = useRouter();
   const [pdfBusy, setPdfBusy] = useState(false);
+  const pdfInFlight = useRef(false);
+  const mailAccount = useMailAccountStatus();
   const [printVariant, setPrintVariant] = useState('');
   const meta = KIND_META[kind];
   const query = useCommercialDocument(kind, id);
@@ -74,6 +79,7 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
   const canUpload = useCan('files.create');
   const canUpdate = useCan(`${meta.perm}.update`);
   const canDelete = useCan(`${meta.perm}.delete`);
+  const canRead = useCan(`${meta.perm}.read`);
   const linkedFile = useLinkedFile(query.data?.fileId ?? null, canReadFiles);
   const deleteProforma = useDeleteProforma();
   const deleteContract = useDeleteContract();
@@ -82,7 +88,7 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
   if (query.isPending || query.error || !query.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title={meta.title} />
+        <DetailHeader title={meta.title} compact />
         {query.isPending ? (
           <DetailSkeleton />
         ) : (
@@ -149,11 +155,24 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
   };
 
   async function generatePdf() {
-    if (kind === 'invoice' || pdfBusy) return;
+    if (!canRead || pdfInFlight.current) return;
+    pdfInFlight.current = true;
     setPdfBusy(true);
-    try { const request = documentPdfRequest(kind, id, no); await postPdfAndShare(request.path, request.filename, kind === 'proforma' && printVariant ? { variantKey: printVariant } : undefined); }
+    try { await shareSavedDocument(kind, id, no, pdfIo); }
     catch (error) { toast.error(error instanceof Error ? error.message : 'PDF oluşturulamadı.'); }
-    finally { setPdfBusy(false); }
+    finally { pdfInFlight.current = false; setPdfBusy(false); }
+  }
+
+  function composeDocumentMail() {
+    if (kind === 'invoice' || !canRead || !mailAccount.data?.featureEnabled) return;
+    try {
+      const draftId = stageMailDocument({
+        label: `${meta.title} · ${no}`, companyId: companyId || undefined,
+        subject: `${no} ${meta.title.toLocaleLowerCase('tr-TR')}`,
+        payload: { document: { id, kind, ...(kind === 'proforma' && printVariant ? { variantKey: printVariant } : {}) } },
+      });
+      router.push({ pathname: '/modal/mail-compose', params: { draftId } });
+    } catch (error) { toast.error(error instanceof Error ? error.message : 'E-posta taslağı açılamadı.'); }
   }
 
   function confirmDelete() {
@@ -182,11 +201,10 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
       <DetailHeader
         title={`${meta.title} Detayı`}
         subtitle={no}
-        actions={canUpdate ? [{ icon: 'create-outline', label: `${meta.title} düzenle`, onPress: () => router.push(editHref) }] : []}
-      />
+        actions={canUpdate ? [{ icon: 'create-outline', label: `${meta.title} düzenle`, onPress: () => router.push(editHref) }] : []} compact />
       <ScrollView
-      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
-        contentContainerClassName="gap-4 px-4 pb-10 pt-4"
+      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32, width: '100%', maxWidth: 960, alignSelf: 'center' }}
+        contentContainerClassName="gap-3 px-4 pb-8 pt-3"
         refreshControl={
           <RefreshControl
             refreshing={query.isRefetching}
@@ -205,10 +223,10 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
               <Chip label={contractSignatureLabel(snapshot, status?.code)} tone={status?.code === 'signed' ? 'success' : 'warning'} />
             ) : null}
           </View>
-          <Text className="font-display text-[20px] text-foreground">{no}</Text>
+          <Text className="font-inter-semibold text-[17px] text-foreground">{no}</Text>
           <Text className="font-inter text-sm text-muted-foreground">{companyName ?? 'Firma bilgisi yok'}</Text>
           {text(totals?.grandTotal) ? (
-            <Text className="font-inter-semibold text-base text-foreground">{formatAmount(text(totals?.grandTotal), currencyCode)}</Text>
+            <Text className="border-t border-border pt-3 font-inter-semibold text-[18px] text-primary" style={{ fontVariant: ['tabular-nums'] }}>{formatAmount(text(totals?.grandTotal), currencyCode)}</Text>
           ) : null}
         </Card>
 
@@ -307,10 +325,11 @@ export function CommercialDocumentDetail({ kind, id }: { kind: DocumentKind; id:
         <Card className="gap-2">
           <Eyebrow>CRM belgesi</Eyebrow>
           <Text className="font-inter text-xs leading-5 text-muted-foreground">
-            {kind === 'invoice' ? 'Yüklenmiş CRM belgesini açıp paylaşabilirsiniz.' : 'PDF, bu belgenin kayıtlı fiyat ve şartlarıyla sunucuda oluşturulur.'}
+            {kind === 'invoice' && !finalizedAt ? 'Taslak fatura PDF’i bağlı teklifin güncel verisiyle sunucuda oluşturulur.' : 'PDF, bu belgenin kayıtlı fiyat ve şartlarıyla sunucuda oluşturulur.'}
           </Text>
           {kind === 'proforma' ? <ProformaPrintVariant value={printVariant} onChange={setPrintVariant} /> : null}
-          {kind !== 'invoice' ? <Button label="PDF oluştur / paylaş" trailingIcon="download-outline" loading={pdfBusy} disabled={pdfBusy} onPress={() => void generatePdf()} /> : null}
+          {canRead && kind !== 'invoice' ? <Button label="PDF oluştur / paylaş" trailingIcon="download-outline" loading={pdfBusy} disabled={pdfBusy} onPress={() => void generatePdf()} /> : null}
+          {kind !== 'invoice' && canRead && mailAccount.data?.featureEnabled ? <Button label="PDF ekli e-posta hazırla" variant="ghost" trailingIcon="mail-outline" onPress={composeDocumentMail} /> : null}
           {fileId ? (
             <>
               {linkedFile.error ? <ErrorState message={linkedFile.error.message} onRetry={() => void linkedFile.refetch()} /> : null}

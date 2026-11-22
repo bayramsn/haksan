@@ -104,7 +104,7 @@ export function ConnectionsTab({ canManage }: { canManage: boolean }) {
               <View key={connection.id} className="gap-2 rounded-control border border-border bg-card-subtle p-3">
                 <View className="flex-row items-start gap-2">
                   <View className="flex-1">
-                    <Text className="font-display text-[17px] text-foreground" numberOfLines={1}>{connection.name}</Text>
+                    <Text className="font-inter-semibold text-[17px] text-foreground" numberOfLines={1}>{connection.name}</Text>
                     <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
                       {connection.businessId || connection.pageId || connection.id}
                     </Text>

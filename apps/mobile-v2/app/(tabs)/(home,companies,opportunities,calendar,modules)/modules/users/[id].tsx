@@ -54,7 +54,7 @@ export default function UserDetailScreen() {
   if (list.isPending) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Kullanıcı" />
+        <DetailHeader title="Kullanıcı" compact />
         <DetailSkeleton />
       </SafeAreaView>
     );
@@ -62,7 +62,7 @@ export default function UserDetailScreen() {
   if (list.error) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Kullanıcı" />
+        <DetailHeader title="Kullanıcı" compact />
         <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
       </SafeAreaView>
     );
@@ -70,7 +70,7 @@ export default function UserDetailScreen() {
   if (!user) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Kullanıcı" />
+        <DetailHeader title="Kullanıcı" compact />
         <EmptyState icon="person-remove-outline" title="Kullanıcı bulunamadı" actionLabel="Listeye dön" onAction={() => goBack()} />
       </SafeAreaView>
     );
@@ -123,11 +123,10 @@ export default function UserDetailScreen() {
       <DetailHeader
         title={user.fullName}
         subtitle={user.username ? `@${user.username}` : user.email}
-        actions={canEditUser ? [{ icon: 'create-outline', label: 'Düzenle', onPress: () => go('/modal/user-edit') }] : []}
-      />
+        actions={canEditUser ? [{ icon: 'create-outline', label: 'Düzenle', onPress: () => go('/modal/user-edit') }] : []} compact />
       <ScrollView
-      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
-        contentContainerClassName="gap-4 p-4 pb-10"
+      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
+        contentContainerClassName="gap-3 p-3 pb-8"
         refreshControl={
           <RefreshControl
             refreshing={list.isRefetching}
@@ -138,19 +137,18 @@ export default function UserDetailScreen() {
           />
         }
       >
-        <Card className="gap-3">
-          <View className="flex-row items-center gap-3">
-            <Avatar name={user.fullName} size={52} />
+        <Card className="gap-2 p-2.5">
+          <View className="flex-row items-center gap-2.5">
+            <Avatar name={user.fullName} size={40} />
             <View className="flex-1 gap-0.5">
-              <Text className="font-display text-[22px] text-foreground" numberOfLines={2}>{user.fullName}</Text>
-              <Text className="font-inter text-[13px] text-muted-foreground" selectable>{user.email}</Text>
+              <Text className="font-inter text-[13px] text-muted-foreground" selectable numberOfLines={1}>{user.email}</Text>
+              <View className="flex-row flex-wrap gap-1.5">
+                {locked ? <Chip tone="warning" label="Kilitli" /> : <Chip tone={active ? 'success' : 'neutral'} label={active ? 'Aktif' : 'Pasif'} />}
+                {user.roles.map((role) => (
+                  <Chip key={role.code} tone="info" label={role.name} />
+                ))}
+              </View>
             </View>
-          </View>
-          <View className="flex-row flex-wrap gap-1.5">
-            {locked ? <Chip tone="warning" label="Kilitli" /> : <Chip tone={active ? 'success' : 'neutral'} label={active ? 'Aktif' : 'Pasif'} />}
-            {user.roles.map((role) => (
-              <Chip key={role.code} tone="info" label={role.name} />
-            ))}
           </View>
         </Card>
 

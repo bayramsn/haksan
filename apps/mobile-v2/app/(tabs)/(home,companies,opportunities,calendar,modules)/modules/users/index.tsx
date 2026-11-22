@@ -1,6 +1,6 @@
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
@@ -34,6 +34,7 @@ export default function UsersScreen() {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<Exclude<UserStatusFilter, 'all'> | null>(null);
   const [period, setPeriod] = useState(currentPeriod());
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const list = useAdminUsers();
   const targets = useUserTargets(period, canSetTargets);
@@ -87,9 +88,6 @@ export default function UsersScreen() {
           ) : null}
         </Notice>
       ) : null}
-      <Text className="font-inter text-[12px] text-muted-foreground">
-        {filtered.length} / {users.length} kullanıcı gösteriliyor
-      </Text>
     </View>
   );
 
@@ -98,21 +96,8 @@ export default function UsersScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Kullanıcılar"
-        subtitle="Kullanıcılar, ekipler, roller ve hesap güvenliği."
         actions={canCreate ? [{ icon: 'add', label: 'Kullanıcı Ekle', onPress: () => router.push('/modal/user-create' as Href) }] : []}
-      />
-
-      {list.data ? (
-        <View className="pt-2">
-          <StatStrip
-            items={[
-              { label: 'Toplam', value: String(kpis.total), icon: 'people-outline' },
-              { label: 'Aktif', value: String(kpis.active), tone: 'success', icon: 'person-outline' },
-              { label: 'Kilitli', value: String(kpis.locked), tone: kpis.locked ? 'warning' : 'success', icon: 'lock-closed-outline' },
-            ]}
-          />
-        </View>
-      ) : null}
+        compact/>
 
       <View className="gap-2 py-2">
         <SearchBar value={query} onChange={setQuery} placeholder="Ad, e-posta, rol veya ekip ara..." />
@@ -126,6 +111,25 @@ export default function UsersScreen() {
           onChange={setStatus}
           allLabel="Tüm durumlar"
         />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen && list.data ? (
+          <StatStrip
+            dense
+            items={[
+              { label: 'Toplam', value: String(kpis.total), icon: 'people-outline' },
+              { label: 'Aktif', value: String(kpis.active), tone: 'success', icon: 'person-outline' },
+              { label: 'Kilitli', value: String(kpis.locked), tone: kpis.locked ? 'warning' : 'success', icon: 'lock-closed-outline' },
+            ]}
+          />
+        ) : null}
       </View>
 
       {list.isPending ? (
@@ -159,8 +163,13 @@ export default function UsersScreen() {
                 title={item.fullName}
                 lines={[
                   item.username ? `${item.email} · @${item.username}` : item.email,
-                  [item.department?.name ?? 'Departman atanmadı', item.divisions.map((d) => d.name).join(', ')].filter(Boolean).join(' · '),
-                  item.roles.map((role) => role.name).join(', ') || null,
+                  [
+                    item.department?.name ?? 'Departman atanmadı',
+                    item.divisions.map((d) => d.name).join(', '),
+                    item.roles.map((role) => role.name).join(', '),
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
                 ]}
                 icon={lockedRow ? 'lock-closed-outline' : 'person-circle-outline'}
                 iconTone={lockedRow ? 'warning' : active ? 'success' : 'neutral'}

@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, ScrollView, Text, View } from 'react-native';
 import { Redirect, Stack, useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -71,6 +72,7 @@ export function PaymentFormScreen() {
     companyName?: string | string[];
   }>();
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const editId = first(params.id);
   const editing = Boolean(editId);
   const allowed = useCan(editing ? 'payments.update' : 'payments.create');
@@ -222,7 +224,7 @@ export function PaymentFormScreen() {
             );
           }
         }
-        router.replace(`/modules/payments/${created.id}` as Href);
+        router.replace(recordDestination(`/modules/payments/${created.id}`));
       },
       onError: (error) => setFormError(error.message),
     });
@@ -232,7 +234,7 @@ export function PaymentFormScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: editing ? 'Kasa hareketini düzenle' : 'Yeni kasa hareketi', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <View className="gap-3">
             <Eyebrow>Hareket</Eyebrow>
             {editing ? null : <FilterChips options={[{ value: 'in', label: 'Tahsilat / Giren' }, { value: 'out', label: 'Ödeme / Çıkan' }]} value={form.direction} onChange={(value) => value && set('direction', value)} allLabel="" />}
@@ -266,7 +268,7 @@ export function PaymentFormScreen() {
           <Text className="font-inter text-xs text-muted-foreground">Kasa hareketi çevrimiçi kaydedilir; firma görünürlüğü, bölüm ve para birimi sunucuda yeniden doğrulanır.</Text>
           {formError ? <Text selectable accessibilityLiveRegion="assertive" className="font-inter text-sm text-destructive">{formError}</Text> : null}
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3"><View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View><View className="flex-[2]"><Button label={editing ? 'Kaydet' : form.direction === 'in' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet'} loading={create.isPending || update.isPending} onPress={submit} /></View></View>
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5"><View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View><View className="flex-[2]"><Button label={editing ? 'Kaydet' : form.direction === 'in' ? 'Tahsilatı Kaydet' : 'Ödemeyi Kaydet'} loading={create.isPending || update.isPending} onPress={submit} /></View></View>
       </KeyboardAvoidingView>
 
     </SafeAreaView>

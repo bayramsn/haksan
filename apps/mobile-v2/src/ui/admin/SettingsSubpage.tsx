@@ -34,7 +34,7 @@ export function SettingsSubpage({
   if (!allowed) return <Redirect href="/more/settings" />;
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title={title} subtitle={subtitle} actions={actions} />
+      <DetailHeader title={title} subtitle={subtitle} actions={actions} compact />
       {loading ? (
         <DetailSkeleton />
       ) : error ? (
@@ -42,7 +42,7 @@ export function SettingsSubpage({
       ) : scroll ? (
         <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <ScrollView
-            contentContainerClassName="gap-4 p-4 pb-12"
+            contentContainerClassName="gap-3 px-4 pb-10 pt-2"
             keyboardShouldPersistTaps="handled"
             refreshControl={onRefresh ? <RefreshControl refreshing={refreshing} onRefresh={onRefresh} /> : undefined}
           >

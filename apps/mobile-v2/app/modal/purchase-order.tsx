@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -52,6 +53,7 @@ const inputValue = (value: string | null | undefined) => (value == null || value
 /** Web "Satın Alma Siparişi Oluştur"; `id` ile taslak başlığı düzenlenir ve yeni kalem eklenir. */
 export default function PurchaseOrderFormScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const { colors } = useTheme();
   const { id = '' } = useLocalSearchParams<{ id?: string }>();
   const editing = Boolean(id);
@@ -143,7 +145,7 @@ export default function PurchaseOrderFormScreen() {
       } else {
         const created = await create.mutateAsync({ header, items });
         toast.success(`Satın alma siparişi oluşturuldu · ${created.orderNo}`);
-        router.replace(`/modules/purchase-orders/${created.id}` as Href);
+        router.replace(recordDestination(`/modules/purchase-orders/${created.id}`));
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : '';

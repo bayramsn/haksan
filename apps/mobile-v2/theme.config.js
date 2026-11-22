@@ -1,7 +1,7 @@
 /**
- * Web'deki apps/web/src/styles/theme.css ile BİREBİR aynı token adları ve
- * değerleri. İki uygulama arasında geçen geliştirici aynı sözlüğü kullansın
- * diye isimler de kopyalandı (foreground/mutedForeground/card/primary/...).
+ * Web'deki apps/web/src/styles/theme.css ile ortak token sözlüğü.
+ * Mobilde küçük metin ve kontrol sınırları için kontrast düzeltmeleri bulunur;
+ * web paleti bu dosyadan değiştirilmez.
  *
  * RN'de color-mix() yok; çip kenarlıkları burada önceden hesaplanıyor.
  */
@@ -18,6 +18,7 @@ const light = {
   cardSubtle: '#f8f9fb',
   border: 'rgba(13, 20, 68, 0.11)',
   lineStrong: 'rgba(13, 20, 68, 0.18)',
+  controlBorder: '#818b9c',
   foreground: '#18202a',
   mutedForeground: '#5f697a',
   muted: '#f0f2f5',
@@ -28,15 +29,17 @@ const light = {
   operationBlue: '#2457d6',
 
   primary: '#000c69',
+  primarySoft: '#eef1ff',
   primaryForeground: '#ffffff',
   secondary: '#eef1ff',
   secondaryForeground: '#000c69',
 
   destructive: '#cf060c',
+  destructiveForeground: '#ffffff',
   destructiveSoft: '#fef2f2',
   success: '#087f5b',
   successSoft: '#ecfdf5',
-  warning: '#d97706',
+  warning: '#986000',
   warningSoft: '#fffbeb',
   info: '#2563eb',
   infoSoft: '#eff6ff',
@@ -50,7 +53,7 @@ const light = {
   chart4: '#f59e0b',
   chart5: '#8b5cf6',
   chartGrid: '#eceff3',
-  chartAxis: '#8a93a5',
+  chartAxis: '#5f697a',
 };
 
 const dark = {
@@ -59,6 +62,7 @@ const dark = {
   cardSubtle: '#0e1527',
   border: 'rgba(148, 163, 214, 0.16)',
   lineStrong: 'rgba(148, 163, 214, 0.3)',
+  controlBorder: '#697798',
   foreground: '#e7ebf7',
   mutedForeground: '#94a0c2',
   muted: '#1a2340',
@@ -69,12 +73,14 @@ const dark = {
   operationBlue: '#6ea0ff',
 
   primary: '#8fa2ff',
+  primarySoft: 'rgba(143, 162, 255, 0.14)',
   primaryForeground: '#0a1030',
   secondary: 'rgba(125, 143, 251, 0.16)',
   secondaryForeground: '#c7d2ff',
 
-  destructive: '#f0565b',
-  destructiveSoft: 'rgba(240, 86, 91, 0.14)',
+  destructive: '#ff7479',
+  destructiveForeground: '#230608',
+  destructiveSoft: 'rgba(255, 116, 121, 0.14)',
   success: '#34d399',
   successSoft: 'rgba(52, 211, 153, 0.13)',
   warning: '#fbbf24',
@@ -122,4 +128,20 @@ const fonts = {
   displaySemibold: 'BarlowCondensed_600SemiBold',
 };
 
-module.exports = { themes, radius, fonts, alpha };
+const kebab = (key) => key.replace(/[A-Z0-9]/g, (c) => `-${c.toLowerCase()}`);
+
+/** Raw colors serve native styles; RGB channels allow Tailwind /opacity utilities. */
+function themeVariables(theme) {
+  const variables = {};
+  for (const [key, value] of Object.entries(theme)) {
+    const name = `--c-${kebab(key)}`;
+    variables[name] = value;
+    if (/^#[0-9a-f]{6}$/i.test(value)) {
+      const n = parseInt(value.slice(1), 16);
+      variables[`${name}-rgb`] = `${(n >> 16) & 255} ${(n >> 8) & 255} ${n & 255}`;
+    }
+  }
+  return variables;
+}
+
+module.exports = { themes, radius, fonts, alpha, themeVariables };

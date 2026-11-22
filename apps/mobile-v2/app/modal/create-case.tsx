@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 /**
  * Yeni Fırsat / Yeni Kart — web CreateCaseDialog alan sırası ve etiketleri.
  */
@@ -53,6 +54,7 @@ function parseAmount(value: string): number | null {
 
 export default function CreateCaseScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const { user, scope } = useAuth();
   const params = useLocalSearchParams<{ companyId?: string; companyName?: string }>();
   const canCreate = useCan('opportunities.create');
@@ -199,7 +201,7 @@ export default function CreateCaseScreen() {
       {
         onSuccess: (created) => {
           toast.success('Fırsat oluşturuldu');
-          router.replace(`/modules/opportunities/${created.id}` as Href);
+          router.replace(recordDestination(`/modules/opportunities/${created.id}`));
         },
         onError: (error) => toast.error(`Satış kartı oluşturulamadı: ${error.message}`),
       }
@@ -210,7 +212,7 @@ export default function CreateCaseScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Fırsat', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-3 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 p-4 pb-10" keyboardShouldPersistTaps="handled">
           <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground">
             Seçilen firma için ilk C alanında bir satış fırsatı oluşturun.
           </Text>
@@ -362,7 +364,7 @@ export default function CreateCaseScreen() {
                       accessibilityRole="radio"
                       accessibilityState={{ selected: active }}
                       onPress={() => set('currencyCode', code)}
-                      className={`min-h-11 flex-1 items-center justify-center rounded-control border ${active ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
+                      className={`min-h-11 flex-1 items-center justify-center rounded-control border ${active ? 'border-primary bg-primary-soft' : 'border-border bg-card'}`}
                     >
                       <Text className={`font-inter-semibold text-xs ${active ? 'text-primary' : 'text-foreground'}`}>{code}</Text>
                     </Pressable>
@@ -393,7 +395,7 @@ export default function CreateCaseScreen() {
             ) : null}
           </Card>
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1">
             <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} disabled={create.isPending} />
           </View>

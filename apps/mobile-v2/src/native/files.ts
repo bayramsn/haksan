@@ -3,7 +3,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { File, Paths } from 'expo-file-system';
 import * as LegacyFileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
+import * as Crypto from 'expo-crypto';
 import { fetch as expoFetch } from 'expo/fetch';
+import { InteractionManager } from 'react-native';
 import {
   ALLOWED_FILE_EXTENSIONS,
   ALLOWED_MIME_TYPES,
@@ -11,7 +13,7 @@ import {
   type FileLinkEntityType,
 } from '@haksan/shared';
 import { activeScope } from '@/src/auth/scope';
-import { accessTokenSnapshot } from '@/src/api/client';
+import { accessTokenSnapshot, requestContextKey, RequestScopeChangedError } from '@/src/api/client';
 import { apiBaseUrl } from '@/src/api/config';
 import { files } from '@/src/api/endpoints';
 
@@ -99,17 +101,30 @@ export async function pickDocument(options?: { acceptCsv?: boolean }): Promise<L
   return normalizeLocalUpload({ uri: asset.uri, name: asset.name, mimeType: asset.mimeType, size: asset.size });
 }
 
+/** Bottom sheet / ActionSheet kapanmadan kamera açılırsa iOS sunumu düşer; UI yerleşsin. */
+function waitForPickerHost(): Promise<void> {
+  return new Promise((resolve) => {
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(resolve, 400);
+    });
+  });
+}
+
 export async function pickImage(source: 'library' | 'camera'): Promise<LocalUpload | null> {
-  if (source === 'library') {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) throw new Error('Fotoğraf seçmek için galeri izni gerekli.');
-  } else {
+  if (source === 'camera') {
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) throw new Error('Fotoğraf çekmek için kamera izni gerekli.');
+    await waitForPickerHost();
   }
   const result = source === 'library'
-    ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85 })
-    : await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
+    ? await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85, exif: false })
+    : await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        quality: 0.85,
+        exif: false,
+        // Prefer rear camera; avoids blank front preview on some devices.
+        cameraType: ImagePicker.CameraType.back,
+      });
   if (result.canceled) return null;
   const asset = result.assets[0];
   if (!asset) return null;
@@ -221,8 +236,15 @@ export async function uploadEntityAttachment(input: {
   }
 }
 
-async function shareLocalFile(file: { uri: string }, mimeType: string, title: string): Promise<void> {
-  if (!(await Sharing.isAvailableAsync())) throw new Error('Bu cihazda dosya paylaşımı kullanılamıyor.');
+function assertDownloadContext(context: string): void {
+  if (requestContextKey() !== context) throw new RequestScopeChangedError();
+}
+
+async function shareLocalFile(file: { uri: string }, mimeType: string, title: string, context: string): Promise<void> {
+  assertDownloadContext(context);
+  const available = await Sharing.isAvailableAsync();
+  assertDownloadContext(context);
+  if (!available) throw new Error('Bu cihazda dosya paylaşımı kullanılamıyor.');
   await Sharing.shareAsync(file.uri, {
     mimeType,
     UTI: mimeType === 'application/pdf' ? 'com.adobe.pdf' : undefined,
@@ -231,14 +253,22 @@ async function shareLocalFile(file: { uri: string }, mimeType: string, title: st
 }
 
 export async function downloadAndShareFile(fileId: string): Promise<void> {
+  const context = requestContextKey();
   const signed = await files.signedDownload(fileId);
-  const target = new File(Paths.cache, `${fileId}-${safeName(signed.filename)}`);
-  const downloaded = await File.downloadFileAsync(absoluteApiUrl(signed.downloadUrl), target, { idempotent: true });
-  if (downloaded.size > MAX_DOCUMENT_BYTES) {
-    downloaded.delete();
-    throw new Error('Dosya 25 MB güvenli indirme sınırını aşıyor.');
+  assertDownloadContext(context);
+  const target = new File(Paths.cache, `${Crypto.randomUUID()}-${safeName(signed.filename)}`);
+  let downloaded: Awaited<ReturnType<typeof File.downloadFileAsync>> | undefined;
+  try {
+    const result = await File.downloadFileAsync(absoluteApiUrl(signed.downloadUrl), target, { idempotent: true });
+    downloaded = result;
+    assertDownloadContext(context);
+    if (result.size > MAX_DOCUMENT_BYTES) throw new Error('Dosya 25 MB güvenli indirme sınırını aşıyor.');
+    await shareLocalFile(result, signed.mimeType, signed.filename, context);
+  } catch (error) {
+    if (downloaded?.exists) downloaded.delete();
+    if (target.exists) target.delete();
+    throw error;
   }
-  await shareLocalFile(downloaded, signed.mimeType, signed.filename);
 }
 
 /** GET ile sunulan PDF'i (servis formu gibi) indirip paylaşır. */
@@ -288,6 +318,7 @@ export async function downloadAndShare(
     mimeType?: string;
   } = {},
 ): Promise<void> {
+  const context = requestContextKey();
   const method = options.method ?? 'GET';
   const mimeType = options.mimeType ?? mimeForExtension(extensionOf(filename)) ?? 'application/octet-stream';
   const response = await expoFetch(absoluteApiUrl(withQuery(path, options.query)), {
@@ -295,19 +326,23 @@ export async function downloadAndShare(
     headers: options.body === undefined ? authHeaders() : authHeaders('application/json'),
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
+  assertDownloadContext(context);
   if (!response.ok || !response.body) {
-    throw new Error(await serverErrorMessage(response as unknown as Response, 'Dosya indirilemedi.'));
+    const message = await serverErrorMessage(response as unknown as Response, 'Dosya indirilemedi.');
+    assertDownloadContext(context);
+    throw new Error(message);
   }
   const declaredSize = Number(response.headers.get('content-length') ?? 0);
   if (declaredSize > MAX_DOCUMENT_BYTES) throw new Error('Dosya 25 MB güvenli paylaşım sınırını aşıyor.');
-  const target = new File(Paths.cache, safeName(filename));
+  const target = new File(Paths.cache, `${Crypto.randomUUID()}-${safeName(filename)}`);
   target.create({ overwrite: true, intermediates: true });
   try {
     await response.body.pipeTo(target.writableStream());
+    assertDownloadContext(context);
     if (target.size <= 0 || target.size > MAX_DOCUMENT_BYTES) {
       throw new Error(target.size > MAX_DOCUMENT_BYTES ? 'Dosya 25 MB sınırını aşıyor.' : 'Dosya boş döndü.');
     }
-    await shareLocalFile(target, mimeType, filename);
+    await shareLocalFile(target, mimeType, filename, context);
   } catch (error) {
     if (target.exists) target.delete();
     throw error;

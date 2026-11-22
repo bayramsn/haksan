@@ -30,7 +30,7 @@ export function MetaSection({
   return (
     <Card className="gap-3">
       <View className="gap-0.5">
-        <Text accessibilityRole="header" className="font-display text-[18px] text-foreground">{title}</Text>
+        <Text accessibilityRole="header" className="font-inter-semibold text-[18px] text-foreground">{title}</Text>
         {description ? <Text className="font-inter text-xs leading-[17px] text-muted-foreground">{description}</Text> : null}
       </View>
       {actions ? <View className="flex-row flex-wrap gap-2">{actions}</View> : null}

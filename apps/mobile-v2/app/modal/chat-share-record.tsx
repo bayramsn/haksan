@@ -97,7 +97,7 @@ export default function ChatShareRecordScreen() {
             onEndReached={() => { if (records.hasNextPage && !records.isFetchingNextPage) void records.fetchNextPage(); }}
             refreshing={records.isRefetching}
             onRefresh={() => void records.refetch()}
-            ListHeaderComponent={records.data ? <Text className="pb-2 font-inter text-xs text-muted-foreground">{records.data.items.length} / {records.data.total} kayıt</Text> : null}
+            ListHeaderComponent={null}
             ListFooterComponent={
               records.error && records.data?.items.length ? <ErrorState message={records.error.message} onRetry={() => void records.fetchNextPage()} /> :
               records.hasNextPage ? <View className="py-3"><Button variant="ghost" label="Daha fazla kayıt yükle" loading={records.isFetchingNextPage} onPress={() => void records.fetchNextPage()} /></View> : null
@@ -106,6 +106,7 @@ export default function ChatShareRecordScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`${item.label} paylaş`}
+                accessibilityState={{ disabled: Boolean(send.isPending) }}
                 disabled={send.isPending}
                 onPress={() => share(type, item.id)}
                 className="min-h-[56px] justify-center border-b border-border py-2 active:opacity-70"

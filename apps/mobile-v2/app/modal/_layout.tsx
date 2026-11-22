@@ -18,7 +18,8 @@ export default function ModalLayout() {
           screenOptions={{
             headerStyle: { backgroundColor: colors.card },
             headerTintColor: colors.foreground,
-            headerTitleStyle: { fontFamily: fonts.displaySemibold, fontSize: 22 },
+            headerTitleStyle: { fontFamily: fonts.displaySemibold, fontSize: 17 },
+            headerTitleAlign: 'center',
             headerShadowVisible: false,
             contentStyle: { backgroundColor: colors.canvas },
           }}

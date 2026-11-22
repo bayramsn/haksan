@@ -5,6 +5,7 @@ type Query = Record<string, string | number | undefined | null>;
 
 export const exportService = {
   companies: (query?: Query) => downloadAndShare('/exports/companies', 'firmalar.xlsx', { query }),
+  companiesPdf: (query?: Query) => downloadAndShare('/exports/companies', 'firmalar.pdf', { query: { ...query, format: 'pdf' }, mimeType: 'application/pdf' }),
   contacts: (query?: Query) => downloadAndShare('/exports/contacts', 'kontaklar.xlsx', { query }),
   opportunities: (query?: Query) => downloadAndShare('/exports/opportunities', 'satis-kartlari.xlsx', { query }),
   quotes: (query?: Query) => downloadAndShare('/exports/quotes', 'teklifler.xlsx', { query }),

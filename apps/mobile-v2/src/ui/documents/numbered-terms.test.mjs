@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {markedTerms} from './numbered-terms.ts';
+test('terms numbering skips blank lines and continues across proforma sections without modifying stored text',()=>{assert.deepEqual(markedTerms('Ödeme\n\nPeşin','decimal'),[{marker:'1.',text:'Ödeme'},{marker:'2.',text:'Peşin'}]);assert.equal(markedTerms('Teslim','decimal',2)[0].marker,'3.');assert.equal(markedTerms('Garanti','decimal',3)[0].marker,'4.');});
+test('quote alpha markers match CSS lower-alpha beyond z',()=>{assert.equal(markedTerms('A','alpha',25)[0].marker,'z.');assert.equal(markedTerms('A','alpha',26)[0].marker,'aa.');assert.equal(markedTerms('A','alpha',27)[0].marker,'ab.');});

@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshControl, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, type Href } from 'expo-router';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import type { ServiceTicket } from '@/src/api/endpoints';
 import { useServiceTickets } from '@/src/api/operations.hooks';
 import { useSetTicketStage } from '@/src/api/service.hooks';
@@ -96,9 +97,8 @@ export default function ServiceKanbanScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <ScreenHeader
         title="Servis Kanbanı"
-        subtitle="Aşamayı seçin; kartın işlemlerinden süreci ilerletin."
         actions={[{ icon: 'list-outline', label: 'Liste görünümü', onPress: () => router.push('/modules/service-tickets' as Href) }]}
-      />
+        compact/>
       <View className="gap-1.5 pb-2">
         <SearchBar
           value={search}
@@ -129,10 +129,6 @@ export default function ServiceKanbanScreen() {
           />
         </View>
       ) : null}
-      <Text className="px-4 pb-2 font-inter text-xs text-muted-foreground">
-        {tickets.length} kart yüklendi{list.data ? ` · ${list.data.total} kayıt` : ''}
-        {filterCount ? ` · ${filterCount} filtre` : ''}
-      </Text>
       {list.isPending ? (
         <ListSkeleton />
       ) : list.error ? (
@@ -152,7 +148,7 @@ export default function ServiceKanbanScreen() {
             <View key={column.key} style={isCompact ? undefined : { width: COLUMN_WIDTH }} className={isCompact ? undefined : 'flex-1'}>
               <View className="mb-3 gap-1 rounded-control border border-border bg-card p-3">
                 <View className="flex-row items-start justify-between gap-3">
-                  <Text accessibilityRole="header" className="flex-1 font-display-semibold text-[16px] text-foreground">
+                  <Text accessibilityRole="header" className="flex-1 font-inter-semibold text-[16px] text-foreground">
                     {column.key}
                   </Text>
                   <Text className="font-inter-semibold text-[15px] text-foreground">{column.items.length}</Text>
@@ -201,16 +197,16 @@ export default function ServiceKanbanScreen() {
         onDismiss={() => setSelected(null)}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetScrollView contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingBottom: 40, paddingTop: 8 }}>
           {selected ? (
             <>
-              <Text className="font-display-semibold text-base text-foreground">{selected.ticketNo}</Text>
+              <Text className="font-inter-semibold text-base text-foreground">{selected.ticketNo}</Text>
               <Text className="font-inter text-sm text-muted-foreground">{STAGE_LABELS[serviceStageOf(selected)]}</Text>
               {canUpdate ? (
                 <>
-                  <Text className="mt-2 font-display-semibold text-[15px] text-foreground">Aşamaya taşı</Text>
+                  <Text className="mt-2 font-inter-semibold text-[15px] text-foreground">Aşamaya taşı</Text>
                   {KANBAN_COLUMNS.map((column) => {
                     const current = columnOf(serviceStageOf(selected)) === column.key;
                     return (
@@ -225,7 +221,7 @@ export default function ServiceKanbanScreen() {
                   })}
                 </>
               ) : null}
-              <Text className="mt-3 font-display-semibold text-[15px] text-foreground">Kart ekleri</Text>
+              <Text className="mt-3 font-inter-semibold text-[15px] text-foreground">Kart ekleri</Text>
               <AttachmentsPanel entityType="service_ticket" entityId={selected.id} canUpload={canUpdate} />
               <Button
                 label="Detayı aç"

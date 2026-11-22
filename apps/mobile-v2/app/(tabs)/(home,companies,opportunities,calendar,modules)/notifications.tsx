@@ -60,14 +60,15 @@ function FilterDropdown({
             başlığın hemen altına düşüyor, ekran boyutu değişirse ince ayar gerekebilir. */}
         <Pressable
           accessibilityLabel="Kapat"
-          style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.35)' }}
+          style={{ flex: 1, backgroundColor: 'rgba(15,23,42,0.35)', justifyContent: 'center', alignItems: 'center' }}
           onPress={() => setOpen(false)}
         >
           <View
             accessibilityRole="menu"
             accessibilityLabel="Bildirim filtresi"
-            className="mx-4 mt-28 gap-0.5 rounded-surface border border-border bg-card p-1.5"
+            className="mx-4 gap-1 rounded-surface border border-border bg-card p-3"
             style={{
+              width: '90%', maxWidth: 520,
               shadowColor: '#0f172a',
               shadowOffset: { width: 0, height: 4 },
               shadowOpacity: 0.15,
@@ -158,33 +159,34 @@ function Row({
   const waitingForAction = item.actionStatus === 'pending';
 
   return (
-    <View className="my-1 rounded-overlay border border-border bg-card px-3.5 py-3">
+    <View className="my-1 rounded-overlay border border-border bg-card px-3 py-2">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={item.title}
         accessibilityHint={waitingForAction ? 'Aşağıdaki Evet veya Hayır düğmelerinden birini seçin' : undefined}
+        accessibilityState={{ disabled: Boolean(waitingForAction) }}
         disabled={waitingForAction}
         onPress={onPress}
-        className="flex-row items-start gap-3 active:opacity-70"
+        className="flex-row items-start gap-2.5 active:opacity-70"
       >
         {/* Okunmamışı tek bakışta ayırt eden nokta; renk körlüğüne karşı konum da farklı. */}
-        <View className="pt-3">
+        <View className="pt-2.5">
           <View className={`h-2 w-2 rounded-full ${unread ? 'bg-destructive' : 'bg-transparent'}`} />
         </View>
 
-        <View className={`h-10 w-10 items-center justify-center rounded-full border ${chipClass[style.tone]}`}>
-          <Ionicons name={style.icon} size={19} color={toneColor(colors, style.tone)} />
+        <View className={`h-9 w-9 items-center justify-center rounded-full border ${chipClass[style.tone]}`}>
+          <Ionicons name={style.icon} size={17} color={toneColor(colors, style.tone)} />
         </View>
 
         <View className="flex-1 gap-0.5">
           <Text
-            className={`text-[15px] text-foreground ${unread ? 'font-inter-semibold' : 'font-inter-medium'}`}
+            className={`text-[14px] text-foreground ${unread ? 'font-inter-semibold' : 'font-inter-medium'}`}
             numberOfLines={2}
           >
             {item.title}
           </Text>
           {item.body ? (
-            <Text className="font-inter text-[13px] leading-[1.35] text-muted-foreground" numberOfLines={waitingForAction ? 5 : 3}>
+            <Text className="font-inter text-[12px] leading-[1.35] text-muted-foreground" numberOfLines={waitingForAction ? 3 : 2}>
               {item.body}
             </Text>
           ) : null}
@@ -200,7 +202,7 @@ function Row({
 
       {digest.length ? (
         <View className="ml-[68px] mt-2 overflow-hidden rounded-control border border-border">
-          {digest.map((line, index) => (
+          {digest.slice(0, 4).map((line, index) => (
             <Pressable
               key={`${line.nav}-${line.query ?? ''}-${index}`}
               accessibilityRole="button"
@@ -208,7 +210,9 @@ function Row({
               onPress={() => onDigest(line)}
               className={`min-h-[44px] flex-row items-center gap-2 px-3 py-2 active:opacity-70 ${index > 0 ? 'border-t border-border' : ''}`}
             >
-              <Text className="flex-1 font-inter text-[13px] text-foreground">{line.label}</Text>
+              <Text className="flex-1 font-inter text-[13px] text-foreground" numberOfLines={2}>
+                {line.label}
+              </Text>
               <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} />
             </Pressable>
           ))}
@@ -221,6 +225,7 @@ function Row({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Hayır, bu firmaya gitmeyeceğim"
+              accessibilityState={{ disabled: Boolean(busy) }}
               disabled={busy}
               onPress={onNo}
               className={`min-h-[44px] flex-1 items-center justify-center rounded-control border border-border bg-card-subtle px-3 ${busy ? 'opacity-60' : 'active:opacity-70'}`}
@@ -230,6 +235,7 @@ function Row({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Evet, bu firmaya gideceğim"
+              accessibilityState={{ disabled: Boolean(busy) }}
               disabled={busy}
               onPress={onYes}
               className={`min-h-[44px] flex-1 items-center justify-center rounded-control bg-primary px-3 ${busy ? 'opacity-60' : 'active:opacity-70'}`}
@@ -295,7 +301,7 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Bildirimler" />
+      <ScreenHeader title="Bildirimler" compact hideBell />
 
       <View className="flex-row items-center justify-between gap-2 px-4 pb-2">
         <FilterDropdown value={filter} unreadCount={unreadIds.length} onChange={setFilter} />
@@ -303,8 +309,9 @@ export default function NotificationsScreen() {
           <Pressable
             accessibilityRole="button"
             onPress={() => markAll.mutate(closableUnreadIds)}
+            accessibilityState={{ disabled: Boolean(markAll.isPending) }}
             disabled={markAll.isPending}
-            className={`flex-row items-center gap-1.5 rounded-control border border-border bg-card px-3 py-2 active:opacity-70 ${markAll.isPending ? 'opacity-60' : ''}`}
+            className={`min-h-11 flex-row items-center gap-1.5 rounded-control border border-border bg-card px-3 py-2 active:opacity-70 ${markAll.isPending ? 'opacity-60' : ''}`}
           >
             <Ionicons name="checkmark-done-outline" size={15} color={colors.mutedForeground} />
             <Text className="font-inter-medium text-[13px] text-muted-foreground">
@@ -325,7 +332,7 @@ export default function NotificationsScreen() {
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => (
-            <Text className="pb-1 pt-4 font-inter-semibold text-[13px] text-muted-foreground">{section.title}</Text>
+            <Text className="pb-1 pt-2.5 font-inter-semibold text-[12px] text-muted-foreground">{section.title}</Text>
           )}
           renderItem={({ item }) => (
             <Row
@@ -383,6 +390,7 @@ export default function NotificationsScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Kapat"
+                accessibilityState={{ disabled: Boolean(respond.isPending) }}
                 disabled={respond.isPending}
                 onPress={() => setDeclining(null)}
                 className="h-11 w-11 items-center justify-center rounded-full bg-card-subtle"
@@ -412,6 +420,7 @@ export default function NotificationsScreen() {
 
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{ disabled: Boolean(declineReason.trim().length < 3 || respond.isPending) }}
               disabled={declineReason.trim().length < 3 || respond.isPending}
               onPress={() => {
                 if (!declining) return;

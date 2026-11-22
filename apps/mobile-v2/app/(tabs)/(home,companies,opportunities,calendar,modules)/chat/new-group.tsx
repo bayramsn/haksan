@@ -68,14 +68,14 @@ export default function NewGroupScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
-      <DetailHeader title="Yeni Grup" subtitle={`${selectedIds.length} üye seçildi`} />
+      <DetailHeader title="Yeni Grup" compact />
       <FlatList
         data={rows}
         keyExtractor={(item) => item.id}
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
-          <View className="gap-4 px-4 pb-4 pt-2">
+          <View className="gap-3 px-4 pb-3 pt-1">
             <Field
               label="Grup adı"
               value={title}
@@ -127,7 +127,7 @@ export default function NewGroupScreen() {
               accessibilityLabel={item.fullName}
               accessibilityState={{ checked: selected }}
               onPress={() => toggle(item.id)}
-              className="min-h-[60px] flex-row items-center gap-3 border-b border-border px-4 py-2 active:opacity-70"
+              className="min-h-12 flex-row items-center gap-2.5 border-b border-border px-4 py-2 active:opacity-70"
             >
               <Avatar name={item.fullName} />
               <View className="flex-1 gap-0.5">
@@ -154,7 +154,7 @@ export default function NewGroupScreen() {
           )
         }
       />
-      <View className="border-t border-border bg-card px-4 py-3">
+      <View className="border-t border-border bg-card px-4 py-2">
         <Button label="Grubu Oluştur" loading={createGroup.isPending} onPress={() => void submit()} />
       </View>
     </SafeAreaView>

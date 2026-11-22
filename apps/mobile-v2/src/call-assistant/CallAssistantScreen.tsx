@@ -121,7 +121,7 @@ function AccountCallAssistantScreen({ account }: { account: string }) {
     finally { if (isCurrent()) setListening(false); }
   }
   return <SafeAreaView edges={['top']} className="flex-1 bg-canvas">
-    <DetailHeader title="Görüşme yardımcısı" />
+    <DetailHeader title="Görüşme yardımcısı" compact />
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, paddingBottom: bottom + 24, width: '100%', maxWidth: 760, alignSelf: 'center', gap: 16 }}>
       <Card className="p-4 gap-3">
         <Text className="text-foreground font-sans-semibold text-lg">Görüşmeden sonraki adım</Text>

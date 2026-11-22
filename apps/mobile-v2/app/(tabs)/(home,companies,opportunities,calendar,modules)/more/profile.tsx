@@ -2,14 +2,16 @@ import { Linking, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { Avatar } from '@/src/ui/Avatar';
+import { FormSection } from '@/src/ui/forms/FormSection';
+import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { Card, Chip, DetailHeader, Eyebrow } from '@/src/ui';
 import { SettingsGroup, SettingsRow } from '@/src/ui/settings';
 
 function Row({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <View className="flex-row justify-between gap-4 border-b border-border py-2.5 last:border-b-0">
-      <Text className="font-inter text-sm text-muted-foreground">{label}</Text>
-      <Text className="flex-1 text-right font-inter text-sm text-foreground" numberOfLines={2}>
+    <View className="gap-1 border-b border-border py-2 last:border-b-0">
+      <Text className="font-inter text-[12px] text-muted-foreground">{label}</Text>
+      <Text selectable className="font-inter text-[14px] leading-[20px] text-foreground">
         {value || '—'}
       </Text>
     </View>
@@ -18,18 +20,19 @@ function Row({ label, value }: { label: string; value: string | null | undefined
 
 export default function ProfileScreen() {
   const { user } = useAuth();
+  const bottom = useNavigationBottomInset();
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Profil Bilgileri" />
+      <DetailHeader title="Profil Bilgileri" compact />
 
-      <ScrollView contentContainerClassName="gap-4 px-4 pb-10 pt-4">
-        <Card className="items-center gap-2 py-6">
-          <Avatar name={user?.fullName ?? '?'} size={72} />
-          <Text className="text-[19px] font-inter-semibold text-foreground">{user?.fullName ?? '—'}</Text>
-          <Text className="font-inter text-[13px] text-muted-foreground">{user?.email ?? '—'}</Text>
+      <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 760, alignSelf: 'center', paddingBottom: bottom + 24 }} contentContainerClassName="gap-3 px-4 pt-2">
+        <Card className="items-center gap-1.5 p-3 py-4">
+          <Avatar name={user?.fullName ?? '?'} size={56} />
+          <Text className="text-center text-[18px] font-inter-semibold text-foreground">{user?.fullName ?? '—'}</Text>
+          <Text className="font-inter text-[12px] text-muted-foreground">{user?.email ?? '—'}</Text>
           {user?.roles?.length ? (
-            <View className="flex-row flex-wrap justify-center gap-1.5 pt-1">
+            <View className="flex-row flex-wrap justify-center gap-1.5 pt-0.5">
               {user.roles.map((role) => (
                 <Chip key={role} tone="info" label={role} />
               ))}
@@ -57,15 +60,15 @@ export default function ProfileScreen() {
         {user?.permissions?.length ? (
           <View className="gap-1.5">
             <View className="px-1">
-              <Eyebrow>Yetkiler ({user.permissions.length})</Eyebrow>
+              <Eyebrow>Yetkiler</Eyebrow>
             </View>
-            <Card>
+            <FormSection title="Erişim yetkilerim" hint="Hesabınıza tanımlanan izinler" icon="shield-checkmark-outline" collapsible initiallyOpen={false}>
               <View className="flex-row flex-wrap gap-1.5">
                 {user.permissions.map((permission) => (
                   <Chip key={permission} tone="neutral" label={permission} />
                 ))}
               </View>
-            </Card>
+            </FormSection>
           </View>
         ) : null}
 

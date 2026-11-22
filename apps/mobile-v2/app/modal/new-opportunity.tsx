@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useAssistantFormDraft } from '@/src/call-assistant/useAssistantFormDraft';
 import { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
@@ -7,7 +8,8 @@ import { useCompany } from '@/src/api/companies.hooks';
 import { useCreateOpportunity } from '@/src/api/crm.hooks';
 import { useCreateOpportunityFromActivity } from '@/src/api/sales.hooks';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
-import { Button, Card, Eyebrow, Field } from '@/src/ui';
+import { Button, Field } from '@/src/ui';
+import { FormSection } from '@/src/ui/service/fields';
 import { DateTimeField } from '@/src/ui/pickers/DateTimeField';
 import { SearchSelect } from '@/src/ui/select/SearchSelect';
 import {
@@ -41,6 +43,7 @@ function param(value: string | string[] | undefined): string {
  */
 export default function NewOpportunityScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const { user, scope } = useAuth();
   const params = useLocalSearchParams<{ activityId?: string; companyId?: string; companyName?: string; title?: string; assistantDraftId?: string }>();
   const assistantDraftId = param(params.assistantDraftId);
@@ -150,7 +153,7 @@ export default function NewOpportunityScreen() {
         {
           onSuccess: (created) => {
             toast.success('Aktiviteden fırsat oluşturuldu');
-            router.replace(`/modules/opportunities/${created.id}` as Href);
+            router.replace(recordDestination(`/modules/opportunities/${created.id}`));
           },
           onError: (error) => toast.error(`Fırsat oluşturulamadı: ${error.message}`),
         }
@@ -170,14 +173,9 @@ export default function NewOpportunityScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: activityId ? 'Aktiviteden Fırsat' : 'Hızlı Fırsat', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-3 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-7 px-4 pb-10 pt-4" keyboardShouldPersistTaps="handled">
           {assistant.error ? <View className="gap-2"><Text className="text-destructive">{assistant.error}</Text><Button label="Taslağı tekrar yükle" variant="ghost" onPress={() => void assistant.retry()} /></View> : null}
-          <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground">
-            Talebi Fırsat’ın ilk C alanına kaydedin. Firma veya kontak ana kaydı daha sonra bağlanabilir.
-          </Text>
-
-          <Card className="gap-3">
-            <Eyebrow>Firma ve kontak</Eyebrow>
+          <FormSection title="Firma ve kontak">
             <CompanySelect
               label="Firma"
               value={form.companyTitle}
@@ -206,19 +204,11 @@ export default function NewOpportunityScreen() {
                 });
               }}
             />
-            {form.companyId ? (
-              <Text className="font-inter text-[11px] text-muted-foreground">
-                Kayıtlı firma bağlandı; kart doğrudan C aşamasına hazır açılır.
-              </Text>
-            ) : form.companyTitle.trim() ? (
-              <Text className="font-inter text-[11px] text-muted-foreground">
+            {!form.companyId && form.companyTitle.trim() ? (
+              <Text className="font-inter text-[12px] text-muted-foreground">
                 Elle giriş: “{form.companyTitle.trim()}” yalnız fırsata yazılır, firma kaydı oluşturulmaz.
               </Text>
-            ) : (
-              <Text className="font-inter text-[11px] text-muted-foreground">
-                Kayıtlıysa seçin, değilse yazın — firma ana kaydı açılmaz.
-              </Text>
-            )}
+            ) : null}
 
             <ContactSelect
               label={contactLabel}
@@ -241,9 +231,6 @@ export default function NewOpportunityScreen() {
                 });
               }}
             />
-            {form.companyId ? (
-              <Text className="font-inter text-[11px] text-muted-foreground">Kontak opsiyonel; listeden seçin veya ismi yazın.</Text>
-            ) : null}
 
             <View className="flex-row gap-2">
               <View className="flex-1">
@@ -271,18 +258,14 @@ export default function NewOpportunityScreen() {
                 />
               </View>
             </View>
-            <Text
-              className={`font-inter text-[11px] ${phoneFilled || emailFilled ? 'text-muted-foreground' : 'text-destructive'}`}
-            >
-              Telefon veya e-postadan en az biri zorunludur; birini yazınca diğeri opsiyonel olur.
-            </Text>
+            {phoneFilled || emailFilled ? null : <Text className="font-inter text-[12px] text-muted-foreground">Telefon veya e-postadan biri yeterli.</Text>}
 
             <View className="flex-row gap-2">
               <View className="flex-1">
                 <ProvinceSelect
                   label="İl *"
                   value={form.city}
-                  placeholder="İl seçin veya yazın"
+                  placeholder="İl seçin"
                   onChange={(city) => patch({ city, district: city === form.city ? form.district : '' })}
                   error={errors.city}
                 />
@@ -292,7 +275,7 @@ export default function NewOpportunityScreen() {
                   label="İlçe"
                   province={form.city}
                   value={form.district}
-                  placeholder={form.city ? 'İlçe seçin veya yazın' : 'Önce il seçin'}
+                  placeholder={form.city ? "İlçe seçin" : "Önce il seçin"}
                   onChange={(district) => patch({ district })}
                 />
               </View>
@@ -306,10 +289,9 @@ export default function NewOpportunityScreen() {
               onChange={(contactMethod) => patch({ contactMethod })}
               clearable
             />
-          </Card>
+          </FormSection>
 
-          <Card className="gap-3">
-            <Eyebrow>Talep</Eyebrow>
+          <FormSection title="Talep">
             <View className="flex-row gap-2">
               <View className="flex-[3]">
                 <Field
@@ -331,10 +313,9 @@ export default function NewOpportunityScreen() {
                 />
               </View>
             </View>
-          </Card>
+          </FormSection>
 
-          <Card className="gap-3 border-primary/20 bg-primary/5">
-            <Eyebrow>İlk takip</Eyebrow>
+          <FormSection title="İlk takip" hint="Zamanı gelince kart aksiyon listesinde öne çıkar.">
             <Field
               label="İlk takip aksiyonu"
               value={form.nextAction}
@@ -343,8 +324,7 @@ export default function NewOpportunityScreen() {
               maxLength={1000}
               error={errors.nextAction}
               multiline
-              numberOfLines={3}
-              className="min-h-[64px] rounded-control border border-transparent bg-card px-3.5 py-2.5 font-inter text-base text-foreground"
+              style={{ minHeight: 72, textAlignVertical: 'top', paddingTop: 12 }}
             />
             <DateTimeField
               label="Takip zamanı"
@@ -353,13 +333,9 @@ export default function NewOpportunityScreen() {
               placeholder="Tarih ve saat"
               clearable
             />
-            <Text className="font-inter text-[10px] leading-4 text-muted-foreground">
-              Kart, zamanı gelince aksiyon listesinde öne çıkar.
-            </Text>
-          </Card>
+          </FormSection>
 
-          <Card className="gap-3">
-            <Eyebrow>Atama</Eyebrow>
+          <FormSection title="Atama" hint="Sorumlu seçilmezse fırsat atama kuralı uygulanır.">
             {divisions.length > 1 ? (
               <SearchSelect
                 label="Bölüm *"
@@ -381,12 +357,9 @@ export default function NewOpportunityScreen() {
               placeholder="Atama kuralına bırak"
               clearable
             />
-            <Text className="font-inter text-[11px] text-muted-foreground">
-              Seçim yapmazsanız mevcut fırsat atama kuralları uygulanır; uygun kural yoksa kayıt sahipsiz açılır.
-            </Text>
-          </Card>
+          </FormSection>
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1">
             <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} disabled={pending} />
           </View>

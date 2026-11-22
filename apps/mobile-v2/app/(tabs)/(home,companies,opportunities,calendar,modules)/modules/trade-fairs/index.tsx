@@ -1,7 +1,7 @@
 import { startCrmCall } from '@/src/call-assistant/call';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
-import { useMemo, useState } from 'react';
-import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +20,9 @@ import { TradeFairPhotoGallery } from '@/src/ui/trade-fairs/TradeFairPhotoGaller
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { toast } from '@/src/ui/toast';
 import { mailComposeHref } from '@/src/ui/crm/mail-logic';
-import { canDeleteTradeFair, metByFilterOptions, summaryTotals, tradeFairLocation, tradeFairRowTone } from '@/src/ui/trade-fairs/tradeFairLogic';
+import { canDeleteTradeFair, metByFilterOptions, summaryTotals, tradeFairListParams, tradeFairLocation, tradeFairRowTone } from '@/src/ui/trade-fairs/tradeFairLogic';
+import { downloadAndShare } from '@/src/native/files';
+import { tradeFairExportRequest, type TradeFairExportFormat } from '@/src/features/trade-fair-export';
 
 const PROVINCE_OPTIONS = provinceOptions(Object.keys(DISTRICTS_BY_PROVINCE)).map((o) => ({ value: o.id, label: o.label }));
 type TradeFairView = 'meetings' | 'photos';
@@ -114,6 +116,10 @@ export default function TradeFairsScreen() {
   const canUpdate = useCan('trade_fairs.update') || isManager;
   const canDelete = useCan('trade_fairs.delete') || isManager;
   const canViewGallery = useCan('files.read');
+  const canRead = useCan('trade_fairs.read');
+  const canExport = useCan('reports.export') && canRead;
+  const exportBusy = useRef(false);
+  const [exporting, setExporting] = useState<TradeFairExportFormat | null>(null);
 
   const [fair, setFair] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -124,7 +130,10 @@ export default function TradeFairsScreen() {
   const [metByUserId, setMetByUserId] = useState<string | null>(null);
   const [province, setProvince] = useState<string | null>(null);
   const [district, setDistrict] = useState<string | null>(null);
-  const list = useTradeFairList({ fairName: fair, q, divisionId, metByUserId, province, district });
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const filters = { fairName: fair, q, divisionId, metByUserId, province, district };
+  const listParams = tradeFairListParams(filters);
+  const list = useTradeFairList(filters);
   const summary = useTradeFairSummary(fair);
   const divisions = useTradeFairDivisions();
   const staff = useTradeFairStaff();
@@ -147,6 +156,24 @@ export default function TradeFairsScreen() {
     () => (summary.data?.fairs ?? []).map((f) => ({ value: f.name, label: `${f.name} (${f.total})` })),
     [summary.data],
   );
+
+  async function exportMeetings(format: TradeFairExportFormat) {
+    if (exportBusy.current) return;
+    if (!canExport) return toast.error('Fuar kayıtlarını dışa aktarma yetkiniz yok.');
+    // Arama gecikmesi sürerken önceki listenin süzgeciyle dosya üretmeyin.
+    if (q !== search.trim()) return;
+    exportBusy.current = true;
+    setExporting(format);
+    try {
+      const file = tradeFairExportRequest(format, listParams);
+      await downloadAndShare(file.path, file.filename, { query: file.query });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Fuar görüşmeleri dışa aktarılamadı.');
+    } finally {
+      exportBusy.current = false;
+      setExporting(null);
+    }
+  }
 
   const openForm = (id?: string) =>
     router.push({ pathname: '/modal/trade-fair-form', params: id ? { id } : { fair: fair ?? summary.data?.fairs[0]?.name ?? '' } } as unknown as Href);
@@ -197,16 +224,8 @@ export default function TradeFairsScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Fuar" subtitle="Standa gelen firmalar, yetkilileri ve takip durumu." />
+      <ScreenHeader title="Fuar" compact />
       <View className="gap-2 pb-2">
-        <StatStrip
-          items={[
-            { label: 'Fuar', value: String(totals.fairs) },
-            { label: 'Görüşme', value: String(totals.meetings) },
-            { label: 'Kişi', value: String(totals.people), tone: 'success' },
-            { label: 'Ekip', value: String(totals.staff) },
-          ]}
-        />
         {canViewGallery ? (
           <Tabs<TradeFairView>
             tabs={[
@@ -226,7 +245,7 @@ export default function TradeFairsScreen() {
         />
         {fairOptions.length > 0 ? <FilterChips options={fairOptions} value={fair} onChange={setFair} allLabel="Tüm fuarlar" /> : null}
         {filtersOpen && !isPhotos ? (
-          <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 12, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+          <ScrollView style={{ maxHeight: 300 }} contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 12, paddingBottom: 12 , width: '100%', maxWidth: 960, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
             {divisionOptions.length > 0 ? (
               <OptionPicker label="Bölüm" icon="layers-outline" value={divisionId} options={divisionOptions} placeholder="Tüm bölümler" clearable onChange={setDivisionId} />
             ) : null}
@@ -255,6 +274,35 @@ export default function TradeFairsScreen() {
             <Text className="flex-1 font-inter text-xs text-muted-foreground">{filterCount} filtre uygulandı</Text>
             <Button label="Filtreleri temizle" variant="ghost" onPress={clearFilters} />
           </View>
+        ) : null}
+        {!isPhotos && canExport ? (
+          <View className="gap-1.5 px-4">
+            <View className="flex-row gap-2">
+              <Button className="flex-1" label="Excel indir / paylaş" variant="ghost" loading={exporting === 'xlsx'} disabled={Boolean(exporting) || q !== search.trim()} onPress={() => void exportMeetings('xlsx')} />
+              <Button className="flex-1" label="PDF indir / paylaş" variant="ghost" loading={exporting === 'pdf'} disabled={Boolean(exporting) || q !== search.trim()} onPress={() => void exportMeetings('pdf')} />
+            </View>
+            <Text className="font-inter text-[11px] text-muted-foreground">Seçili filtrelere uyan tüm görüşmeler tarih sırasıyla dışa aktarılır.</Text>
+          </View>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen ? (
+          <StatStrip
+            dense
+            items={[
+              { label: 'Fuar', value: String(totals.fairs) },
+              { label: 'Görüşme', value: String(totals.meetings) },
+              { label: 'Kişi', value: String(totals.people), tone: 'success' },
+              { label: 'Ekip', value: String(totals.staff) },
+            ]}
+          />
         ) : null}
       </View>
 
@@ -299,15 +347,7 @@ export default function TradeFairsScreen() {
               hint={canCreate ? 'Standa gelen firmaları “Yeni Görüşme” ile kaydedin.' : 'Kayıt eklendiğinde burada listelenir.'}
             />
           }
-          ListFooterComponent={
-            list.isFetchingNextPage ? (
-              <Loading />
-            ) : items.length > 0 ? (
-              <Text className="py-3 text-center font-inter text-xs text-muted-foreground">
-                {items.length} / {list.data?.total ?? items.length} kayıt gösteriliyor
-              </Text>
-            ) : null
-          }
+          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
         />
       )}
       {canCreate ? <Fab icon="add" label="Yeni Görüşme" extended onPress={() => openForm()} /> : null}

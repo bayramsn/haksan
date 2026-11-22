@@ -52,9 +52,8 @@ export default function ActivitiesScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Aktiviteler"
-        subtitle="Görüşme, ziyaret ve not kayıtlarının akışı."
         actions={canCreate ? [{ icon: 'add', label: 'Yeni aktivite', onPress: () => router.push('/modal/activity' as Href) }] : []}
-      />
+        compact/>
 
       {list.isPending ? (
         <ListSkeleton />
@@ -76,8 +75,7 @@ export default function ActivitiesScreen() {
                 title={item.subject}
                 lines={[
                   [item.type?.name, formatTime(item.activityDate)].filter(Boolean).join(' · ') || null,
-                  item.result ?? item.description,
-                  item.createdByUser?.fullName,
+                  [item.result ?? item.description, item.createdByUser?.fullName].filter(Boolean).join(' · ') || null,
                 ]}
                 icon={style.icon}
                 iconTone={item.origin === 'system' ? 'neutral' : style.tone}

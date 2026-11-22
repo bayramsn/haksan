@@ -25,7 +25,7 @@ export type SalesOpportunityRow = OpportunityListItem & {
   closedAt: string | null;
   lostCompanyName: string | null;
   lostCompetitorName: string | null;
-  products: { id: string; productId: string | null; quantity: number | string | null }[];
+  products: { id: string; productId?: string | null; machineName?: string | null; quantity: number | string | null }[];
 };
 
 /** opportunities.controller.ts `list` query; `followUp` yalnız `'true'` kabul eder. */

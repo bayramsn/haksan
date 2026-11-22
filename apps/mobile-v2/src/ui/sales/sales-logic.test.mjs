@@ -108,6 +108,18 @@ test('kart alanları için yedek metinler', () => {
   assert.equal(partyName(row({})), 'Firma bilgisi bekleniyor');
   assert.equal(contactNameOf(row({ primaryContact: { fullName: 'Veli' }, leadContactName: 'Ali' })), 'Veli');
   assert.equal(addressOf(row({ leadCity: 'Bursa', leadDistrict: 'Nilüfer' })), 'Nilüfer, Bursa');
+  assert.equal(
+    addressOf(
+      row({
+        company: {
+          legalTitle: 'ABC',
+          shortName: null,
+          primaryAddress: { province: 'Ankara', district: 'Çankaya', fullAddress: null },
+        },
+      })
+    ),
+    'Çankaya, Ankara'
+  );
   assert.equal(addressOf(row({})), 'Adres bilgisi yok');
 });
 

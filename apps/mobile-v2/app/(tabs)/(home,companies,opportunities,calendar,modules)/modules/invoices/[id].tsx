@@ -1,3 +1,4 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { Alert, ScrollView, Text, View } from 'react-native';
@@ -32,6 +33,7 @@ const PAYMENT_TYPE: Record<string, string> = {
 export default function AccountingInvoiceDetailScreen() {
   const { goBack } = useHierarchyBack();
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const { id = '' } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const query = useAccountingInvoice(id);
@@ -46,7 +48,7 @@ export default function AccountingInvoiceDetailScreen() {
   if (query.isPending || query.error || !query.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Fatura" />
+        <DetailHeader title="Fatura" compact />
         {query.isPending ? <Loading /> : <ErrorState message={query.error?.message ?? 'Fatura yüklenemedi.'} onRetry={() => void query.refetch()} />}
       </SafeAreaView>
     );
@@ -115,8 +117,8 @@ export default function AccountingInvoiceDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Fatura Detayı" subtitle={data.invoiceNo} />
-      <ScrollView contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-4 px-4 pt-4">
+      <DetailHeader title="Fatura Detayı" subtitle={data.invoiceNo} compact />
+      <ScrollView contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pt-3">
         <Card className="gap-2">
           <View className="gap-3">
             <View className="flex-1 gap-1.5">
@@ -124,7 +126,7 @@ export default function AccountingInvoiceDetailScreen() {
                 <Chip tone={data.type === 'sales' ? 'success' : 'info'} label={data.type === 'sales' ? 'Satış' : 'Alış'} />
                 <Chip tone={tone} label={status?.name ?? (invoiceStatuses.isPending ? 'Durum yükleniyor' : 'Durum bilinmiyor')} />
               </View>
-              <Text className="text-[20px] font-inter-semibold text-foreground">{data.invoiceNo}</Text>
+              <Text className="text-[17px] font-inter-semibold text-foreground">{data.invoiceNo}</Text>
               <Text className="font-inter text-[11px] uppercase tracking-wide text-muted-foreground">
                 {data.type === 'sales' ? 'Müşteri / Firma' : 'Tedarikçi / Firma'}
               </Text>
@@ -139,7 +141,7 @@ export default function AccountingInvoiceDetailScreen() {
               ) : null}
               <View className="flex-row"><Chip label={due.label} tone={DUE_TONE[due.tone]} /></View>
             </View>
-            <Text className="font-inter-bold text-[22px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>{money(data.grandTotal)}</Text>
+            <Text className="font-inter-bold text-[18px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>{money(data.grandTotal)}</Text>
           </View>
         </Card>
 

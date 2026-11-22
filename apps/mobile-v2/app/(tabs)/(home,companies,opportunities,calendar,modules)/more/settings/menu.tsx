@@ -10,7 +10,6 @@ import { useAdminAccess } from '@/src/ui/admin/access';
 import { ActionPill, Notice, confirmDestructive } from '@/src/ui/admin/controls';
 import { SettingsSubpage } from '@/src/ui/admin/SettingsSubpage';
 
-const TOTAL = NAVIGATION_GROUPS.reduce((total, group) => total + group.items.length, 0);
 const sortedKey = (keys: string[]) => JSON.stringify([...keys].sort());
 
 export default function MenuSettingsScreen() {
@@ -54,23 +53,17 @@ export default function MenuSettingsScreen() {
       <Notice tone="info">
         Burada kapatılan sayfalar tüm kullanıcıların ana menüsünden, Sabitlenenler, Son kullanılan, Hızlı Oluştur ve uygulama içi yönlendirme akışlarından çıkarılır. Ayarlar sayfası her zaman açık kalır.
       </Notice>
-      <Card className="flex-row items-center gap-3 p-3.5">
-        <View className="flex-1">
-          <Text className="font-inter-semibold text-[14px] text-foreground">{TOTAL - hidden.length} sayfa açık</Text>
-          <Text className="font-inter text-[12px] text-muted-foreground">
-            {hidden.length === 0 ? 'Tüm çalışma alanları akışta.' : `${hidden.length} çalışma alanı kapatıldı.`}
-          </Text>
-        </View>
+      <Card className="flex-row items-center gap-2.5 p-3">
+        <Text className="flex-1 font-inter text-[12px] text-muted-foreground">
+          {hidden.length === 0 ? 'Tüm çalışma alanları akışta.' : `${hidden.length} çalışma alanı kapatıldı.`}
+        </Text>
         <ActionPill icon="eye-outline" label="Tümünü göster" disabled={hidden.length === 0} onPress={() => setHidden([])} />
       </Card>
 
       {NAVIGATION_GROUPS.map((group) => (
         <Card key={group.group} className="overflow-hidden p-0">
-          <View className="flex-row items-center justify-between border-b border-border px-3.5 py-2.5">
-            <Text className="font-inter-semibold text-[13px] text-foreground">{group.group}</Text>
-            <Text className="font-inter text-[11px] text-muted-foreground">
-              {group.items.filter((item) => !hidden.includes(item.key)).length}/{group.items.length} açık
-            </Text>
+          <View className="flex-row items-center justify-between border-b border-border px-3.5 py-2">
+            <Text className="font-inter-semibold text-[12px] text-foreground">{group.group}</Text>
           </View>
           {group.items.map((item, index) => {
             const visible = !hidden.includes(item.key);
@@ -81,7 +74,7 @@ export default function MenuSettingsScreen() {
                 accessibilityLabel={item.label}
                 accessibilityState={{ checked: visible }}
                 onPress={() => toggle(item.key)}
-                className={`min-h-[52px] flex-row items-center gap-3 px-3.5 py-2 active:opacity-70 ${index > 0 ? 'border-t border-border' : ''}`}
+                className={`min-h-11 flex-row items-center gap-2.5 px-3.5 py-2 active:opacity-70 ${index > 0 ? 'border-t border-border' : ''}`}
               >
                 <View className={`h-8 w-8 items-center justify-center rounded-md border ${chipClass[visible ? 'info' : 'neutral']}`}>
                   <Ionicons name={visible ? 'eye-outline' : 'eye-off-outline'} size={16} color={toneColor(colors, visible ? 'info' : 'neutral')} />

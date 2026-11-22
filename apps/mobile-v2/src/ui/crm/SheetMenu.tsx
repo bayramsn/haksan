@@ -1,9 +1,10 @@
 import { forwardRef } from 'react';
 import { Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/src/theme/theme';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 
 export type SheetMenuItem = {
   key: string;
@@ -14,6 +15,8 @@ export type SheetMenuItem = {
   disabled?: boolean;
   selected?: boolean;
   hint?: string;
+  /** Başlık düğmesindeki okunmamış noktası menüde de görünsün. */
+  dot?: boolean;
 };
 
 /** İşlem/sıralama menüsü: web DropdownMenu/Select karşılığı. Seçimden sonra kapanır. */
@@ -27,10 +30,11 @@ export const SheetMenu = forwardRef<BottomSheetModal, { title: string; subtitle?
       <BottomSheetModal
         ref={ref}
         enableDynamicSizing
+        style={{ maxWidth: 720, width: '100%', alignSelf: 'center' }}
         maxDynamicContentSize={Math.max(160, height - insets.top - 24)}
         backgroundStyle={{ backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
         handleIndicatorStyle={{ backgroundColor: colors.border, width: 40 }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetScrollView contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 16) + 16 }}>
           <Text accessibilityRole="header" className="px-2 font-display-semibold text-[22px] text-foreground" numberOfLines={2}>
@@ -58,6 +62,7 @@ export const SheetMenu = forwardRef<BottomSheetModal, { title: string; subtitle?
                 >
                   {item.label}
                 </Text>
+                {item.dot ? <View accessibilityLabel="yeni" className="h-2.5 w-2.5 rounded-full bg-primary" /> : null}
                 {item.selected ? <Ionicons name="checkmark" size={19} color={colors.primary} /> : null}
               </Pressable>
             );

@@ -14,12 +14,13 @@ export function SelectionRow({ label, hint, selected, multiple, onPress }: {
   return (
     <Pressable
       accessibilityRole={multiple ? 'checkbox' : 'radio'}
+      accessibilityLabel={hint ? `${label}. ${hint}` : label}
       accessibilityState={{ checked: selected }}
       onPress={onPress}
-      className={`my-1 min-h-14 flex-row items-center gap-3 rounded-surface border px-4 py-3 active:opacity-70 ${selected ? 'border-primary bg-primary-soft' : 'border-border bg-card'}`}
+      className={`my-0.5 min-h-12 flex-row items-center gap-2.5 rounded-surface border px-3.5 py-2 active:opacity-70 ${selected ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
     >
-      <View className="min-w-0 flex-1 gap-1">
-        <Text className={`font-inter-medium text-[15px] leading-5 ${selected ? 'text-primary' : 'text-foreground'}`}>{label}</Text>
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text className={`font-inter-medium text-[14px] leading-5 ${selected ? 'text-primary' : 'text-foreground'}`}>{label}</Text>
         {hint ? <Text className="font-inter text-xs leading-4 text-muted-foreground">{hint}</Text> : null}
       </View>
       <Ionicons

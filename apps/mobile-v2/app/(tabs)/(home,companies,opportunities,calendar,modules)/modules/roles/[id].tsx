@@ -60,7 +60,7 @@ export default function RoleDetailScreen() {
 
   const shell = (body: React.ReactNode) => (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title={role?.name ?? 'Rol'} subtitle={role?.code} />
+      <DetailHeader title={role?.name ?? 'Rol'} subtitle={role?.code} compact />
       {body}
     </SafeAreaView>
   );
@@ -81,8 +81,8 @@ export default function RoleDetailScreen() {
 
   return shell(
     <ScrollView
-      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
-      contentContainerClassName="gap-4 p-4 pb-12"
+      contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
+      contentContainerClassName="gap-3 p-3 pb-10"
       keyboardShouldPersistTaps="handled"
       refreshControl={
         <RefreshControl
@@ -123,11 +123,11 @@ export default function RoleDetailScreen() {
       <View className="flex-row gap-3">
         <Card className="flex-1 gap-0.5 p-3">
           <Text className="font-inter text-[11px] text-muted-foreground">Seçili Yetki</Text>
-          <Text className="font-display text-[22px] text-foreground">{codes.length}</Text>
+          <Text className="font-inter-semibold text-[18px] text-foreground">{codes.length}</Text>
         </Card>
         <Card className="flex-1 gap-0.5 p-3">
           <Text className="font-inter text-[11px] text-muted-foreground">Modül</Text>
-          <Text className="font-display text-[22px] text-foreground">{moduleCount(permissions.data ?? [], codes)}</Text>
+          <Text className="font-inter-semibold text-[18px] text-foreground">{moduleCount(permissions.data ?? [], codes)}</Text>
         </Card>
       </View>
 
@@ -149,7 +149,7 @@ export default function RoleDetailScreen() {
       <View accessible accessibilityLabel="Efektif yetki özeti" className="flex-row flex-wrap gap-2">
         {PERMISSION_ACTIONS.map((action) => (
           <View key={action} className="min-w-[72px] flex-1 items-center rounded-control border border-border bg-card px-2 py-2">
-            <Text className="font-display text-[18px] text-foreground">{counts[action]}</Text>
+            <Text className="font-inter-semibold text-[18px] text-foreground">{counts[action]}</Text>
             <Text className="font-inter-semibold text-[9px] uppercase tracking-[0.8px] text-muted-foreground" numberOfLines={1}>
               {ACTION_LABEL[action]}
             </Text>

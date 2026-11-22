@@ -34,7 +34,7 @@ export default function ActivityDetailScreen() {
   if (query.isPending || query.error || !query.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Aktivite" />
+        <DetailHeader title="Aktivite" compact />
         {query.isPending ? <Loading /> : <ErrorState message={query.error?.message ?? 'Aktivite yüklenemedi.'} onRetry={() => void query.refetch()} />}
       </SafeAreaView>
     );
@@ -71,15 +71,14 @@ export default function ActivityDetailScreen() {
       <DetailHeader
         title="Aktivite Detayı"
         subtitle={data.type?.name ?? 'Aktivite'}
-        actions={canUpdate ? [{ icon: 'create-outline', label: 'Aktiviteyi düzenle', onPress: () => router.push(`/modal/activity?id=${encodeURIComponent(id)}` as Href) }] : []}
-      />
-      <ScrollView contentContainerClassName="gap-4 px-4 pt-4" contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}>
+        actions={canUpdate ? [{ icon: 'create-outline', label: 'Aktiviteyi düzenle', onPress: () => router.push(`/modal/activity?id=${encodeURIComponent(id)}` as Href) }] : []} compact />
+      <ScrollView contentContainerClassName="gap-3 px-4 pt-3" contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}>
         <Card className="gap-2">
           <View className="flex-row flex-wrap items-center gap-2">
             <Chip label={data.type?.name ?? 'Tür bilinmiyor'} tone={data.origin === 'system' ? 'neutral' : 'info'} />
             <Chip label={data.origin === 'system' ? 'Sistem kaydı' : 'Manuel kayıt'} tone="neutral" />
           </View>
-          <Text className="font-inter-semibold text-[20px] text-foreground">{data.subject}</Text>
+          <Text className="font-inter-semibold text-[17px] text-foreground">{data.subject}</Text>
           <Text className="font-inter text-[13px] text-muted-foreground">{formatDateTime(data.activityDate)}</Text>
         </Card>
 

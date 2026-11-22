@@ -15,7 +15,7 @@ export function SelectionStatus({ loading, error, onRetry }: {
       <Text className={`min-w-0 flex-1 font-inter text-sm leading-5 ${error ? 'text-destructive' : 'text-muted-foreground'}`}>
         {error ? 'Seçenekler yüklenemedi. Yeniden deneyin.' : 'Seçenekler yükleniyor…'}
       </Text>
-      {error && onRetry ? <Pressable accessibilityRole="button" onPress={onRetry} disabled={loading} className="min-h-11 justify-center px-2 active:opacity-70">
+      {error && onRetry ? <Pressable accessibilityRole="button" accessibilityState={{ disabled: Boolean(loading), busy: Boolean(loading) }} onPress={onRetry} disabled={loading} className={`min-h-11 justify-center px-2 active:opacity-70 ${loading ? 'opacity-50' : ''}`}>
         <Text className="font-inter-semibold text-sm text-destructive">Yeniden dene</Text>
       </Pressable> : null}
     </View>

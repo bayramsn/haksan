@@ -102,9 +102,10 @@ export function OsmSearchPanel({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={buttonLabel}
+          accessibilityState={{ disabled: search.isPending, busy: search.isPending }}
           disabled={search.isPending}
           onPress={run}
-          className="min-h-11 flex-row items-center gap-1.5 rounded-control border border-border bg-card px-3"
+          className={`min-h-11 flex-row items-center gap-1.5 rounded-control border border-border bg-card px-3 ${search.isPending ? 'opacity-50' : 'active:opacity-70'}`}
         >
           {search.isPending ? (
             <ActivityIndicator size="small" color={colors.primary} />
@@ -124,11 +125,12 @@ export function OsmSearchPanel({
           key={result.id}
           accessibilityRole="button"
           accessibilityLabel={`${result.displayName} konumunu seç`}
+          accessibilityState={{ selected: selectedId === result.id }}
           onPress={() => {
             setSelectedId(result.id);
             onSelect(result);
           }}
-          className={`min-h-11 flex-row gap-3 rounded-control border px-3 py-2.5 ${selectedId === result.id ? 'border-primary bg-secondary' : 'border-border bg-canvas'}`}
+          className={`min-h-11 flex-row gap-3 rounded-control border px-3 py-2.5 ${selectedId === result.id ? 'border-primary bg-primary-soft' : 'border-border bg-canvas'}`}
         >
           <Ionicons name="location" size={18} color={colors.primary} />
           <View className="min-w-0 flex-1 gap-1">

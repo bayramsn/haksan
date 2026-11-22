@@ -115,9 +115,9 @@ export default function CompanySettingsScreen() {
         if (!dirty) void tenant.refetch();
       }}
     >
-      <Card className="gap-3">
+      <Card className="gap-2 p-3">
         <View className="gap-0.5">
-          <Text className="font-inter-semibold text-[15px] text-foreground">Şirket Bilgileri</Text>
+          <Text className="font-inter-semibold text-[14px] text-foreground">Şirket Bilgileri</Text>
           <Help>Tenant kaydından yönetilir; tüm kullanıcılarda ortaktır.</Help>
         </View>
         <Field
@@ -157,9 +157,9 @@ export default function CompanySettingsScreen() {
       </Card>
 
       {canEditTenant ? (
-        <Card className="gap-3">
+        <Card className="gap-2 p-3">
           <View className="gap-0.5">
-            <Text className="font-inter-semibold text-[15px] text-foreground">Haftalık Kullanıcı Raporu Alıcıları</Text>
+            <Text className="font-inter-semibold text-[14px] text-foreground">Haftalık Kullanıcı Raporu Alıcıları</Text>
             <Help>Pazartesi sabahı gönderilen kullanıcı performansı ve hesap denetimi raporu bu adreslere gider.</Help>
           </View>
           <Notice tone="info">

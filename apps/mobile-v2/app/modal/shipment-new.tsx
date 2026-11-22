@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { OpportunityPickerSheet } from '@/src/ui/documents/pickers';
 import { PickerField } from '@/src/ui/pickers/PickerField';
 import type { SheetHandle } from '@/src/ui/pickers/HostedSheet';
@@ -57,6 +58,7 @@ function addressSnapshot(address: { fullAddress: string | null; street: string |
 /** Web CreateShipmentDialog ("Yeni Sevkiyat"). */
 export default function ShipmentNewScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const params = useLocalSearchParams<{ companyId?: string; companyName?: string; opportunityId?: string; opportunityName?: string }>();
   const canCreate = useCan('shipments.create');
   const create = useCreateShipment();
@@ -117,7 +119,7 @@ export default function ShipmentNewScreen() {
     create.mutate(built.body, {
       onSuccess: (row) => {
         toast.success(`Sevkiyat oluşturuldu · ${draft.trackingNo} · ${TRANSPORT_MODE_LABELS[draft.transportMode]}`);
-        router.replace(`/modules/shipments/${row.id}` as Href);
+        router.replace(recordDestination(`/modules/shipments/${row.id}`));
       },
       onError: (error) => toast.error(`Sevkiyat oluşturulamadı: ${error.message}`),
     });
@@ -134,7 +136,7 @@ export default function ShipmentNewScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Sevkiyat', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <Text className="font-inter text-[13px] text-muted-foreground">
             Gelen veya giden sevkiyatı; seri no, paket adedi ve paket birimiyle kaydedin.
           </Text>
@@ -307,7 +309,7 @@ export default function ShipmentNewScreen() {
             <Button label="Satır" variant="ghost" trailingIcon="add" onPress={() => setLines((current) => [...current, newLine()])} />
           </FormSection>
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button className="flex-1" label="Vazgeç" variant="ghost" disabled={create.isPending} onPress={() => router.back()} />
           <Button className="flex-[2]" label="Sevkiyatı Kaydet" loading={create.isPending} disabled={create.isPending} onPress={submit} />
         </View>

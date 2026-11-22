@@ -20,11 +20,11 @@ export default function KanbanScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Fırsat Kanbanı" subtitle="Satış akışını aşama aşama takip edin." />
+      <ScreenHeader title="Fırsat Kanbanı" compact />
       <View className="flex-row gap-3 px-4 pb-3">
         <View className="flex-1"><Button label="Liste görünümü" variant="ghost"
           onPress={() => router.push({ pathname: '/modules/opportunities', params: { view: 'list', search } } as unknown as Href)} /></View>
-        {canCreate ? <View className="flex-1"><Button label="Yeni kart" onPress={() => router.push('/modal/create-case' as Href)} /></View> : null}
+        {canCreate ? <View className="flex-1"><Button label="Yeni fırsat" onPress={() => router.push('/modal/create-case' as Href)} /></View> : null}
       </View>
       <View className="pb-3">
         <SearchBar value={search} onChange={setSearch} placeholder="Firma, kontak veya ürün ara…" />

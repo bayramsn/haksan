@@ -16,9 +16,9 @@ export {
 const PAGE_SIZE = 50;
 
 export const financeKeys = {
-  receivables: ['finance', 'receivables'] as const,
+  receivables: (companyId?: string): QueryKey => ['finance', 'receivables', companyId ?? 'all'],
   receivable: (id: string): QueryKey => ['finance', 'receivables', 'detail', id],
-  receivableSummary: ['finance', 'receivables', 'summary'] as const,
+  receivableSummary: (companyId?: string): QueryKey => ['finance', 'receivables', 'summary', companyId ?? 'all'],
   payments: (direction?: 'in' | 'out'): QueryKey => ['finance', 'payments', direction ?? 'all'],
   payment: (id: string): QueryKey => ['finance', 'payments', 'detail', id],
   paymentSummary: ['finance', 'payments', 'summary'] as const,
@@ -29,18 +29,23 @@ export const financeKeys = {
   completedPayments: (range: { from?: string; to?: string }): QueryKey => ['finance', 'completed-payments', range],
 };
 
-export function useReceivables() {
+/** Optional companyId maps to API `GET /receivables?companyId=` (web finance list filter). */
+export function useReceivables(companyId?: string) {
   return useInfiniteQuery({
-    queryKey: financeKeys.receivables,
+    queryKey: financeKeys.receivables(companyId),
     initialPageParam: 1,
-    queryFn: ({ pageParam }) => finance.receivables({ page: pageParam, pageSize: PAGE_SIZE }),
+    queryFn: ({ pageParam }) =>
+      finance.receivables({ page: pageParam, pageSize: PAGE_SIZE, ...(companyId ? { companyId } : {}) }),
     getNextPageParam: (last) => (last.meta.page < last.meta.totalPages ? last.meta.page + 1 : undefined),
     select: (data) => ({ items: data.pages.flatMap((p) => p.data), total: data.pages[0]?.meta.total ?? 0 }),
   });
 }
 
-export function useReceivableSummary() {
-  return useQuery({ queryKey: financeKeys.receivableSummary, queryFn: () => finance.receivableSummary() });
+export function useReceivableSummary(companyId?: string) {
+  return useQuery({
+    queryKey: financeKeys.receivableSummary(companyId),
+    queryFn: () => finance.receivableSummary(companyId ? { companyId } : {}),
+  });
 }
 
 export function useReceivable(id: string) {
@@ -55,8 +60,7 @@ export function useCreateReceivable() {
       body: Parameters<typeof finance.createReceivable>[0],
     ) => finance.createReceivable(body),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: financeKeys.receivables });
-      void qc.invalidateQueries({ queryKey: financeKeys.receivableSummary });
+      void qc.invalidateQueries({ queryKey: ['finance', 'receivables'] });
       void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
@@ -197,7 +201,7 @@ async function stagesByQuote(rows: readonly { quoteId?: string | null }[]): Prom
  */
 export function useCashMovements() {
   return useQuery({
-    queryKey: [...financeKeys.receivables, 'cash-movements'],
+    queryKey: ['finance', 'receivables', 'cash-movements'],
     queryFn: async () => {
       const [receivables, payments] = await Promise.all([
         loadAll((page) => finance.receivables({ page, pageSize: LOAD_ALL_PAGE_SIZE })),

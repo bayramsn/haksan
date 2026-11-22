@@ -5,7 +5,9 @@ import { useCan } from '@/src/auth/AuthProvider';
 
 export type NoteTemplate = { id: string; title: string; body: string; scope: string };
 export function useNoteTemplates(scope: string) {
-  const canRead = useCan('quotes.read');
+  const canReadQuotes = useCan('quotes.read');
+  const canReadService = useCan('service_tickets.read');
+  const canRead = canReadQuotes || (canReadService && ['quote', 'service_quote'].includes(scope));
   return useQuery({ queryKey: ['note-templates', scope], queryFn: () => request<NoteTemplate[]>('/note-templates', { query: { scope } }), enabled: canRead });
 }
 export function useSaveNoteTemplate() {

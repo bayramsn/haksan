@@ -24,7 +24,6 @@ export function LeadsTab({ canOpenOpportunity }: { canOpenOpportunity: boolean }
   const q = useDebouncedValue(search.trim());
   const leads = useMetaLeads({ search: q || undefined, status: status ?? undefined, platform: platform ?? undefined });
   const items = leads.data?.pages.flatMap((page) => page.items) ?? [];
-  const total = leads.data?.pages.at(-1)?.total ?? 0;
   const filtersActive = Boolean(q || status || platform);
   const reset = () => {
     setSearch('');
@@ -86,7 +85,7 @@ export function LeadsTab({ canOpenOpportunity }: { canOpenOpportunity: boolean }
             );
           })}
           <LoadMore
-            caption={`${items.length} / ${Math.max(total, items.length)} kayıt`}
+            caption="Daha fazla"
             visible={Boolean(leads.hasNextPage)}
             loading={leads.isFetchingNextPage}
             onPress={() => void leads.fetchNextPage()}

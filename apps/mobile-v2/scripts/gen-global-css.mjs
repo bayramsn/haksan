@@ -15,12 +15,11 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
-const { themes } = require(resolve(here, '../theme.config.js'));
+const { themes, themeVariables } = require(resolve(here, '../theme.config.js'));
 
-const kebab = (key) => key.replace(/[A-Z0-9]/g, (c) => `-${c.toLowerCase()}`);
 const vars = (theme, indent) =>
-  Object.entries(theme)
-    .map(([key, value]) => `${indent}--c-${kebab(key)}: ${value};`)
+  Object.entries(themeVariables(theme))
+    .map(([key, value]) => `${indent}${key}: ${value};`)
     .join('\n');
 
 const css = `@tailwind base;

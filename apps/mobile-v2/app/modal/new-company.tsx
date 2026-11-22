@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,6 +24,7 @@ const ERROR_ORDER: (keyof CompanyFormErrors)[] = ['legalTitle', 'supplierCategor
 
 export default function NewCompanyScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const canCreate = useCan('companies.create');
   const { user, scope } = useAuth();
   const params = useLocalSearchParams<{ name?: string | string[] }>();
@@ -84,7 +86,7 @@ export default function NewCompanyScreen() {
             }
           }
           toast.success(`Firma oluşturuldu · ${form.legalTitle.trim()}`);
-          if (company?.id) router.replace(`/modules/companies/${company.id}` as Href);
+          if (company?.id) router.replace(recordDestination(`/modules/companies/${company.id}`));
           else router.back();
         })();
       },
@@ -96,10 +98,7 @@ export default function NewCompanyScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Firma', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-3 p-4 pb-8" keyboardShouldPersistTaps="handled">
-          <Text className="font-inter text-[13px] text-muted-foreground">
-            CRM ile aynı alanlar · seçiciler listeden açılır, listede yoksa yazabilirsiniz.
-          </Text>
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-7 px-4 pb-8 pt-4" keyboardShouldPersistTaps="handled">
           <CompanyFormFields
             mode="create"
             form={form}
@@ -116,10 +115,10 @@ export default function NewCompanyScreen() {
             onClearLogo={() => setLogo(null)}
           />
           <Text className="font-inter text-xs text-muted-foreground">
-            Yeni firma kaydı çevrimiçi bağlantı gerektirir. Böylece aynı kaydın iki kez oluşması engellenir.
+            Kayıt için internet bağlantısı gerekir.
           </Text>
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1">
             <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} />
           </View>

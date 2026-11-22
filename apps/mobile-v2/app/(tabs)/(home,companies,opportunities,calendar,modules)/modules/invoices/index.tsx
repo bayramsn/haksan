@@ -1,7 +1,8 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationContext } from '@/src/modules/useNavigationContext';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
@@ -32,12 +33,14 @@ const TYPE_OPTIONS = [
 /** Web `AccountingInvoicesPage`: sınıf sunucu filtresi, tür + arama istemci tarafı. */
 export default function InvoicesScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const canCreate = useCan('accounting_invoices.create');
   const [category, setCategory] = useState<InvoiceCategory>('commercial');
   const [type, setType] = useState<'sales' | 'purchase' | null>('sales');
   const [search, setSearch] = useState('');
   useNavigationContext('accounting-invoices', ({ query }) => setSearch(query ?? ''));
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const list = useAllAccountingInvoices(category);
 
   const filtered = useMemo(() => {
@@ -49,34 +52,45 @@ export default function InvoicesScreen() {
 
   const header = (
     <View className="gap-3 pb-2">
-      <ScreenHeader title="Muhasebe Faturaları" subtitle="Satış ve alış faturaları · vade planı ve cari hareketler" />
+      <ScreenHeader title="Muhasebe Faturaları" compact />
       <View style={{ paddingHorizontal: SCREEN_PAD }}>
         <Segmented label="Fatura sınıfı" value={category} options={CATEGORY_OPTIONS} onChange={setCategory} />
       </View>
       <FilterChips options={TYPE_OPTIONS} value={type} onChange={setType} allLabel="Tümü" />
-      <KpiGrid>
-        {[
-          <KpiTile
-            key="count"
-            icon="receipt-outline"
-            tone="stage"
-            label="Fatura"
-            value={String(kpis.count)}
-            sub={invoiceCategoryLabel(category).toLocaleLowerCase('tr-TR')}
-          />,
-          <KpiTile
-            key="total"
-            icon="trending-up-outline"
-            tone="success"
-            label="Toplam Tutar"
-            value={primary ? formatAmount(primary.amount, primary.currencyCode) : '—'}
-            sub={others.map((item) => formatAmount(item.amount, item.currencyCode)).join(' · ') || undefined}
-          />,
-          <KpiTile key="installments" icon="layers-outline" tone="warning" label="Taksitli" value={String(kpis.installmented)} sub="vade planlı" />,
-          <KpiTile key="companies" icon="business-outline" tone="info" label="Firma" value={String(kpis.companies)} sub="farklı cari" />,
-        ]}
-      </KpiGrid>
       <SearchBar value={search} onChange={setSearch} placeholder="Fatura no veya firma..." />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: overviewOpen }}
+        onPress={() => setOverviewOpen((value) => !value)}
+        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+      >
+        <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+      </Pressable>
+      {overviewOpen ? (
+        <KpiGrid>
+          {[
+            <KpiTile
+              key="count"
+              icon="receipt-outline"
+              tone="stage"
+              label="Fatura"
+              value={String(kpis.count)}
+              sub={invoiceCategoryLabel(category).toLocaleLowerCase('tr-TR')}
+            />,
+            <KpiTile
+              key="total"
+              icon="trending-up-outline"
+              tone="success"
+              label="Toplam Tutar"
+              value={primary ? formatAmount(primary.amount, primary.currencyCode) : '—'}
+              sub={others.map((item) => formatAmount(item.amount, item.currencyCode)).join(' · ') || undefined}
+            />,
+            <KpiTile key="installments" icon="layers-outline" tone="warning" label="Taksitli" value={String(kpis.installmented)} sub="vade planlı" />,
+            <KpiTile key="companies" icon="business-outline" tone="info" label="Firma" value={String(kpis.companies)} sub="farklı cari" />,
+          ]}
+        </KpiGrid>
+      ) : null}
     </View>
   );
 
@@ -85,12 +99,12 @@ export default function InvoicesScreen() {
       <SyncStatus />
       {list.isPending ? (
         <>
-          <ScreenHeader title="Muhasebe Faturaları" />
+          <ScreenHeader title="Muhasebe Faturaları" compact/>
           <ListSkeleton />
         </>
       ) : list.error ? (
         <>
-          <ScreenHeader title="Muhasebe Faturaları" />
+          <ScreenHeader title="Muhasebe Faturaları" compact/>
           <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
         </>
       ) : (
@@ -100,7 +114,7 @@ export default function InvoicesScreen() {
           data={filtered}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={header}
-          contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
           renderItem={({ item }) => {
             const sales = item.type === 'sales';
             const due = dueState(item);
@@ -110,8 +124,10 @@ export default function InvoicesScreen() {
                   title={item.invoiceNo}
                   lines={[
                     item.company?.shortName ?? item.company?.legalTitle ?? null,
-                    `${invoiceCategoryLabel(item.invoiceCategory)} · ${formatDate(item.invoiceDate)}`,
-                    item.installmentCount > 1 ? `${item.installmentCount} taksit · ${due.detail}` : due.detail,
+                    [
+                      `${invoiceCategoryLabel(item.invoiceCategory)} · ${formatDate(item.invoiceDate)}`,
+                      item.installmentCount > 1 ? `${item.installmentCount} taksit · ${due.detail}` : due.detail,
+                    ].join(' · '),
                   ]}
                   icon="document-outline"
                   iconTone={sales ? 'success' : 'info'}

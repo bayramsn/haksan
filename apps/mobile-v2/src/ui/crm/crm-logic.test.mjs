@@ -58,6 +58,12 @@ test('firma sorgusu yalnız seçili filtreleri taşır', () => {
   );
 });
 
+test('firma ilçe filtresi şehirle birlikte liste ve dışa aktarım sorgusunda korunur', () => {
+  const base = { tab: 'all', salesTab: 'all', divisionId: 'all', supplierCategory: 'all', sortMode: 'default' };
+  assert.deepEqual(buildCompanyQuery({ ...base, city: 'İstanbul', district: 'Esenyurt' }), { city: 'İstanbul', district: 'Esenyurt', sortBy: 'createdAt', sortDir: 'desc' });
+  assert.deepEqual(buildCompanyQuery({ ...base, district: 'Esenyurt' }), { sortBy: 'createdAt', sortDir: 'desc' });
+});
+
 test('yalnız satış/servis rolü tedarikçiyi göremez, satış rakip/potansiyeli görür', () => {
   assert.deepEqual(companyVisibility(['service']), { restricted: true, canSeeSuppliers: false, canSeeCompetitors: false, canSeePotential: false });
   assert.deepEqual(companyVisibility(['sales', 'service']), { restricted: true, canSeeSuppliers: false, canSeeCompetitors: true, canSeePotential: true });

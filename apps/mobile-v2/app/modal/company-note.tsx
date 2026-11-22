@@ -48,7 +48,7 @@ export default function CompanyNoteScreen() {
         <ErrorState message={company.error.message} onRetry={() => void company.refetch()} />
       ) : (
         <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
             <Text className="font-inter-medium text-sm text-foreground">{company.data?.legalTitle}</Text>
             <Field
               label="Not"

@@ -1,8 +1,11 @@
+import { shareServerPdf } from '@/src/api/server-pdf';
 import { activityLogShareText } from './activity-log-share';
 import { useState } from 'react';
 import { Share, Text, View } from 'react-native';
 import {
   activityLogDate,
+  activityLogPrintDoc,
+  printDocumentHtml,
   activityLogMoney,
   activityLogTotals,
   companyContextLine,
@@ -20,6 +23,7 @@ import { DateTextField } from '@/src/ui/select/DateTextField';
 
 export function ActivityLogSection() {
   const canReadCompanies = useCan('companies.read');
+  const canExport = useCan('reports.export');
   const [draft, setDraft] = useState(defaultActivityRange);
   const [range, setRange] = useState<{ from: string; to: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +70,10 @@ export function ActivityLogSection() {
         <View className="flex-1">
           <Button label="Raporu Getir" loading={log.isFetching} onPress={load} />
         </View>
+        {canExport ? <ActionButton icon="document-text-outline" label="PDF" run={async () => {
+          if (!report) return;
+          await shareServerPdf('activity-report', printDocumentHtml(activityLogPrintDoc(report, { letterheadSrc: null })), `aktivite-raporu-${range?.from}-${range?.to}.pdf`);
+        }} disabled={!report || log.isFetching} /> : null}
         <ActionButton icon="share-outline" label="Paylaş" run={async () => { if (report) await Share.share({ message: activityLogShareText(report) }); }} disabled={!report} />
       </View>
 

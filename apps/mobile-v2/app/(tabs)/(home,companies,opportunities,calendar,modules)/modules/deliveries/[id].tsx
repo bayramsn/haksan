@@ -34,7 +34,7 @@ export default function DeliveryDetailScreen() {
   if (query.isPending || query.error || !query.delivery) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Kurulum Tutanağı" />
+        <DetailHeader title="Kurulum Tutanağı" compact />
         {query.isPending ? (
           <Loading />
         ) : query.error ? (
@@ -113,16 +113,16 @@ function DeliveryDetail({ delivery, refreshing, onRefresh }: { delivery: Deliver
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Kurulum Tutanağı" subtitle={companyName} />
+      <DetailHeader title="Kurulum Tutanağı" subtitle={companyName} compact />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
-          contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-4 px-4 pt-4"
+          contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pt-3"
           keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
           <Card className="gap-3">
             <View className="flex-row items-center justify-between gap-3">
-              <Text className="flex-1 font-display-semibold text-[17px] text-foreground" numberOfLines={2}>{companyName}</Text>
+              <Text className="flex-1 font-inter-semibold text-[17px] text-foreground" numberOfLines={2}>{companyName}</Text>
               <Chip tone={delivery.status === 'completed' ? 'success' : 'warning'} label={DELIVERY_STATUS_LABELS[delivery.status] ?? delivery.status} />
             </View>
             <Text className="font-inter text-xs text-muted-foreground">

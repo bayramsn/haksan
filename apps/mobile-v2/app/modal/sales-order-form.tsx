@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
@@ -21,6 +22,7 @@ const CURRENCIES = ['USD', 'EUR', 'TRY'] as const;
 /** Manuel satış siparişi (salesOrderCreateSchema); `?id=` ile başlık bilgilerini düzenler. */
 export default function SalesOrderFormScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const params = useLocalSearchParams<{ id?: string; companyId?: string }>();
   const orderId = typeof params.id === 'string' ? params.id : '';
   const isEdit = Boolean(orderId);
@@ -114,7 +116,7 @@ export default function SalesOrderFormScreen() {
     create.mutate(body, {
       onSuccess: (created) => {
         toast.success('Satış siparişi oluşturuldu');
-        router.replace(`/modules/sales-orders/${created.id}`);
+        router.replace(recordDestination(`/modules/sales-orders/${created.id}`));
       },
       onError: fail,
     });

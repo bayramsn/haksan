@@ -42,6 +42,7 @@ import {
 const SCOPES: ScopeKind[] = ['user', 'department', 'division'];
 
 function TargetItemRow({ item, onChange }: { item: TargetFormItem; onChange: (next: TargetFormItem) => void }) {
+  const { colors } = useTheme();
   const invalid = isInvalidTargetItem(item);
   const unit = item.unit === 'amount' ? 'USD' : 'adet';
   return (
@@ -56,6 +57,7 @@ function TargetItemRow({ item, onChange }: { item: TargetFormItem; onChange: (ne
           value={item.target}
           onChangeText={(target) => onChange({ ...item, target })}
           placeholder={item.defaultTarget ? `Şablon: ${item.defaultTarget}` : `Hedef (${unit})`}
+          placeholderTextColor={colors.mutedForeground}
           keyboardType="decimal-pad"
           maxLength={24}
           className={`min-h-[44px] flex-1 rounded-[10px] border bg-input-background px-3 font-inter text-[15px] text-foreground ${invalid ? 'border-destructive' : 'border-transparent'}`}
@@ -66,7 +68,8 @@ function TargetItemRow({ item, onChange }: { item: TargetFormItem; onChange: (ne
             value={item.manualActual}
             onChangeText={(manualActual) => onChange({ ...item, manualActual })}
             placeholder="Gerçekleşen"
-            keyboardType="decimal-pad"
+            placeholderTextColor={colors.mutedForeground}
+          keyboardType="decimal-pad"
             maxLength={24}
             className={`min-h-[44px] flex-1 rounded-[10px] border bg-input-background px-3 font-inter text-[15px] text-foreground ${invalid ? 'border-destructive' : 'border-transparent'}`}
           />
@@ -146,7 +149,7 @@ export default function TargetEditScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Hedef ata / düzenle', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <Card className="gap-2">
             <Eyebrow>{SCOPE_META[kind].label}</Eyebrow>
             <Text className="font-display-semibold text-[20px] text-foreground">{name}</Text>
@@ -223,7 +226,7 @@ export default function TargetEditScreen() {
                   allowClear={false}
                   onChange={(next) => next && setSection(next)}
                 />
-                <Text className="font-display-semibold text-[16px] text-foreground">{TARGET_TYPE_LABELS[section].title}</Text>
+                <Text className="font-inter-semibold text-[16px] text-foreground">{TARGET_TYPE_LABELS[section].title}</Text>
                 <View className="flex-row flex-wrap gap-2">
                   <View className="min-w-[45%] flex-1">
                     <Button label="Bu bölümü şablondan doldur" variant="ghost" onPress={() => setForm((current) => fillFromTemplate(current, section))} />
@@ -268,7 +271,7 @@ export default function TargetEditScreen() {
             </>
           )}
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1">
             <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} />
           </View>

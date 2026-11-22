@@ -48,7 +48,12 @@
       "autoIncrement": true,
       "channel": "production",
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "env": {
+          "HAKSAN_ANDROID_STORE_BUILD": "1",
+          "EXPO_PUBLIC_API_URL": "https://d3n1sxxvasfqmv.cloudfront.net/api/v1",
+          "EXPO_PUBLIC_APP_LINK_HOST": "d3n1sxxvasfqmv.cloudfront.net"
+        }
       }
     }
   },

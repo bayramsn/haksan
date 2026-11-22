@@ -498,7 +498,6 @@ export default function CompanyMapScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <DetailHeader
         title="Firma Haritası"
-        subtitle={directory.data ? `${filtered.length} / ${rows.length} firma` : undefined}
         actions={
           mapAvailable
             ? [
@@ -509,8 +508,7 @@ export default function CompanyMapScreen() {
                 },
               ]
             : []
-        }
-      />
+        } compact />
       <View className="gap-2 border-b border-border bg-card pb-2 pt-2">
         <View>
           <SearchBar value={search} onChange={setSearch} placeholder="Firma adı / şehir ara..." />

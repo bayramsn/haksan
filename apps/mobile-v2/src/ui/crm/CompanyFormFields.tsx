@@ -8,7 +8,8 @@ import {
 } from '@haksan/shared';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { useCompanyFormLookups, useTaxOffices } from '@/src/api/crm-general.hooks';
-import { Card, Eyebrow, Field } from '@/src/ui';
+import { Field } from '@/src/ui';
+import { FormSection } from '@/src/ui/service/fields';
 import { OptionPicker, type PickerOption } from '@/src/ui/pickers/OptionPicker';
 import { toast } from '@/src/ui/toast';
 import { companyVisibility } from './company-logic';
@@ -67,7 +68,7 @@ function AddressRoleChips({
             accessibilityState={{ checked: role.active }}
             accessibilityLabel={role.label}
             onPress={() => onToggle(role.key)}
-            className={`min-h-11 justify-center rounded-control border px-3 py-1.5 ${role.active ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
+            className={`min-h-11 justify-center rounded-full border px-4 py-1.5 ${role.active ? 'border-primary bg-primary-soft' : 'border-border bg-card'}`}
           >
             <Text className={`font-inter-medium text-sm ${role.active ? 'text-primary' : 'text-foreground'}`}>{role.label}</Text>
           </Pressable>
@@ -106,7 +107,7 @@ function ChoiceChips<T extends string>({
               accessibilityState={multi ? { checked: active } : { selected: active }}
               accessibilityLabel={option.hint ? `${option.label}, ${option.hint}` : option.label}
               onPress={() => onChange(option.value)}
-              className={`min-h-11 justify-center rounded-control border px-3 py-1.5 ${active ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
+              className={`min-h-11 justify-center rounded-full border px-4 py-1.5 ${active ? 'border-primary bg-primary-soft' : 'border-border bg-card'}`}
             >
               <Text className={`font-inter-medium text-sm ${active ? 'text-primary' : 'text-foreground'}`}>{option.label}</Text>
               {option.hint ? <Text className="font-inter text-[11px] text-muted-foreground">{option.hint}</Text> : null}
@@ -233,11 +234,10 @@ export function CompanyFormFields({
   }
 
   return (
-    <View className="gap-3">
+    <View className="gap-7">
       {onPickLogo ? (
-        <Card className="gap-3">
-          <Eyebrow>Logo</Eyebrow>
-          <Text className="font-inter text-xs text-muted-foreground">Web CRM ile aynı: firma logosunu yükleyin (PNG/JPG, max 5 MB).</Text>
+        <FormSection title="Logo">
+          <Text className="font-inter text-xs text-muted-foreground">PNG/JPG · en fazla 5 MB</Text>
           {logoUri ? (
             <View className="h-20 w-20 overflow-hidden rounded-control border border-border bg-muted">
               <Image source={{ uri: logoUri }} style={{ width: 80, height: 80 }} resizeMode="contain" />
@@ -269,11 +269,10 @@ export function CompanyFormFields({
               </View>
             ) : null}
           </View>
-        </Card>
+        </FormSection>
       ) : null}
 
-      <Card className="gap-3">
-        <Eyebrow>1 · Sınıflandırma</Eyebrow>
+      <FormSection title="Sınıflandırma">
         <ChoiceChips
           label="Firma şekli"
           options={[
@@ -367,10 +366,9 @@ export function CompanyFormFields({
           onChange={(value) => onChange({ sector: value ?? '' })}
           onFreeText={(sector) => onChange({ sector })}
         />
-      </Card>
+      </FormSection>
 
-      <Card className="gap-3">
-        <Eyebrow>2 · Kimlik ve iletişim</Eyebrow>
+      <FormSection title="Kimlik ve iletişim">
         <Field
           label={isPerson ? 'Ad Soyad *' : 'Firma Ünvanı *'}
           value={form.legalTitle}
@@ -420,10 +418,9 @@ export function CompanyFormFields({
             toast.success('Site önerileri forma uygulandı');
           }}
         />
-      </Card>
+      </FormSection>
 
-      <Card className="gap-3">
-        <Eyebrow>3 · Adres</Eyebrow>
+      <FormSection title="Adres">
         <OptionPicker
           label="Adres Türü"
           icon="home-outline"
@@ -589,10 +586,9 @@ export function CompanyFormFields({
         >
           <Text className="font-inter-semibold text-sm text-primary">+ Ek adres ekle</Text>
         </Pressable>
-      </Card>
+      </FormSection>
 
-      <Card className="gap-3">
-        <Eyebrow>4 · Vergi ve not</Eyebrow>
+      <FormSection title="Vergi ve not">
         <OptionPicker
           label="Vergi Dairesi"
           loading={taxOffices.isPending}
@@ -624,7 +620,7 @@ export function CompanyFormFields({
           maxLength={4000}
           className="min-h-[96px] rounded-control border border-border bg-card px-3.5 py-3 text-base text-foreground"
         />
-      </Card>
+      </FormSection>
     </View>
   );
 }

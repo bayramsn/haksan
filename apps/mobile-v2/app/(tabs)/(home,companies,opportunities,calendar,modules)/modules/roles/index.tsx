@@ -1,6 +1,6 @@
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
@@ -16,6 +16,7 @@ export default function RolesScreen() {
   const access = useAdminAccess();
   const canManageRoles = access.isSuperAdmin;
   const [query, setQuery] = useState('');
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const roles = useAdminRoles();
   const permissions = useAdminPermissions();
 
@@ -27,22 +28,29 @@ export default function RolesScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Roller & Yetkiler"
-        subtitle={`${sorted.length} rol · ${permissions.data?.length ?? 0} yetki`}
         actions={canManageRoles ? [{ icon: 'add', label: 'Yeni rol oluştur', onPress: () => router.push('/modal/role-create' as Href) }] : []}
-      />
-      {roles.data ? (
-        <View className="pt-2">
+        compact/>
+      <View className="gap-2 py-2">
+        <SearchBar value={query} onChange={setQuery} placeholder="Rol adı veya kodu ara..." />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen && roles.data ? (
           <StatStrip
+            dense
             items={[
               { label: 'Rol', value: String(sorted.length), icon: 'shield-outline' },
               { label: 'Sistem', value: String(sorted.filter((r) => r.isSystemRole).length), tone: 'neutral' },
               { label: 'Özel', value: String(sorted.filter((r) => !r.isSystemRole).length), tone: 'info' },
             ]}
           />
-        </View>
-      ) : null}
-      <View className="py-2">
-        <SearchBar value={query} onChange={setQuery} placeholder="Rol adı veya kodu ara..." />
+        ) : null}
       </View>
 
       {roles.isPending ? (

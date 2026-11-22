@@ -44,6 +44,7 @@ export default function DueDatesScreen() {
   const isAdmin = isFinanceAdmin(user?.roles);
   const [cursor, setCursor] = useState<MonthCursor>(todayCursor);
   const [selectedKey, setSelectedKey] = useState<string | null>(() => dayKey(new Date()));
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const range = useMemo(() => monthRange(cursor), [cursor]);
   const { data, isPending, isRefetching, error, refetch } = useDueDates(range);
 
@@ -68,7 +69,7 @@ export default function DueDatesScreen() {
   if (!canRead) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <ScreenHeader title="Vade Takvimi" />
+        <ScreenHeader title="Vade Takvimi" compact/>
         <EmptyState icon="lock-closed-outline" title="Bu sayfaya erişim yetkiniz yok" hint="Kasa hareketlerini görme yetkisi (payments.read) gerekir." />
       </SafeAreaView>
     );
@@ -78,28 +79,39 @@ export default function DueDatesScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
       <ScrollView
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32, gap: 14 }}
+        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32, gap: 14 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
       >
-        <ScreenHeader title="Vade Takvimi" subtitle={`Tahsil ve ödeme vadeleri · ${label}`} />
+        <ScreenHeader title="Vade Takvimi" compact />
 
-        <KpiGrid>
-          {[
-            <KpiTile key="month" icon="calendar-outline" tone="stage" label="Bu Ay Vade" value={String(visible.length)} sub={label} />,
-            <KpiTile
-              key="next7"
-              icon="time-outline"
-              tone="warning"
-              label="Önümüzdeki 7 Gün"
-              value={String(next7.length)}
-              sub={sumByCurrency(next7) || 'vade yok'}
-            />,
-            <KpiTile key="tahsil" icon="arrow-down-outline" tone="success" label="Tahsil" value={String(tahsil.length)} sub={sumByCurrency(tahsil) || '—'} />,
-            isAdmin ? (
-              <KpiTile key="odeme" icon="arrow-up-outline" tone="destructive" label="Ödeme" value={String(odeme.length)} sub={sumByCurrency(odeme) || '—'} />
-            ) : null,
-          ]}
-        </KpiGrid>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="mx-4 min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen ? (
+          <KpiGrid>
+            {[
+              <KpiTile key="month" icon="calendar-outline" tone="stage" label="Bu Ay Vade" value={String(visible.length)} sub={label} />,
+              <KpiTile
+                key="next7"
+                icon="time-outline"
+                tone="warning"
+                label="Önümüzdeki 7 Gün"
+                value={String(next7.length)}
+                sub={sumByCurrency(next7) || 'vade yok'}
+              />,
+              <KpiTile key="tahsil" icon="arrow-down-outline" tone="success" label="Tahsil" value={String(tahsil.length)} sub={sumByCurrency(tahsil) || '—'} />,
+              isAdmin ? (
+                <KpiTile key="odeme" icon="arrow-up-outline" tone="destructive" label="Ödeme" value={String(odeme.length)} sub={sumByCurrency(odeme) || '—'} />
+              ) : null,
+            ]}
+          </KpiGrid>
+        ) : null}
 
         <Panel
           title="Vade Takvimi"

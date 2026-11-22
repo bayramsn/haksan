@@ -70,6 +70,9 @@ function connect(): Socket | null {
   return current;
 }
 
+/** Shared authenticated foreground socket; never creates a separate signaling session. */
+export function getChatSocket(): Socket | null { return connect(); }
+
 export function disconnectChatSocket(): void {
   socket?.removeAllListeners();
   socket?.disconnect();
@@ -116,7 +119,9 @@ export function useChatRealtimeLifecycle(authenticated: boolean): void {
     };
 
     const appState = AppState.addEventListener('change', (next) => {
-      foreground = next === 'active';
+      // iOS permission sheets are temporarily inactive; only a real background
+      // transition closes signaling. Media ownership is handled separately.
+      foreground = next !== 'background';
       reconcile();
     });
     const netInfo = NetInfo.addEventListener((next) => {

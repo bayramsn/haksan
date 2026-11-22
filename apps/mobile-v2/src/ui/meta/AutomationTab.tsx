@@ -17,7 +17,6 @@ export function AutomationTab({ canManage }: { canManage: boolean }) {
   const toggle = useToggleMetaMapping();
   const processJobs = useProcessMetaJobs();
   const eventItems = events.data?.pages.flatMap((page) => page.items) ?? [];
-  const eventTotal = events.data?.pages.at(-1)?.total ?? 0;
 
   const confirmProcess = () =>
     Alert.alert(
@@ -126,7 +125,7 @@ export function AutomationTab({ canManage }: { canManage: boolean }) {
             </View>
           ))}
           <LoadMore
-            caption={`${eventItems.length} / ${Math.max(eventTotal, eventItems.length)} kayıt`}
+            caption="Daha fazla"
             visible={Boolean(events.hasNextPage)}
             loading={events.isFetchingNextPage}
             onPress={() => void events.fetchNextPage()}

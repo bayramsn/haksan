@@ -311,6 +311,22 @@ export const emptyQuickParty = (): QuickParty => ({
   contactPhone: '',
 });
 
+/** The API stores standalone contract payment plans as receivables. */
+export function quickInstallmentsFromSnapshot(snapshot: Snapshot) {
+  const rows = Array.isArray(snapshot?.receivables)
+    ? snapshot.receivables
+    : Array.isArray(snapshot?.installments) ? snapshot.installments : [];
+  return rows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object' && !Array.isArray(row)))
+    .map((row) => ({
+      label: typeof row.notes === 'string' ? row.notes : typeof row.label === 'string' ? row.label : '',
+      amount: row.amount != null ? String(row.amount) : '',
+      dueDate: typeof row.dueDate === 'string' ? row.dueDate.slice(0, 10) : '',
+      paymentMethod: typeof row.paymentMethod === 'string' && row.paymentMethod
+        ? row.paymentMethod
+        : row.promissoryNote === true || /senet/i.test(String(row.notes ?? row.label ?? '')) ? 'promissory_note' : 'cash',
+    }));
+}
+
 /** Web `snapshotAddressLine`: tam adres yoksa sokak + bina no; ilçe/il/ülke tekrar edilmeden eklenir. */
 export function addressLine(address: unknown): string {
   if (!address || typeof address !== 'object') return '';

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
-import { ApiError } from '@/src/api/client';
+import { ApiError, requestContextKey } from '@/src/api/client';
+import { collectTargetHistory } from '@/src/ui/reports/target-history';
 import { reports } from '@/src/api/endpoints';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { granularityRange, monthRange, type Granularity } from '@/src/ui/reports/reportMath';
@@ -114,6 +115,20 @@ export function usePreviousTargetProgress(period: string) {
     queryFn: () => reportsApi.targetProgress({ period, scope: 'all-users' }),
     staleTime: 10 * 60_000,
     retry: noRetryOnClientError,
+  });
+}
+
+export function useTargetHistory(period: string, enabled: boolean) {
+  const context = requestContextKey();
+  return useQuery({
+    queryKey: ['reports', 'target-history', context, period],
+    enabled,
+    queryFn: ({ signal }) => {
+      return collectTargetHistory(period, month => reportsApi.targetProgress({ period: month, scope: 'all-users' }),
+        () => !signal.aborted && context === requestContextKey());
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 }
 

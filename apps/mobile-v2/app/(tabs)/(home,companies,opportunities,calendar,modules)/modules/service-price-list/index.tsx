@@ -43,6 +43,7 @@ export default function ServicePriceListScreen() {
   const [tab, setTab] = useState<ServicePriceTab>('parts');
   const [query, setQuery] = useState('');
   const [listId, setListId] = useState('');
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const products = useAllProducts(canRead);
   const lists = usePriceLists();
@@ -76,18 +77,7 @@ export default function ServicePriceListScreen() {
 
   const header = (
     <View className="gap-3 pb-2">
-      <ScreenHeader
-        title="Servis Fiyat Listesi"
-        subtitle="Parça, donanım ve işçilik fiyatlarını karşılaştırın."
-      />
-      <KpiGrid>
-        {[
-          <KpiTile key="t" icon="cube-outline" label="Toplam Kalem" value={String(total)} />,
-          <KpiTile key="k" icon="pricetags-outline" label="Kategori" value={String(SERVICE_PRICE_CATEGORIES.length)} />,
-          <KpiTile key="g" icon="eye-outline" tone="success" label="Görünen" value={String(rows.length)} />,
-          <KpiTile key="l" icon="checkmark-done-outline" label="Liste" value={selectedList?.code || '—'} sub={listCurrency || 'Para birimi yok'} />,
-        ]}
-      </KpiGrid>
+      <ScreenHeader title="Servis Fiyat Listesi" compact />
       <Tabs
         tabs={SERVICE_PRICE_CATEGORIES.map((category) => ({ value: category.value, label: category.label, badge: counts[category.value] }))}
         value={tab}
@@ -102,14 +92,6 @@ export default function ServicePriceListScreen() {
             onChange={(value) => setListId(value ?? '')}
           />
         ) : null}
-        <View className="flex-row items-start gap-2 rounded-control border border-border bg-card p-3">
-          <Ionicons name={canEdit ? 'create-outline' : 'lock-closed-outline'} size={15} color={canEdit ? colors.primary : colors.mutedForeground} />
-          <Text className={`flex-1 font-inter text-xs ${canEdit ? 'text-primary' : 'text-muted-foreground'}`}>
-            {canEdit
-              ? 'Kalemdeki Fiyat butonundan seçili liste fiyatını düzenleyebilirsiniz.'
-              : 'Servis fiyat listesi salt-okunur. Kalemler kategori sekmelerine ayrılmıştır.'}
-          </Text>
-        </View>
       </View>
       {listId && items.error ? <ErrorState message="Seçili listenin fiyatları yüklenemedi." onRetry={() => void items.refetch()} /> : null}
       <SearchBar
@@ -117,7 +99,25 @@ export default function ServicePriceListScreen() {
         onChange={setQuery}
         placeholder={isLabor ? 'İşçilik kalemi ara...' : `${activeCategory.label}, marka ara...`}
       />
-      <Text className="px-4 font-inter text-xs text-muted-foreground">{rows.length} kalem{selectedList ? ` · ${selectedList.name || selectedList.code}` : ' · Ürün fiyatları'}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: overviewOpen }}
+        onPress={() => setOverviewOpen((value) => !value)}
+        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+      >
+        <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+      </Pressable>
+      {overviewOpen ? (
+        <KpiGrid>
+          {[
+            <KpiTile key="t" icon="cube-outline" label="Toplam Kalem" value={String(total)} />,
+            <KpiTile key="k" icon="pricetags-outline" label="Kategori" value={String(SERVICE_PRICE_CATEGORIES.length)} />,
+            <KpiTile key="g" icon="eye-outline" tone="success" label="Görünen" value={String(rows.length)} />,
+            <KpiTile key="l" icon="checkmark-done-outline" label="Liste" value={selectedList?.code || '—'} sub={listCurrency || 'Para birimi yok'} />,
+          ]}
+        </KpiGrid>
+      ) : null}
     </View>
   );
 
@@ -126,12 +126,12 @@ export default function ServicePriceListScreen() {
       <SyncStatus />
       {products.isPending || lists.isPending ? (
         <>
-          <ScreenHeader title="Servis Fiyat Listesi" />
+          <ScreenHeader title="Servis Fiyat Listesi" compact/>
           <ListSkeleton />
         </>
       ) : products.error || lists.error ? (
         <>
-          <ScreenHeader title="Servis Fiyat Listesi" />
+          <ScreenHeader title="Servis Fiyat Listesi" compact/>
           <ErrorState
             message={(products.error ?? lists.error)!.message}
             onRetry={() => {
@@ -176,17 +176,12 @@ export default function ServicePriceListScreen() {
                       <ProductThumb imageUrl={product.imageUrl} label={title} />
                     )}
                     <View className="min-w-0 flex-1">
-                      {isLabor ? null : (
-                        <Text className="font-inter-semibold text-[10px] uppercase tracking-wider text-primary" numberOfLines={1}>
-                          {product.stockCode || 'STOK KODU YOK'}
-                        </Text>
-                      )}
-                      <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>
+                      <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
                         {title}
                       </Text>
                       {isLabor ? null : (
                         <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-                          {[product.brand?.name || 'Üretici yok', product.originCountry].filter(Boolean).join(' · ')}
+                          {[product.stockCode || 'Stok kodu yok', product.brand?.name || 'Üretici yok', product.originCountry].filter(Boolean).join(' · ')}
                         </Text>
                       )}
                     </View>
@@ -227,13 +222,7 @@ export default function ServicePriceListScreen() {
               onAction={() => setQuery('')}
             />
           }
-          ListFooterComponent={
-            rows.length ? (
-              <Text style={{ paddingHorizontal: SCREEN_PAD }} className="pt-2 font-inter text-xs text-muted-foreground">
-                Toplam {rows.length} {isLabor ? 'işçilik kalemi' : activeCategory.label.toLocaleLowerCase('tr-TR')}
-              </Text>
-            ) : null
-          }
+          ListFooterComponent={null}
         />
       )}
     </SafeAreaView>

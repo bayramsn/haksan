@@ -1,4 +1,7 @@
 import { useMemo, useState } from 'react';
+import { printDocument } from '@/src/native/print-document';
+import { shareServerPdf } from '@/src/api/server-pdf';
+import { operationalReportPrint } from './report-print';
 import { Share, Text, View } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { useOperationalReport, usePreviousOperationalReport, useReportDepartments, useReportUsers } from '@/src/api/reports.hooks';
@@ -118,6 +121,11 @@ export function OperationalSection() {
         <View className="flex-row flex-wrap gap-2">
           <ActionButton icon="share-outline" label="Paylaş" run={share} disabled={!report.data} />
           {canExport ? <ActionButton icon="download-outline" label="Excel" run={() => reportExports.operational(params)} disabled={!report.data} /> : null}
+          {canExport ? <ActionButton icon="document-text-outline" label="PDF" disabled={!report.data || report.isFetching || Boolean(report.error)} run={async () => {
+            if (!report.data) return;
+            const document = operationalReportPrint(report.data, params, { ownerName: users.data?.find(user => user.id === ownerUserId)?.fullName, departmentName: departments.data?.find(department => department.id === departmentId)?.name });
+            await shareServerPdf('operational-report', printDocument(document), `operasyonel-rapor-${period === 'monthly' ? year : 'yillik'}.pdf`);
+          }} /> : null}
         </View>
       </View>
 

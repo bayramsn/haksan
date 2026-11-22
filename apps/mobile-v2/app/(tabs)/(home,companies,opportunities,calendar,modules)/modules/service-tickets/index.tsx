@@ -1,8 +1,9 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationContext } from '@/src/modules/useNavigationContext';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
@@ -54,6 +55,7 @@ const WARRANTY_OPTIONS = toOptions(WARRANTY_STATUS_LABELS);
 
 export default function ServiceTicketsScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const canCreate = useCan('service_tickets.create');
   const [view, setView] = useState<View_>('list');
@@ -68,6 +70,7 @@ export default function ServiceTicketsScreen() {
   const [navigationFocus, setNavigationFocus] = useState<string | undefined>();
   useNavigationContext('service-requests', ({ query, focus }) => { setSearch(query ?? ''); setView('list'); setPreset(focus === 'scheduled' ? null : focus ? 'open' : null); setSeverity(null); setTicketType(null); setSource(null); setWarranty(null); setNavigationFocus(focus); });
   const [exporting, setExporting] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const lookups = useTicketLookups();
 
   const isHistory = view === 'history';
@@ -117,12 +120,11 @@ export default function ServiceTicketsScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Servis Talepleri"
-        subtitle="Servis taleplerinizi görüntüleyin ve yönetin."
         actions={[
           { icon: 'grid-outline', label: 'Servis Kanban', onPress: () => router.push('/modules/service-kanban' as Href) },
           { icon: exporting ? 'hourglass-outline' : 'download-outline', label: "Excel'e aktar", onPress: () => void (exporting ? null : runExport()) },
         ]}
-      />
+        compact/>
 
       <View className="gap-2 pb-2">
         <Tabs<View_>
@@ -134,14 +136,6 @@ export default function ServiceTicketsScreen() {
           value={view}
           onChange={(next) => (next === 'complaints' ? router.push('/modules/service-complaints' as Href) : setView(next))}
         />
-        <StatStrip
-          items={[
-            { label: 'Açık', value: String(summary.data?.open ?? kpis.open) },
-            { label: 'Kritik/Yüksek', value: String(summary.data?.urgent ?? kpis.urgent), tone: 'destructive' },
-            { label: 'SLA Aşımı', value: String(kpis.slaOverdue), tone: kpis.slaOverdue ? 'warning' : undefined },
-            { label: 'Atanmış', value: String(kpis.assigned) },
-          ]}
-        />
         {navigationFocus && <Text accessibilityRole="button" onPress={() => { setNavigationFocus(undefined); setPreset(null); }} className="py-2 text-sm text-primary">{navigationFocus === 'late' || navigationFocus === 'sla' ? 'Geciken servisler' : navigationFocus === 'scheduled' ? 'Planlanan servisler' : 'Açık servisler'} · Odağı temizle</Text>}
         <SearchBar
           value={search}
@@ -152,7 +146,7 @@ export default function ServiceTicketsScreen() {
         />
         {isHistory ? null : <FilterChips options={PRESETS} value={preset} onChange={setPreset} />}
         {filtersOpen ? (
-          <ScrollView style={{ maxHeight: 280 }} contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 12, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+          <ScrollView style={{ maxHeight: 280 }} contentContainerStyle={{ paddingHorizontal: listPad, gap: 12, paddingBottom: 12 , width: '100%', maxWidth: 960, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
               <OptionPicker label="Öncelik" value={severity} options={SEVERITY_OPTIONS} placeholder="Tüm öncelikler" clearable onChange={(next) => setSeverity(next as Severity | null)} />
               <OptionPicker label="Kayıt tipi" value={ticketType} options={TYPE_OPTIONS} placeholder="Tüm kayıt tipleri" clearable onChange={(next) => setTicketType(next)} />
               <OptionPicker label="Kaynak" value={source} options={SOURCE_OPTIONS} placeholder="Tüm kaynaklar" clearable onChange={(next) => setSource(next)} />
@@ -163,10 +157,31 @@ export default function ServiceTicketsScreen() {
             </View>
           </ScrollView>
         ) : null}
-        <View className="flex-row items-center justify-between gap-2 px-4">
-          <Text className="flex-1 font-inter text-xs text-muted-foreground">{rows.length} kayıt yüklendi{filterCount ? ` · ${filterCount} filtre` : ''}</Text>
-          {search || preset || filterCount ? <Button label="Temizle" variant="ghost" onPress={clearFilters} /> : null}
-        </View>
+        {search || preset || filterCount ? (
+          <View className="flex-row justify-end px-4">
+            <Button label="Temizle" variant="ghost" onPress={clearFilters} />
+          </View>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen ? (
+          <StatStrip
+            dense
+            items={[
+              { label: 'Açık', value: String(summary.data?.open ?? kpis.open) },
+              { label: 'Kritik/Yüksek', value: String(summary.data?.urgent ?? kpis.urgent), tone: 'destructive' },
+              { label: 'SLA Aşımı', value: String(kpis.slaOverdue), tone: kpis.slaOverdue ? 'warning' : undefined },
+              { label: 'Atanmış', value: String(kpis.assigned) },
+            ]}
+          />
+        ) : null}
       </View>
 
       {list.isPending ? (
@@ -179,7 +194,7 @@ export default function ServiceTicketsScreen() {
           style={{ flex: 1 }}
           data={rows}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
           renderItem={({ item }) => (
             <TicketCard
               item={item}

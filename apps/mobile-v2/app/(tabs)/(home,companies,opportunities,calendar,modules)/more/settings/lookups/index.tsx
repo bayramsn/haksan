@@ -64,7 +64,7 @@ export default function LookupMenuScreen() {
                     onPress={() =>
                       router.push(`/more/settings/lookups/${name}?divisionId=${encodeURIComponent(divisionId)}` as Href)
                     }
-                    className={`min-h-[52px] flex-row items-center gap-3 px-3.5 py-2.5 active:opacity-70 ${index ? 'border-t border-border' : ''}`}
+                    className={`min-h-11 flex-row items-center gap-2.5 px-3.5 py-2 active:opacity-70 ${index ? 'border-t border-border' : ''}`}
                   >
                     {step >= 0 ? (
                       <View className="h-6 w-6 items-center justify-center rounded bg-muted">

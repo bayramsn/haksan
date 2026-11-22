@@ -50,10 +50,10 @@ export default function BulkMailSuppressionsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Ret listesi" subtitle="Bu adresler tüm toplu gönderimlerde atlanır." />
+      <DetailHeader title="Ret listesi" compact />
       <ScrollView
-        contentContainerClassName="gap-4 px-4 pt-4"
-        contentContainerStyle={{ paddingBottom: bottomInset + 32 }}
+        contentContainerClassName="gap-3 px-4 pt-3"
+        contentContainerStyle={{ paddingBottom: bottomInset + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={list.isRefetching} onRefresh={() => void list.refetch()} tintColor={colors.primary} />}
       >
@@ -105,6 +105,7 @@ export default function BulkMailSuppressionsScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`${row.email} listeden çıkar`}
+                    accessibilityState={{ disabled: Boolean(remove.isPending) }}
                     disabled={remove.isPending}
                     onPress={() => confirmRemove(row)}
                     className="h-11 w-11 items-center justify-center active:opacity-60"

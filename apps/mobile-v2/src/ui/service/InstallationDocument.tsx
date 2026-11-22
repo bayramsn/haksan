@@ -1,3 +1,4 @@
+import { installationPrint } from './logistics-print';
 import { Text, View } from 'react-native';
 import { CrmDocumentShare, DocRow, DocTitle } from './DocumentCapture';
 import type { InstallationFormDraft } from './logistics';
@@ -9,7 +10,7 @@ function trDay(value: string): string {
 
 const CHECK_LABEL: Record<string, string> = { done: 'Tamamlandı', not_done: 'Tamamlanmadı' };
 
-/** Kurulum tutanağı önizlemesi; PDF CRM'den indirilir (yerel üretim yok). */
+/** Kurulum tutanağı önizlemesi ve sunucu PDF paylaşımı. */
 export function InstallationDocument({
   form,
   fileName,
@@ -30,7 +31,7 @@ export function InstallationDocument({
   return (
     <View className="gap-3">
       <View className="rounded-surface border border-border bg-card p-4">
-      <Text className="font-display-semibold text-lg text-foreground">Kurulum Tutanağı</Text>
+      <Text className="font-inter-semibold text-lg text-foreground">Kurulum Tutanağı</Text>
       <DocRow label="Form No" value={form.formNo} />
       <DocRow label="Tezgah Teslim Tarihi" value={trDay(form.teslimTarihi)} />
       <DocRow label="Tezgah Kurulum Tarihi" value={trDay(form.kurulumTarihi)} />
@@ -95,7 +96,7 @@ export function InstallationDocument({
         <SignatureBox label="Tezgahı Teslim Alan" name={form.teslimAlan} />
       </View>
       </View>
-      <CrmDocumentShare fileId={fileId} filename={pdfName} label="CRM'den tutanak PDF indir" />
+      <CrmDocumentShare fileId={fileId} render={{ kind: 'installation-form', html: () => installationPrint(form, { location, duration, notes }) }} filename={pdfName} label="Tutanak PDF aç / paylaş" />
     </View>
   );
 }

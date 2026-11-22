@@ -15,9 +15,10 @@ export const taskKeys = {
   assignees: ['tasks', 'assignees'] as const,
 };
 
-export function useTaskList(query: { view?: TaskView; search?: string; companyId?: string; opportunityId?: string }) {
+export function useTaskList(query: { view?: TaskView; search?: string; companyId?: string; opportunityId?: string }, enabled = true) {
   return useQuery({
     queryKey: taskKeys.list(query),
+    enabled,
     queryFn: () => collectPaginated((page) => tasks.list({ ...query, page, pageSize: 100 })),
     staleTime: 60 * 1000,
   });

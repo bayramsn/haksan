@@ -1,9 +1,10 @@
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useRef, useState } from 'react';
-import { Alert, Share, Text, View } from 'react-native';
+import { Alert, Linking, Share, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCompany } from '@/src/api/companies.hooks';
@@ -11,11 +12,9 @@ import {
   useApproveQuote,
   useDeleteQuote,
   useLookup,
-  useMailAccount,
   useOpportunity,
   useQuoteWorkflowStatus,
   useRejectQuote,
-  useSendMail,
   useSendQuote,
 } from '@/src/api/crm.hooks';
 import { useCreateSalesOrderFromQuote, useSalesOrders } from '@/src/api/inventory.hooks';
@@ -115,14 +114,6 @@ export default function QuoteDetailScreen() {
   const opportunityId = data?.opportunityId ?? undefined;
   const revisions = useAllQuoteList({ opportunityId }, Boolean(opportunityId));
 
-  // Firmaya e-posta: sunucu teklif PDF'ini kendisi ekliyor (POST /mail/send).
-  const mailSheetRef = useRef<BottomSheetModal>(null);
-  const mailAccount = useMailAccount();
-  const sendMail = useSendMail();
-  const [mailTo, setMailTo] = useState('');
-  const [mailSubject, setMailSubject] = useState('');
-  const [mailBody, setMailBody] = useState('');
-
   const proformas = useCommercialDocuments('proforma', { quoteId: id });
   const contracts = useCommercialDocuments('contract', { quoteId: id });
   const invoices = useCommercialDocuments('invoice', { quoteId: id });
@@ -156,7 +147,7 @@ export default function QuoteDetailScreen() {
   if (isPending || error || !data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Teklif" />
+        <DetailHeader title="Teklif" compact />
         {isPending ? (
           <DetailSkeleton />
         ) : (
@@ -323,27 +314,24 @@ export default function QuoteDetailScreen() {
           canUpdate
             ? [{ icon: 'create-outline', label: 'Teklifi Düzenle', onPress: () => router.push(`/modal/quote-form?id=${data.id}`) }]
             : []
-        }
-      />
+        } compact />
 
       <CollapsingDetailScroll
         paddingBottom={GLASS_TAB_BAR_HEIGHT + 32}
         intro={
-      <View className="px-4 pb-1 pt-4">
-        <Card className="gap-2">
-          <View className="gap-3">
-            <View className="flex-1 gap-1">
+      <View className="px-4 pb-1 pt-3">
+        <Card className="gap-2 p-3">
+          <View className="gap-2">
+            <View className="flex-row flex-wrap items-center gap-2">
               {status ? <Chip tone="info" label={status.name} /> : null}
-              <Text className="text-[20px] font-inter-semibold text-foreground">
-                {data.revisionNo > 1 ? `${data.documentNo} · R${data.revisionNo}` : data.documentNo}
-              </Text>
-              <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={2}>
-                {company.data?.legalTitle ?? '—'}
-              </Text>
+              {data.revisionNo > 1 ? <Chip tone="neutral" label={`R${data.revisionNo}`} /> : null}
             </View>
-            <View className="gap-1 border-t border-border pt-3">
+            <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>
+              {company.data?.legalTitle ?? '—'}
+            </Text>
+            <View className="gap-0.5 border-t border-border pt-2">
               <Text className="font-inter text-[11px] text-muted-foreground">Genel toplam</Text>
-              <Text className="text-[20px] font-inter-bold text-foreground">
+              <Text className="text-[18px] font-inter-bold text-foreground">
                 {money(data.grandTotal)}
               </Text>
             </View>
@@ -424,7 +412,7 @@ export default function QuoteDetailScreen() {
         />
       </View>
         }
-        contentClassName="gap-4 px-4 pt-4"
+        contentClassName="gap-3 px-4 pt-3"
       >
         {tab === 'general' ? (
           <Card>
@@ -627,8 +615,7 @@ export default function QuoteDetailScreen() {
                   key={`${doc.kind}-${doc.id}`}
                   title={doc.no}
                   lines={[
-                    doc.kind === 'proforma' ? 'Proforma' : doc.kind === 'contract' ? 'Sözleşme' : 'Ticari fatura',
-                    doc.date ? formatDate(doc.date) : null,
+                    [doc.kind === 'proforma' ? 'Proforma' : doc.kind === 'contract' ? 'Sözleşme' : 'Ticari fatura', doc.date ? formatDate(doc.date) : null].filter(Boolean).join(' · '),
                     doc.fileId ? 'Yüklü nüsha var' : doc.kind === 'invoice' ? 'Yüklü nüsha yok' : 'PDF oluşturulabilir',
                   ]}
                   icon="document-text-outline"
@@ -672,19 +659,19 @@ export default function QuoteDetailScreen() {
           />
         ) : null}
 
-        {mailAccount.data?.connected ? (
-          <Button
-            label="Firmaya E-posta Gönder"
-            variant="ghost"
-            trailingIcon="mail-outline"
-            onPress={() => {
-              setMailTo(companyEmail ?? '');
-              setMailSubject(`${data.documentNo} numaralı teklifimiz`);
-              setMailBody('Merhaba,\n\nTeklifimizi ekte paylaşıyoruz.\n\nİyi çalışmalar.');
-              mailSheetRef.current?.present();
-            }}
-          />
-        ) : null}
+        <Button
+          label="E-posta Taslağını Aç"
+          variant="ghost"
+          trailingIcon="mail-outline"
+          onPress={() => {
+            const to = encodeURIComponent(companyEmail?.trim() ?? '');
+            const subject = encodeURIComponent(`${data.documentNo} Fiyat Teklifi`);
+            const body = encodeURIComponent(`Merhaba,\r\n\r\n${data.documentNo} numaralı fiyat teklifimizi bilgilerinize sunarız.\r\n\r\nİyi çalışmalar.`);
+            void Linking.openURL(`mailto:${to}?subject=${subject}&body=${body}`)
+              .then(() => toast.info('PDF’i teklif ekranından paylaşabilir veya taslağa ekleyebilirsiniz.'))
+              .catch(() => Alert.alert('E-posta uygulaması açılamadı', 'Cihazın varsayılan e-posta uygulamasını kontrol edin.'));
+          }}
+        />
 
         <View className="flex-row gap-3">
           <Button label="Paylaş" variant="ghost" className="flex-1" onPress={() => void handleShare()} />
@@ -729,62 +716,11 @@ export default function QuoteDetailScreen() {
       </CollapsingDetailScroll>
 
       <BottomSheetModal
-        ref={mailSheetRef}
-        enableDynamicSizing
-        backgroundStyle={{ backgroundColor: colors.card }}
-        handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
-      >
-        <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
-          <Text className="font-inter-semibold text-base text-foreground">Firmaya E-posta</Text>
-          <Text className="font-inter text-xs text-muted-foreground">
-            Teklif PDF'i sunucuda üretilip mesaja eklenir; gönderim firma aktivitesi olarak da kaydedilir.
-          </Text>
-          <Field label="Alıcı" value={mailTo} onChangeText={setMailTo} keyboardType="email-address" autoCapitalize="none" />
-          <Field label="Konu" value={mailSubject} onChangeText={setMailSubject} maxLength={255} />
-          <Field label="Mesaj" value={mailBody} onChangeText={setMailBody} multiline numberOfLines={5} maxLength={10000} />
-          <Button
-            label="Gönder"
-            loading={sendMail.isPending}
-            disabled={sendMail.isPending}
-            onPress={() => {
-              const to = mailTo.trim();
-              if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-                Alert.alert('Geçersiz adres', 'Geçerli bir e-posta adresi gir.');
-                return;
-              }
-              if (!mailSubject.trim() || !mailBody.trim()) {
-                Alert.alert('Eksik alan', 'Konu ve mesaj zorunludur.');
-                return;
-              }
-              sendMail.mutate(
-                {
-                  to,
-                  subject: mailSubject.trim(),
-                  body: mailBody.trim(),
-                  quoteId: id,
-                  ...(data.companyId ? { companyId: data.companyId } : {}),
-                  ...(data.contactId ? { contactId: data.contactId } : {}),
-                },
-                {
-                  onSuccess: () => {
-                    mailSheetRef.current?.dismiss();
-                    toast.success('E-posta gönderildi');
-                  },
-                  onError: (err) => Alert.alert('Gönderilemedi', err.message),
-                }
-              );
-            }}
-          />
-        </BottomSheetView>
-      </BottomSheetModal>
-
-      <BottomSheetModal
         ref={workflowSheetRef}
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Durum Güncelle</Text>

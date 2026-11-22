@@ -1,3 +1,4 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -75,10 +76,12 @@ function BalanceRow({ row, onPress }: { row: CustomerBalance; onPress: () => voi
 /** Web `CustomerBalancesPage` (Cari Rapor). */
 export default function BalancesScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [preset, setPreset] = useState<Preset | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const { data, isPending, isRefetching, error, refetch } = useCustomerBalances();
 
   const rows = useMemo(() => {
@@ -106,42 +109,8 @@ export default function BalancesScreen() {
     <View className="gap-3 pb-2">
       <ScreenHeader
         title="Cari Rapor"
-        subtitle="Müşteri ve tedarikçi bakiyelerini analiz edin."
         actions={[{ icon: exporting ? 'hourglass-outline' : 'download-outline', label: 'Excel', onPress: () => void exportExcel() }]}
-      />
-      <KpiGrid>
-        {[
-          <KpiTile key="companies" icon="business-outline" tone="stage" label="Kayıtlı Firma" value={String(kpis.companies)} sub="açık cari" />,
-          <KpiTile
-            key="debt"
-            icon="trending-up-outline"
-            tone="success"
-            label="Açık Borç"
-            value={firstDebt ? formatAmount(firstDebt.amount, firstDebt.currencyCode) : '—'}
-            sub={kpis.openDebt.length > 1 ? `+${kpis.openDebt.length - 1} para birimi` : 'tahsilat sonrası'}
-          />,
-          <KpiTile
-            key="overdue"
-            icon="alert-circle-outline"
-            tone="destructive"
-            label="Gecikmiş"
-            value={String(kpis.overdueCount)}
-            sub={firstOverdue ? `${formatAmount(firstOverdue.amount, firstOverdue.currencyCode)} vadesi geçti` : 'aksiyon gerekli'}
-            selected={preset === 'risky'}
-            onPress={() => setPreset(preset === 'risky' ? null : 'risky')}
-          />,
-          <KpiTile key="soon" icon="calendar-outline" tone="info" label="7 Gün İçinde" value={String(kpis.dueSoonCount)} sub="yaklaşan vade" />,
-        ]}
-      </KpiGrid>
-      {kpis.netByCurrency.length ? (
-        <StatStrip
-          items={kpis.netByCurrency.slice(0, 3).map((item) => ({
-            label: `${item.currencyCode} net bakiye`,
-            value: formatAmount(item.amount, item.currencyCode),
-            tone: item.amount > 0 ? ('success' as const) : item.amount < 0 ? ('destructive' as const) : ('neutral' as const),
-          }))}
-        />
-      ) : null}
+        compact/>
       <View style={{ paddingHorizontal: SCREEN_PAD }}>
         <SearchBar value={search} onChange={setSearch} placeholder="Firma ara..." />
       </View>
@@ -154,6 +123,53 @@ export default function BalancesScreen() {
         value={preset}
         onChange={setPreset}
       />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: overviewOpen }}
+        onPress={() => setOverviewOpen((value) => !value)}
+        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+      >
+        <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+      </Pressable>
+      {overviewOpen ? (
+        <>
+          <KpiGrid>
+            {[
+              <KpiTile key="companies" icon="business-outline" tone="stage" label="Kayıtlı Firma" value={String(kpis.companies)} sub="açık cari" />,
+              <KpiTile
+                key="debt"
+                icon="trending-up-outline"
+                tone="success"
+                label="Açık Borç"
+                value={firstDebt ? formatAmount(firstDebt.amount, firstDebt.currencyCode) : '—'}
+                sub={kpis.openDebt.length > 1 ? `+${kpis.openDebt.length - 1} para birimi` : 'tahsilat sonrası'}
+              />,
+              <KpiTile
+                key="overdue"
+                icon="alert-circle-outline"
+                tone="destructive"
+                label="Gecikmiş"
+                value={String(kpis.overdueCount)}
+                sub={firstOverdue ? `${formatAmount(firstOverdue.amount, firstOverdue.currencyCode)} vadesi geçti` : 'aksiyon gerekli'}
+                selected={preset === 'risky'}
+                onPress={() => setPreset(preset === 'risky' ? null : 'risky')}
+              />,
+              <KpiTile key="soon" icon="calendar-outline" tone="info" label="7 Gün İçinde" value={String(kpis.dueSoonCount)} sub="yaklaşan vade" />,
+            ]}
+          </KpiGrid>
+          {kpis.netByCurrency.length ? (
+            <StatStrip
+              dense
+              items={kpis.netByCurrency.slice(0, 3).map((item) => ({
+                label: `${item.currencyCode} net bakiye`,
+                value: formatAmount(item.amount, item.currencyCode),
+                tone: item.amount > 0 ? ('success' as const) : item.amount < 0 ? ('destructive' as const) : ('neutral' as const),
+              }))}
+            />
+          ) : null}
+        </>
+      ) : null}
     </View>
   );
 
@@ -162,12 +178,12 @@ export default function BalancesScreen() {
       <SyncStatus />
       {isPending ? (
         <>
-          <ScreenHeader title="Cari Rapor" />
+          <ScreenHeader title="Cari Rapor" compact/>
           <ListSkeleton />
         </>
       ) : error ? (
         <>
-          <ScreenHeader title="Cari Rapor" />
+          <ScreenHeader title="Cari Rapor" compact/>
           <ErrorState message={error.message} onRetry={() => void refetch()} />
         </>
       ) : (
@@ -177,7 +193,7 @@ export default function BalancesScreen() {
           data={rows}
           keyExtractor={(row) => row.companyId}
           ListHeaderComponent={header}
-          contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
           renderItem={({ item }) => (
             <View style={{ paddingHorizontal: SCREEN_PAD }}>
               <BalanceRow row={item} onPress={() => router.push(`/modules/balances/${item.companyId}` as Href)} />

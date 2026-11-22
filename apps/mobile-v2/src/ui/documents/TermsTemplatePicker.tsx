@@ -1,3 +1,4 @@
+import { CONTRACT_NOTE_VARIANTS, contractVariantTerms, fillTerms, type TermsFillContext } from './contract-note-variants';
 import { useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 import { useCan } from '@/src/auth/AuthProvider';
@@ -48,10 +49,28 @@ export function NoteTemplatePicker({ scope, body, onApply }: { scope: string; bo
   </View>;
 }
 
-export function TermsTemplatePicker({ scope, value, onApply }: { scope: 'quote_terms' | 'proforma_terms' | 'contract_terms'; value: TemplateTerms; onApply: (terms: TemplateTerms) => void }) {
-  return <NoteTemplatePicker scope={scope} body={encodeTermsTemplate(value)} onApply={(body) => {
-    const terms = decodeTermsTemplate(body);
-    if (!terms) return toast.error('Şablonun şart biçimi geçersiz.');
-    onApply(terms);
-  }} />;
+export function TermsTemplatePicker({ scope, value, onApply, fillContext, onBuiltInSelected }: {
+  scope: 'quote_terms' | 'proforma_terms' | 'contract_terms' | 'payment_plan_terms'; value: TemplateTerms; onApply: (terms: TemplateTerms) => void;
+  fillContext?: TermsFillContext; onBuiltInSelected?: (key: string) => void;
+}) {
+  const [variant, setVariant] = useState<string | null>(null);
+  return <View className="gap-3">
+    {scope === 'contract_terms' ? <>
+      <OptionPicker label="Hazır sözleşme şartları" placeholder="Teslim şekline göre seçin" value={variant}
+        options={CONTRACT_NOTE_VARIANTS.map(item => ({ value: item.key, label: item.label }))}
+        clearable onChange={key => {
+          setVariant(key);
+          if (!key) return;
+          const terms = contractVariantTerms(key, fillContext ?? {});
+          if (terms) { onApply(terms); onBuiltInSelected?.(key); }
+        }} />
+      <Text className="font-inter text-xs text-muted-foreground">Hazır şartları seçince bu belgenin mevcut şartları değişir. Kaydetmeden önce kontrol edebilirsiniz.</Text>
+    </> : null}
+    <NoteTemplatePicker scope={scope} body={encodeTermsTemplate(value)} onApply={(body) => {
+      const terms = decodeTermsTemplate(body);
+      if (!terms) return toast.error('Şablonun şart biçimi geçersiz.');
+      setVariant(null);
+      onApply(fillContext ? fillTerms(terms, fillContext) : terms);
+    }} />
+  </View>;
 }

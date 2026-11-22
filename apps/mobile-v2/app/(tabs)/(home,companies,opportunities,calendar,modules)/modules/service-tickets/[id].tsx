@@ -1,3 +1,4 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { startCrmCall } from '@/src/call-assistant/call';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
@@ -5,7 +6,8 @@ import { useMemo, useRef, useState } from 'react';
 import { Alert, Linking, Platform, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import { Ionicons } from '@expo/vector-icons';
 import { useCompany } from '@/src/api/companies.hooks';
 import { useContact } from '@/src/api/crm.hooks';
@@ -23,6 +25,7 @@ import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { formatDateTime } from '@/src/lib/format';
 import { useTheme, type Tone } from '@/src/theme/theme';
 import { Button, Card, Chip, DetailHeader, ErrorState, Loading } from '@/src/ui';
+import { TicketSalesSection } from '@/src/ui/service/SalesServiceLinks';
 import { Tabs } from '@/src/ui/data';
 import { toast } from '@/src/ui/toast';
 import { AttachmentsPanel } from '@/src/ui/service/AttachmentsPanel';
@@ -66,6 +69,7 @@ function defaultOf<T extends { isDefault: boolean }>(rows: T[] | undefined): T |
 export default function ServiceTicketDetailScreen() {
   const { goBack } = useHierarchyBack();
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
@@ -120,7 +124,7 @@ export default function ServiceTicketDetailScreen() {
   if (detail.isPending) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Servis Talebi" />
+        <DetailHeader title="Servis Talebi" compact />
         <Loading />
       </SafeAreaView>
     );
@@ -128,7 +132,7 @@ export default function ServiceTicketDetailScreen() {
   if (detail.error || !ticket) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Servis Talebi" />
+        <DetailHeader title="Servis Talebi" compact />
         <ErrorState message={detail.error?.message ?? 'Kayıt bulunamadı.'} onRetry={() => void detail.refetch()} />
       </SafeAreaView>
     );
@@ -229,28 +233,26 @@ export default function ServiceTicketDetailScreen() {
       <DetailHeader
         title={ticket.ticketNo}
         subtitle={ticket.company?.legalTitle ?? undefined}
-        actions={[{ icon: 'ellipsis-horizontal', label: 'Talep işlemleri', onPress: () => sheetRef.current?.present() }]}
-      />
+        actions={[{ icon: 'ellipsis-horizontal', label: 'Talep işlemleri', onPress: () => sheetRef.current?.present() }]} compact />
 
       <ScrollView
-        contentContainerClassName="gap-4 pt-3"
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
+        contentContainerClassName="gap-3 pt-2"
+        contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: 24, width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={detail.isRefetching} onRefresh={() => void detail.refetch()} tintColor={colors.primary} />}
         keyboardShouldPersistTaps="handled"
       >
         <View className="gap-3 px-4">
-          <Card className="gap-3">
+          <Card className="gap-2 p-3">
             <View className="flex-row flex-wrap items-center gap-2">
               <Chip tone="info" label={STAGE_LABELS[stage]} />
               <Chip tone={SEVERITY_TONE[ticket.severity] ?? 'neutral'} label={SEVERITY_LABELS[ticket.severity] ?? ticket.severity} />
               <Chip tone="neutral" label={TICKET_TYPE_LABELS[ticket.ticketType] ?? ticket.ticketType} />
               {sla ? <Chip tone={sla.overdue ? 'destructive' : 'neutral'} label={sla.text} /> : null}
             </View>
-            <Text className="font-display text-[19px] leading-6 text-foreground">{ticket.subject}</Text>
+            <Text className="font-inter-semibold text-[18px] leading-[22px] text-foreground">{ticket.subject}</Text>
             <View className="flex-row flex-wrap gap-2">
               <MetaCell label="Sorumlu" value={assigneeName ?? 'Atanmadı'} />
               <MetaCell label="Sonraki Aksiyon" value={SERVICE_NEXT_ACTION[stage]} />
-              <MetaCell label="Makine" value={machineName ?? 'Makine eşleşmedi'} />
             </View>
             <View accessibilityLabel={`Servis aşaması ${stageIndex + 1} / ${SERVICE_STAGES.length}`} className="flex-row gap-1">
               {SERVICE_STAGES.map((item, index) => (
@@ -265,7 +267,7 @@ export default function ServiceTicketDetailScreen() {
 
         <Tabs tabs={tabs} value={tab} onChange={setTab} />
 
-        <View className="gap-4 px-4">
+        <View className="gap-3 px-4">
           {tab === 'summary' ? (
             <>
               <TimerCard ticket={ticket} canUpdate={canUpdate} />
@@ -313,6 +315,7 @@ export default function ServiceTicketDetailScreen() {
                   }
                 />
               ) : null}
+              <TicketSalesSection ticket={ticket} canUpdate={canUpdate} />
               {ticket.company?.id ? (
                 <Button label="Firma Kartı" variant="ghost" trailingIcon="arrow-forward" onPress={() => router.push(`/modules/companies/${ticket.company!.id}`)} />
               ) : null}
@@ -362,7 +365,10 @@ export default function ServiceTicketDetailScreen() {
         </View>
       </ScrollView>
 
-      <View className="flex-row gap-2 border-t border-border bg-card px-4 py-3">
+      <View
+        className="flex-row gap-2 border-t border-border bg-card px-4 pt-3"
+        style={{ paddingBottom: Math.max(GLASS_TAB_BAR_HEIGHT, 12) + 8 }}
+      >
         {phone ? (
           <Pressable
             accessibilityRole="button"
@@ -398,6 +404,7 @@ export default function ServiceTicketDetailScreen() {
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Servis formu PDF"
+          accessibilityState={{ disabled: Boolean(pdfBusy) }}
           disabled={pdfBusy}
           onPress={() => void printForm()}
           className={`min-h-[48px] flex-1 flex-row items-center justify-center gap-2 rounded-control bg-primary ${pdfBusy ? 'opacity-60' : 'active:opacity-80'}`}
@@ -412,12 +419,12 @@ export default function ServiceTicketDetailScreen() {
         snapPoints={['75%']}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetScrollView contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingBottom: 40, paddingTop: 8 }}>
           {canUpdate ? (
             <>
-              <Text className="font-display-semibold text-base text-foreground">Aşamaya taşı</Text>
+              <Text className="font-inter-semibold text-base text-foreground">Aşamaya taşı</Text>
               {SERVICE_STAGES.map((item) => (
                 <Button
                   key={item}
@@ -429,7 +436,7 @@ export default function ServiceTicketDetailScreen() {
               ))}
               {directory.data && directory.data.length > 0 ? (
                 <>
-                  <Text className="mt-3 font-display-semibold text-base text-foreground">Sorumlu ata</Text>
+                  <Text className="mt-3 font-inter-semibold text-base text-foreground">Sorumlu ata</Text>
                   {me && ticket.assignedToUserId !== me.id ? (
                     <Button label={`${me.fullName} (ben)`} variant="ghost" disabled={updateTicket.isPending} onPress={() => assign(me.id, `${me.fullName} atandı`)} />
                   ) : null}
@@ -450,7 +457,7 @@ export default function ServiceTicketDetailScreen() {
             </>
           ) : null}
 
-          <Text className="mt-3 font-display-semibold text-base text-foreground">Belge</Text>
+          <Text className="mt-3 font-inter-semibold text-base text-foreground">Belge</Text>
           <Button label="Servis Formu (PDF)" variant="ghost" loading={pdfBusy} disabled={pdfBusy} onPress={() => void printForm()} />
 
           {canDelete ? (

@@ -2,14 +2,14 @@ import { Alert } from 'react-native';
 import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { ApiError, OfflineError, RequestTimeoutError, requestContextKey, RequestScopeChangedError } from '@/src/api/client';
-import { enqueue, queueScopeSnapshot, type CompanyStatusQueuePayload, type MutationKind } from './queue';
+import { enqueue, queueScopeSnapshot, type MutationKind, type QueuePayload } from './queue';
 
 type Options<TVars, TData> = {
   /** Çevrimdışı kalırsa kuyruğa bu türle yazılır. */
   kind: MutationKind;
   mutationFn: (vars: TVars) => Promise<TData>;
   /** Kuyruğa yazılacak yük; çoğu zaman `vars`ın kendisi. */
-  toPayload: (vars: TVars) => CompanyStatusQueuePayload;
+  toPayload: (vars: TVars) => QueuePayload;
   /**
    * §3.3: arayüzü anında güncelle. Dönen değer yeni önbellek içeriğidir;
    * `undefined` dönerse o anahtar atlanır.

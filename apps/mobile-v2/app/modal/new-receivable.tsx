@@ -58,7 +58,7 @@ export default function NewReceivableScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Alacak', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-8" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <CompanyPicker label="Firma *" value={companyId ? { id: companyId, name: companyName || 'Seçili firma' } : null} error={errors.companyId}
             onChange={(next) => { setCompanyId(next?.id ?? ''); setCompanyName(next?.name ?? ''); setErrors((current) => ({ ...current, companyId: undefined })); }} />
 
@@ -87,7 +87,7 @@ export default function NewReceivableScreen() {
             className="min-h-[80px] rounded-control border border-border bg-card px-3.5 py-3 text-base text-foreground"
           />
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View>
           <View className="flex-[2]"><Button label="Kaydet" loading={create.isPending} onPress={submit} /></View>
         </View>

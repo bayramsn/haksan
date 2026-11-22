@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+import ts from 'typescript';
+const exports = {};
+vm.runInNewContext(ts.transpileModule(readFileSync(new URL('./scope-options.ts', import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports });
+const { scopeOptions, reconcileScope, isScopeCompatible } = exports;
+const user = () => ({ canViewAllDivisions: false, divisions: ['v1','v2'].map(id=>({id,name:id,isPrimary:id==='v1'})), departments: ['d1','d2'].map(id=>({id,name:id,isPrimary:id==='d1'})), accessScopes: [{resource:'opportunities',departmentId:'d1',divisionId:'v1',isPrimary:true},{resource:'opportunities',departmentId:'d2',divisionId:'v2',isPrimary:false},{resource:'companies',departmentId:null,divisionId:null,isPrimary:false}] });
+test('division choices use the same resource and department; other all grant is ignored',()=>{const o=scopeOptions(user(),'d1','opportunities');assert.deepEqual(Array.from(o.divisions,x=>x.id),['v1']);assert.equal(o.canPickAll,false);});
+test('department change atomically replaces incompatible division',()=>{const s=reconcileScope(user(),{departmentId:'d2',divisionId:'v1'},'opportunities');assert.equal(s.departmentId,'d2');assert.equal(s.divisionId,'v2');assert.equal(isScopeCompatible(user(),{departmentId:'d2',divisionId:'v1'},'opportunities'),false);});
+test('wildcard department and division preserve permitted all selection',()=>{const s=reconcileScope(user(),{departmentId:'d2',divisionId:null},'companies');assert.equal(s.departmentId,'d2');assert.equal(s.divisionId,null);});
+test('legacy fallback offers assigned divisions and all only for global access',()=>{const u=user();assert.equal(scopeOptions(u,'d1','tasks').canPickAll,false);u.canViewAllDivisions=true;assert.equal(scopeOptions(u,'d1','tasks').canPickAll,true);assert.equal(scopeOptions(u,'d1','opportunities').canPickAll,false);});
+test('unknown IDs cannot survive reconciliation',()=>{const s=reconcileScope(user(),{departmentId:'attacker',divisionId:'attacker'},'opportunities');assert.equal(s.departmentId,'d1');assert.equal(s.divisionId,'v1');});
+test('no eligible division fails closed and never fabricates access',()=>{const u=user();u.divisions=[];assert.equal(reconcileScope(u,{departmentId:'d1',divisionId:null},'opportunities'),null);});

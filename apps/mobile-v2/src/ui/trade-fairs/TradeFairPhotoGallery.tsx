@@ -194,9 +194,11 @@ export function TradeFairPhotoGallery({ fairName, q, bottomInset }: { fairName: 
         keyExtractor={tradeFairPhotoKey}
         contentContainerStyle={{ paddingHorizontal: SCREEN_PAD - 4, paddingBottom: bottomInset + 88 }}
         ListHeaderComponent={
-          <Text className="px-1 pb-2 font-inter text-xs text-muted-foreground" accessibilityRole="header">
-            {fairName ?? 'Tüm fuarlar'} · {total} fotoğraf
-          </Text>
+          fairName ? (
+            <Text className="px-1 pb-2 font-inter text-xs text-muted-foreground" accessibilityRole="header">
+              {fairName}
+            </Text>
+          ) : null
         }
         renderItem={({ item, index }) => (
           <View className="p-1">
@@ -231,8 +233,6 @@ export function TradeFairPhotoGallery({ fairName, q, bottomInset }: { fairName: 
             <View className="items-center py-3">
               <Button label="Tekrar dene" variant="ghost" onPress={() => void loadMore()} />
             </View>
-          ) : items.length > 0 ? (
-            <Text className="py-3 text-center font-inter text-xs text-muted-foreground">{items.length} / {total} fotoğraf</Text>
           ) : null
         }
       />

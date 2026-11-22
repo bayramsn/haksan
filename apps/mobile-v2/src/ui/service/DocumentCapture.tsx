@@ -1,3 +1,4 @@
+import { shareServerPdf, type ServerPdfKind } from '@/src/api/server-pdf';
 import { useState, type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { downloadAndShareFile, getPdfAndShare, postPdfAndShare } from '@/src/native/files';
@@ -5,8 +6,7 @@ import { Button } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 
 /**
- * Belgeler CRM'den gelir. Yerel PNG/PDF üretimi yok —
- * ya kayıtlı dosya (`fileId`) ya da sunucu PDF ucu paylaşılır.
+ * Kayıtlı PDF varsa sunucudan indirilir. Yeni çıktılar sunucuda üretilir.
  */
 export function CrmDocumentShare({
   fileId,
@@ -14,15 +14,17 @@ export function CrmDocumentShare({
   pdfMethod = 'GET',
   filename,
   label = "CRM'den PDF indir",
+  render,
 }: {
   fileId?: string | null;
   pdfPath?: string | null;
   pdfMethod?: 'GET' | 'POST';
   filename: string;
   label?: string;
+  render?: { kind: ServerPdfKind; html: () => string };
 }) {
   const [busy, setBusy] = useState(false);
-  const canShare = Boolean(fileId || pdfPath);
+  const canShare = Boolean(fileId || pdfPath || render);
 
   const share = async () => {
     if (!canShare || busy) return;
@@ -32,7 +34,7 @@ export function CrmDocumentShare({
       else if (pdfPath) {
         if (pdfMethod === 'POST') await postPdfAndShare(pdfPath, filename);
         else await getPdfAndShare(pdfPath, filename);
-      }
+      } else if (render) await shareServerPdf(render.kind, render.html(), filename);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Belge indirilemedi.');
     } finally {
@@ -43,7 +45,7 @@ export function CrmDocumentShare({
   if (!canShare) {
     return (
       <Text className="font-inter text-xs leading-5 text-muted-foreground">
-        Bu belge mobil uygulamada üretilmez. CRM web üzerinden oluşturulan PDF veya yüklenen dosya burada paylaşılır.
+        Bu kayıt için sunucuda paylaşılabilir bir belge bulunamadı.
       </Text>
     );
   }
@@ -88,5 +90,5 @@ export function DocRow({ label, value }: { label: string; value: string | null |
 }
 
 export function DocTitle({ children }: { children: ReactNode }) {
-  return <Text className="pb-1 pt-3 font-display-semibold text-[15px] text-foreground">{children}</Text>;
+  return <Text className="pb-1 pt-3 font-inter-semibold text-[15px] text-foreground">{children}</Text>;
 }

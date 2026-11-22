@@ -35,9 +35,35 @@ export function warrantyStats(rows: { warrantyEndDate: string | null }[], now: n
   return stats;
 }
 
-/** Web makine durumu: garanti bitmişse "Garanti Dışı", aksi halde "Aktif". */
-export function machineStatusLabel(warrantyEnd: string | null | undefined, now: number): string {
+/**
+ * Web MachinesPage Durum (StatusBadge TR):
+ * expired → Garanti Dışı, void → Devre Dışı; lookup adı varsa onu kullan.
+ * status yoksa garanti bitiş tarihine düşer.
+ */
+export function machineStatusLabel(
+  warrantyEnd: string | null | undefined,
+  now: number,
+  status?: { code?: string | null; name?: string | null } | null,
+): string {
+  const code = status?.code?.trim();
+  if (code === 'expired') return 'Garanti Dışı';
+  if (code === 'void') return 'Devre Dışı';
+  if (status?.name?.trim()) return status.name.trim();
   return warrantyInfo(warrantyEnd, now).state === 'expired' ? 'Garanti Dışı' : 'Aktif';
+}
+
+/** Durum rozeti tonu: lookup kodu varsa onu, yoksa garanti bitişini kullan. */
+export function machineStatusTone(
+  warrantyEnd: string | null | undefined,
+  now: number,
+  status?: { code?: string | null } | null,
+): 'success' | 'warning' | 'destructive' | 'neutral' {
+  const code = status?.code?.trim();
+  // Web StatusBadge "Out of Warranty" = amber (warning), not red.
+  if (code === 'expired') return 'warning';
+  if (code === 'void') return 'neutral';
+  if (code === 'active' || code === 'extended') return 'success';
+  return WARRANTY_TONE[warrantyInfo(warrantyEnd, now).state];
 }
 
 /** YYYY-AA-GG'ye yıl ekler (29 Şubat → 28 Şubat). Geçersiz girişte boş döner. */

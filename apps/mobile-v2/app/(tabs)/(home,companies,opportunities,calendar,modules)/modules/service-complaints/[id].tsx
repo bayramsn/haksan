@@ -1,10 +1,12 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { startCrmCall } from '@/src/call-assistant/call';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useRef, useState } from 'react';
-import { Alert, Linking, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import type { ServiceComplaintUpdateInput } from '@haksan/shared';
 import {
   useConvertServiceComplaint,
@@ -86,7 +88,7 @@ export default function ServiceComplaintDetailScreen() {
   if (query.isPending || query.error || !query.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Şikayet" />
+        <DetailHeader title="Şikayet" compact />
         {query.isPending ? <Loading /> : <ErrorState message={query.error?.message ?? 'Şikayet yüklenemedi.'} onRetry={() => void query.refetch()} />}
       </SafeAreaView>
     );
@@ -96,6 +98,7 @@ export default function ServiceComplaintDetailScreen() {
 
 function ComplaintDetail({ data, refreshing, onRefresh }: { data: ServiceComplaint; refreshing: boolean; onRefresh: () => void }) {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const { colors } = useTheme();
   const update = useUpdateServiceComplaint();
@@ -175,10 +178,10 @@ function ComplaintDetail({ data, refreshing, onRefresh }: { data: ServiceComplai
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Şikayet Detayı" subtitle={data.complaintNo} />
+      <DetailHeader title="Şikayet Detayı" subtitle={data.complaintNo} compact />
       <ScrollView
-        contentContainerClassName="gap-4 px-4 pt-4"
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
+        contentContainerClassName="gap-3 px-4 pt-3"
+        contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
       >
@@ -187,7 +190,7 @@ function ComplaintDetail({ data, refreshing, onRefresh }: { data: ServiceComplai
             <Chip label={COMPLAINT_STATUS_LABELS[data.status] ?? data.status} tone={tone} />
             <Chip label={SEVERITY_LABELS[data.severity] ?? data.severity} tone={data.severity === 'critical' ? 'destructive' : data.severity === 'high' ? 'warning' : 'neutral'} />
           </View>
-          <Text className="font-display-semibold text-[20px] text-foreground">{data.subject}</Text>
+          <Text className="font-inter-semibold text-[17px] text-foreground">{data.subject}</Text>
           <Text className="font-inter text-[13px] text-muted-foreground">
             {[COMPLAINT_SOURCE_LABELS[data.source] ?? data.source, COMPLAINT_STATUS_LABELS[data.status] ?? data.status, formatDateTime(data.createdAt)].join(' · ')}
           </Text>
@@ -295,11 +298,11 @@ function ComplaintDetail({ data, refreshing, onRefresh }: { data: ServiceComplai
         enableDynamicSizing={false}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-4 px-4 pb-8">
           <View className="gap-1">
-            <Text className="font-display-semibold text-base text-foreground">Şikayeti reddet</Text>
+            <Text className="font-inter-semibold text-base text-foreground">Şikayeti reddet</Text>
             <Text className="font-inter text-xs text-muted-foreground">Gerekçe isteğe bağlıdır ve şikayet kaydında görünür.</Text>
           </View>
           <Field label="Red gerekçesi" value={rejectionNote} onChangeText={setRejectionNote} multiline maxLength={4000} />

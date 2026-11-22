@@ -1,9 +1,12 @@
+import { maintenancePlanInput } from '@/src/features/maintenance-plan';
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useRef, useState } from 'react';
 import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -25,7 +28,8 @@ import { toast } from '@/src/ui/toast';
 import { DateTextField } from '@/src/ui/select/DateTextField';
 import { MetaCell } from '@/src/ui/service/fields';
 import { DeviceServiceHistory } from '@/src/ui/service/TicketPanels';
-import { complaintFormUrl, shareComplaintUrl } from '@/src/ui/service/complaintShare';
+import { complaintFormUrl } from '@/src/ui/service/complaintShare';
+import { MachineQrSheetContent, type MachineQrPayload } from '@/src/ui/service/MachineQrSheet';
 import { complaintLinkTitle, machineStatusLabel, WARRANTY_TONE, warrantyInfo, warrantyShortLabel } from '@/src/ui/service/machines';
 
 type DeviceDetail = CustomerDevice & { initialCompanyId?: string | null; contactId?: string | null };
@@ -33,6 +37,7 @@ type DeviceDetail = CustomerDevice & { initialCompanyId?: string | null; contact
 export default function CustomerDeviceDetailScreen() {
   const { goBack } = useHierarchyBack();
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const { id = '' } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
@@ -51,8 +56,10 @@ export default function CustomerDeviceDetailScreen() {
   const initialCompany = useCompany(initialCompanyId);
   const [now] = useState(() => Date.now());
   const [sharingLink, setSharingLink] = useState(false);
+  const [qrPayload, setQrPayload] = useState<MachineQrPayload | null>(null);
 
   const sheetRef = useRef<BottomSheetModal>(null);
+  const qrSheetRef = useRef<BottomSheetModal>(null);
   const [planTitle, setPlanTitle] = useState('');
   const [intervalDays, setIntervalDays] = useState('180');
   const [nextDueDate, setNextDueDate] = useState('');
@@ -61,29 +68,22 @@ export default function CustomerDeviceDetailScreen() {
   if (query.isPending || query.error || !device) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Makine" />
+        <DetailHeader title="Makine" compact />
         {query.isPending ? <Loading /> : <ErrorState message={query.error?.message ?? 'Makine yüklenemedi.'} onRetry={() => void query.refetch()} />}
       </SafeAreaView>
     );
   }
 
   function submitPlan() {
-    const interval = Number(intervalDays || '180');
-    if (!Number.isInteger(interval) || interval < 1) {
-      toast.error('Periyot 1 günden az olamaz.');
-      return;
-    }
+    let schedule: ReturnType<typeof maintenancePlanInput>;
+    try { schedule = maintenancePlanInput(intervalDays, nextDueDate); }
+    catch (error) { toast.error(error instanceof Error ? error.message : 'Bakım planını kontrol edin.'); return; }
+    if (createPlan.isPending) return;
     createPlan.mutate(
       {
         customerDeviceId: id,
         title: planTitle.trim() || undefined,
-        intervalDays: interval,
-        ...(nextDueDate.trim()
-          ? (() => {
-              const [y, m, d] = nextDueDate.split('-').map(Number);
-              return y && m && d ? { nextDueDate: new Date(y, m - 1, d).toISOString() } : {};
-            })()
-          : {}),
+        ...schedule,
         autoCreateTicket: autoTicket,
       },
       {
@@ -109,7 +109,7 @@ export default function CustomerDeviceDetailScreen() {
     : companyName;
   const planRows = plans.data?.items ?? [];
 
-  // Web MachineQrDialog: makinenin aktif linki varsa yenilenir, yoksa oluşturulur.
+  // Web MachineQrDialog: aktif link varsa yenilenir, yoksa oluşturulur; QR sheet gösterilir.
   const shareServiceForm = async () => {
     setSharingLink(true);
     try {
@@ -118,7 +118,15 @@ export default function CustomerDeviceDetailScreen() {
       const credential = active
         ? await linkMutations.rotate.mutateAsync(active.id)
         : await linkMutations.create.mutateAsync({ companyId: data.companyId, customerDeviceId: data.id, title: complaintLinkTitle(model) });
-      await shareComplaintUrl(complaintFormUrl(credential.publicPath), credential.title ?? complaintLinkTitle(model));
+      const title = credential.title ?? complaintLinkTitle(model);
+      const subtitle = [model, data.serialNumber ? `SN ${data.serialNumber}` : null].filter(Boolean).join(' · ');
+      setQrPayload({
+        url: complaintFormUrl(credential.publicPath),
+        title,
+        subtitle,
+        rotated: Boolean(active),
+      });
+      qrSheetRef.current?.present();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Servis formu bağlantısı üretilemedi.');
     } finally {
@@ -145,27 +153,26 @@ export default function CustomerDeviceDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Makine Kartı" subtitle={data.serialNumber ? `Seri no · ${data.serialNumber}` : undefined} />
+      <DetailHeader title="Makine Kartı" subtitle={data.serialNumber ?? undefined} compact />
       <ScrollView
-        contentContainerClassName="gap-4 px-4 pt-4"
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
+        contentContainerClassName="gap-3 px-4 pt-3"
+        contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={
           <RefreshControl refreshing={query.isRefetching} onRefresh={() => void Promise.all([query.refetch(), plans.refetch()])} tintColor={colors.primary} />
         }
       >
-        <Card className="gap-3">
-          <View className="gap-1">
-            <Text className="font-inter-medium text-[12px] text-muted-foreground">{data.productTypeName || 'Kurulu makine'}</Text>
-            <Text className="font-display-semibold text-[20px] text-foreground">{machineName}</Text>
-            <Text className="font-inter-medium text-[13px] text-foreground">{data.serialNumber ? `SN · ${data.serialNumber}` : 'Seri no yok'}</Text>
-          </View>
-          <View className="flex-row flex-wrap gap-2">
-            <MetaCell label="Durum" value={machineStatusLabel(data.warrantyEndDate, now)} />
-            <MetaCell label="Garanti" value={`${warrantyShortLabel(info)}${data.warrantyEndDate ? ` · ${formatDate(data.warrantyEndDate)}` : ''}`} />
-            <MetaCell label="Kurulum" value={data.installationDate ? formatDate(data.installationDate) : null} />
-          </View>
-          <View className="flex-row flex-wrap gap-2">
+        <Card className="gap-2 p-2.5">
+          <View className="flex-row flex-wrap items-center justify-between gap-2">
+            <View className="min-w-0 flex-1 gap-0.5">
+              <Text className="font-inter-medium text-[11px] text-muted-foreground">{data.productTypeName || 'Kurulu makine'}</Text>
+              <Text className="font-inter-semibold text-[16px] leading-[20px] text-foreground" numberOfLines={2}>{machineName}</Text>
+            </View>
             <Chip tone={warrantyTone} label={warrantyShortLabel(info)} />
+          </View>
+          <View className="flex-row flex-wrap gap-2">
+            <MetaCell label="Durum" value={machineStatusLabel(data.warrantyEndDate, now, data.status)} />
+            <MetaCell label="Garanti" value={data.warrantyEndDate ? formatDate(data.warrantyEndDate) : null} />
+            <MetaCell label="Kurulum" value={data.installationDate ? formatDate(data.installationDate) : null} />
           </View>
         </Card>
 
@@ -293,10 +300,10 @@ export default function CustomerDeviceDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
-          <Text className="font-display-semibold text-base text-foreground">Yeni Bakım Planı</Text>
+          <Text className="font-inter-semibold text-base text-foreground">Yeni Bakım Planı</Text>
           <Field label="Başlık" value={planTitle} onChangeText={setPlanTitle} placeholder="Örn. Periyodik bakım" maxLength={255} />
           <Field label="Periyot (gün)" value={intervalDays} onChangeText={setIntervalDays} keyboardType="number-pad" />
           <DateTextField label="İlk vade (opsiyonel)" value={nextDueDate} onChangeText={setNextDueDate} />
@@ -310,6 +317,21 @@ export default function CustomerDeviceDetailScreen() {
             <Text className="font-inter text-sm text-foreground">Vadeyi aşınca talep otomatik açılsın</Text>
           </Pressable>
           <Button label="Planı Oluştur" onPress={submitPlan} loading={createPlan.isPending} disabled={createPlan.isPending} />
+        </BottomSheetView>
+      </BottomSheetModal>
+
+      <BottomSheetModal
+        ref={qrSheetRef}
+        enableDynamicSizing
+        backgroundStyle={{ backgroundColor: colors.card }}
+        handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
+        backdropComponent={SheetBackdrop}
+        onDismiss={() => setQrPayload(null)}
+      >
+        <BottomSheetView>
+          {qrPayload ? (
+            <MachineQrSheetContent payload={qrPayload} onDismiss={() => qrSheetRef.current?.dismiss()} />
+          ) : null}
         </BottomSheetView>
       </BottomSheetModal>
     </SafeAreaView>

@@ -14,7 +14,7 @@ function placement(entry: MenuEntry) {
     const index = group.items.findIndex((item) => item.key === key);
     const item = group.items[index];
     if (item) {
-      return { group: group.group, order: index, title: entry.navKey === item.key ? item.label : entry.title };
+      return { group: group.group, order: index, title: entry.navKey === item.key && entry.key !== 'service-complaints' ? item.label : entry.title };
     }
   }
   return { group: EXTRA_GROUPS[entry.group] ?? 'Yönetim', order: Infinity, title: entry.title };

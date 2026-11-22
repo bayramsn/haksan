@@ -244,6 +244,7 @@ export default function SpecTemplateWorkbookScreen() {
                       <Pressable
                         key={icon}
                         onPress={() => mutate(moveSpecRow(rows, row.clientId, direction))}
+                        accessibilityState={{ disabled: Boolean(Boolean(query)) }}
                         disabled={Boolean(query)}
                         accessibilityRole="button"
                         accessibilityLabel={`${row.specKey || 'Alan'}: ${label}`}

@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { printDocument } from '@/src/native/print-document';
+import { shareServerPdf } from '@/src/api/server-pdf';
+import { yearEndReportPrint } from './report-print';
 import { Share, Text, View } from 'react-native';
 import { PieChart } from 'react-native-gifted-charts';
 import { useYearEndReport } from '@/src/api/reports.hooks';
@@ -42,6 +45,9 @@ export function YearEndSection() {
       <View className="flex-row flex-wrap gap-2">
         <ActionButton icon="share-outline" label="Paylaş" run={share} disabled={!data} />
         {canExport ? <ActionButton icon="download-outline" label="Excel" run={() => reportExports.yearEnd(year)} disabled={!data} /> : null}
+        {canExport ? <ActionButton icon="document-text-outline" label="PDF" disabled={!data || report.isFetching || Boolean(report.error)} run={async () => {
+          if (data) await shareServerPdf('year-end-report', printDocument(yearEndReportPrint(data)), `karlilik-raporu-${data.year}.pdf`);
+        }} /> : null}
       </View>
 
       {report.isPending ? (

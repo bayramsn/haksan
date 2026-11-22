@@ -512,7 +512,7 @@ export function ProcessAdvanceCard({
                   accessibilityState={{ disabled: previewOnly || denied }}
                   disabled={previewOnly || denied}
                   onPress={() => onOpenTask(check)}
-                  className="min-h-11 flex-row items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 active:opacity-70"
+                  className="min-h-11 flex-row items-center gap-2 rounded-lg border border-border bg-canvas px-3 py-2 active:opacity-70"
                 >
                   <Ionicons
                     name={check.complete ? 'checkmark-circle' : 'ellipse-outline'}
@@ -665,7 +665,10 @@ export function OpportunityDocuments({ opportunityId }: { opportunityId: string 
           <ListRow
             key={row.id}
             title={row.file.originalFilename}
-            lines={[row.documentType?.name ?? null, `${formatSize(row.file.sizeBytes)} · ${formatDateTime(row.createdAt)}`, row.description]}
+            lines={[
+              row.documentType?.name ?? null,
+              [`${formatSize(row.file.sizeBytes)} · ${formatDateTime(row.createdAt)}`, row.description].filter(Boolean).join(' · ') || null,
+            ]}
             icon="document-attach-outline"
             trailing={downloading === row.fileId ? 'İndiriliyor…' : undefined}
             onPress={() => {
@@ -872,8 +875,12 @@ export function OpportunityActivityFeed({
             title={activity.subject}
             lines={[
               [activity.type?.name, activity.createdByUser?.fullName].filter(Boolean).join(' · ') || null,
-              formatDateTime(activity.activityDate),
-              activity.description && activity.description !== activity.subject ? activity.description : activity.result,
+              [
+                formatDateTime(activity.activityDate),
+                activity.description && activity.description !== activity.subject ? activity.description : activity.result,
+              ]
+                .filter(Boolean)
+                .join(' · ') || null,
             ]}
             icon={activity.type?.code === 'note' ? 'chatbox-ellipses-outline' : 'pulse-outline'}
             iconTone={activity.origin === 'system' ? 'neutral' : 'info'}

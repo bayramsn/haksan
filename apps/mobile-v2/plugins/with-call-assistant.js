@@ -19,7 +19,7 @@ module.exports = function withCallAssistant(config) {
   config = withInfoPlist(config, cfg => {
     cfg.modResults.CFBundleDevelopmentRegion = 'tr';
     cfg.modResults.NSSpeechRecognitionUsageDescription = 'Haksan, söylediklerinizi yalnız cihaz üzerinde yazıya çevirip incelemeniz için taslağa aktarır.';
-    cfg.modResults.NSMicrophoneUsageDescription = 'Haksan, yalnız siz sesli giriş başlattığınızda mikrofonu kullanır; telefon görüşmelerini kaydetmez.';
+    cfg.modResults.NSMicrophoneUsageDescription = 'Haksan, yalnız siz sesli giriş veya sesli mesaj kaydını başlattığınızda ya da sohbet aramasını başlatıp kabul ettiğinizde mikrofonunuzu kullanır; telefon görüşmelerini kaydetmez.';
     cfg.modResults.NSContactsUsageDescription = 'Haksan, isteğiniz üzerine cihaz rehberindeki arayanlar için de görüşme sonrası yardımcısını kullanabilmeniz için rehber iznini ister.';
     return cfg;
   });

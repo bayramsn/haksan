@@ -63,7 +63,7 @@ export function CatalogsTab({ canManage }: { canManage: boolean }) {
             <View key={catalog.id} className="gap-2 rounded-control border border-border bg-card-subtle p-3">
               <View className="flex-row items-start gap-2">
                 <View className="flex-1">
-                  <Text className="font-display text-[17px] text-foreground" numberOfLines={1}>{catalog.name}</Text>
+                  <Text className="font-inter-semibold text-[17px] text-foreground" numberOfLines={1}>{catalog.name}</Text>
                   <Text className="font-inter text-xs text-muted-foreground">{catalog.vertical ?? 'COMMERCE'}</Text>
                 </View>
                 <MetaStatusChip status={catalog.syncStatus} label={SYNC_STATUS_LABELS[catalog.syncStatus] ?? 'Bekliyor'} />

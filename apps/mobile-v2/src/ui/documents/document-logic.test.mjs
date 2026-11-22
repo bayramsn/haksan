@@ -17,6 +17,7 @@ import {
   pricesChanged,
   quickItemsError,
   quickItemsFromSnapshot,
+  quickInstallmentsFromSnapshot,
   quickPartyError,
   quickPartyFromSnapshot,
   quickPartyPayload,
@@ -27,6 +28,19 @@ import {
 } from './document-logic.ts';
 
 const link = (fileId, code, entityType = 'company') => ({ fileId, entityType, documentType: code ? { code } : null });
+
+test('contract payment plan hydrates the actual API receivables snapshot', () => {
+  assert.deepEqual(quickInstallmentsFromSnapshot({ receivables: [
+    { notes: 'Peşinat', amount: '1250.00', dueDate: '2026-11-04T00:00:00.000Z', paymentMethod: 'wire_transfer' },
+    { notes: 'Senet', amount: 500, dueDate: null, paymentMethod: null }, null,
+  ] }), [
+    { label: 'Peşinat', amount: '1250.00', dueDate: '2026-11-04', paymentMethod: 'wire_transfer' },
+    { label: 'Senet', amount: '500', dueDate: '', paymentMethod: 'promissory_note' },
+  ]);
+  assert.deepEqual(quickInstallmentsFromSnapshot({ receivables: [], installments: [{ amount: 100 }] }), []);
+  assert.deepEqual(quickInstallmentsFromSnapshot({ installments: [{ label: 'Eski kayıt', amount: 100, promissoryNote: true }] }),
+    [{ label: 'Eski kayıt', amount: '100', dueDate: '', paymentMethod: 'promissory_note' }]);
+});
 
 test('dosya türü web klasörlerine eşlenir', () => {
   assert.equal(folderForDocumentType('external_quote'), 'external_quote');

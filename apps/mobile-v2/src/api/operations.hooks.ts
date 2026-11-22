@@ -54,10 +54,25 @@ export function useServiceTickets(query: ServiceTicketListQuery = {}, enabled = 
   });
 }
 
-export function useServiceTicketSummary(query: Omit<ServiceTicketListQuery, 'sortDir'> = {}) {
+export function useServiceTicketSummary(query: Omit<ServiceTicketListQuery, 'sortDir'> = {}, enabled = true) {
   return useQuery({
     queryKey: serviceKeys.ticketSummary(query),
     queryFn: () => service.ticketSummary(query),
+    enabled,
+  });
+}
+
+/** Servisten satışa lead aç; 409'da (başka cihazdan iletilmiş) da yenilenir ki form kalkıp "iletildi" görünsün. */
+export function useForwardToSales(ticketId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (need: string) => service.createSalesLead(ticketId, need),
+    onSettled: () =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: serviceKeys.ticket(ticketId) }),
+        qc.invalidateQueries({ queryKey: ['service', 'tickets'] }),
+        qc.invalidateQueries({ queryKey: ['opportunities'] }),
+      ]),
   });
 }
 
@@ -260,6 +275,7 @@ async function settleShipment(qc: ReturnType<typeof useQueryClient>, id: string)
     qc.invalidateQueries({ queryKey: serviceKeys.shipment(id) }),
     qc.invalidateQueries({ queryKey: ['service', 'shipments'] }),
     qc.invalidateQueries({ queryKey: ['inventory'] }),
+    qc.invalidateQueries({ queryKey: ['reports', 'stock-summary'] }),
   ]);
 }
 

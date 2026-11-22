@@ -1,3 +1,4 @@
+import { NumberedTermsPreview } from './NumberedTermsPreview';
 import { Text, View } from 'react-native';
 import { formatAmount } from '@/src/lib/format';
 import { Eyebrow, Field, SubtleCard } from '@/src/ui';
@@ -170,6 +171,7 @@ export function DocumentTermsFields({
   onChange,
   meta,
   onMetaChange,
+  numbered = false,
 }: {
   title: string;
   hint: string;
@@ -179,6 +181,7 @@ export function DocumentTermsFields({
   onChange: (next: { payment?: string; delivery?: string; warranty?: string }) => void;
   meta?: ContractTermsMeta;
   onMetaChange?: (next: Partial<ContractTermsMeta>) => void;
+  numbered?: boolean;
 }) {
   return (
     <View className="gap-3">
@@ -187,6 +190,7 @@ export function DocumentTermsFields({
       <Field label="Ödeme şartları" value={payment} onChangeText={(value) => onChange({ payment: value })} multiline maxLength={4000} />
       <Field label="Teslim şartları" value={delivery} onChangeText={(value) => onChange({ delivery: value })} multiline maxLength={4000} />
       <Field label="Garanti şartları" value={warranty} onChangeText={(value) => onChange({ warranty: value })} multiline maxLength={4000} />
+      {numbered ? <NumberedTermsPreview style="decimal" values={[{ label: 'Ödeme şartları', value: payment }, { label: 'Teslim şartları', value: delivery }, { label: 'Garanti şartları', value: warranty }]} /> : null}
       {meta && onMetaChange ? (
         <>
           <Eyebrow>Teslimat Bilgileri</Eyebrow>

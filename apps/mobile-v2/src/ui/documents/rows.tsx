@@ -35,8 +35,7 @@ export function SalesOrderRow({
         iconTone="info"
         lines={[
           [order.quoteId ? 'Teklif bağlantılı' : 'Manuel', company].filter(Boolean).join(' · '),
-          order.productName ? `Ürün: ${order.productName}` : null,
-          formatDate(order.orderDate),
+          [order.productName ? `Ürün: ${order.productName}` : null, formatDate(order.orderDate)].filter(Boolean).join(' · '),
         ]}
         chip={order.status ? { label: order.status.name, tone: SALES_ORDER_TONE[order.status.code] ?? 'neutral' } : undefined}
         trailing={formatAmount(order.grandTotal, order.currency?.code ?? 'USD')}
@@ -86,10 +85,12 @@ export function FileLinkCard({
             {link.file.originalFilename}
           </Text>
           <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-            {linkRelationLabel(link.entityType, folder, link.description)}
-          </Text>
-          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
-            {[formatFileSize(link.file.sizeBytes), link.file.uploaderName ? `Yükleyen: ${link.file.uploaderName}` : null, formatDate(link.createdAt)]
+            {[
+              linkRelationLabel(link.entityType, folder, link.description),
+              formatFileSize(link.file.sizeBytes),
+              link.file.uploaderName ?? null,
+              formatDate(link.createdAt),
+            ]
               .filter(Boolean)
               .join(' · ')}
           </Text>
@@ -98,7 +99,6 @@ export function FileLinkCard({
       </Pressable>
       <View className="flex-row flex-wrap items-center gap-1.5">
         <Chip tone="neutral" label={link.documentType?.name ?? folderLabel(folder)} />
-        <Chip tone="success" label="Dosya mevcut" />
         <View className="flex-1" />
         {actions?.map((action) => (
           <Pressable

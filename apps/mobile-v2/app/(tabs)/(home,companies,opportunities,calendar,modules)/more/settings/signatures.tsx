@@ -49,8 +49,8 @@ export default function SignatureSettingsScreen() {
         rows.map((signature) => {
           const image = resolveMediaUrl(signature.imageUrl, apiBaseUrl());
           return (
-            <Card key={signature.id} className="gap-3 p-3">
-              <View className="flex-row items-center gap-3">
+            <Card key={signature.id} className="gap-2 p-3">
+              <View className="flex-row items-center gap-2.5">
                 {image ? (
                   <Image
                     source={{ uri: image }}

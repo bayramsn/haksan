@@ -47,7 +47,7 @@ export default function AccessRequestsScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingTop: 12, paddingBottom: 32 }}
         ListHeaderComponent={
-          <View className="gap-3 pb-2">
+          <View className="gap-2 pb-2">
             <Notice tone="info">
               Başka bir bölümün portföyündeki firmaya erişim talepleri. Onayladığınızda firma talep eden bölüme eklenir.
             </Notice>
@@ -63,7 +63,7 @@ export default function AccessRequestsScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <Card className="my-1.5 gap-2 p-3.5">
+          <Card className="my-1 gap-1.5 p-3">
             <View className="flex-row items-start gap-2">
               <View className="flex-1 gap-0.5">
                 <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>

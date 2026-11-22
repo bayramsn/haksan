@@ -1,6 +1,8 @@
+import { CONTRACT_NOTE_METADATA, contractFillContext } from './contract-note-variants';
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { ProformaPrintVariant } from './ProformaPrintVariant';
-import { postPdfAndShare } from '@/src/native/files';
 import { shareSavedDocument } from './document-pdf';
+import { pdfIo } from './document-pdf-io';
 import { TermsTemplatePicker } from './TermsTemplatePicker';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
@@ -35,6 +37,7 @@ import {
   hasDocumentDiscount,
   quickItemsError,
   quickItemsFromSnapshot,
+  quickInstallmentsFromSnapshot,
   quickPartyError,
   quickPartyFromSnapshot,
   quickPartyPayload,
@@ -148,6 +151,7 @@ const str = (value: unknown) => (typeof value === 'string' ? value : '');
  */
 export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId?: string }) {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const { colors } = useTheme();
   const { user, scope } = useAuth();
   const isEdit = Boolean(documentId);
@@ -228,19 +232,16 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
       estimatedDeliveryDaysMin: typeof terms.estimatedDeliveryDaysMin === 'number' ? String(terms.estimatedDeliveryDaysMin) : '',
       estimatedDeliveryDaysMax: typeof terms.estimatedDeliveryDaysMax === 'number' ? String(terms.estimatedDeliveryDaysMax) : '',
     });
-    const rawInstallments = Array.isArray(snapshot?.installments) ? snapshot.installments : [];
     setInstallments(
-      rawInstallments
-        .map((row) => record(row))
-        .filter((row): row is Record<string, unknown> => Boolean(row))
+      quickInstallmentsFromSnapshot(snapshot)
         .map((row) => {
           const method = str(row.paymentMethod);
           const allowed = INSTALLMENT_METHODS.some((entry) => entry.value === method);
           return {
             ...emptyInstallment(),
-            label: str(row.label),
-            amount: row.amount != null ? String(row.amount) : '',
-            dueDate: str(row.dueDate).slice(0, 10),
+            label: row.label,
+            amount: row.amount,
+            dueDate: row.dueDate,
             paymentMethod: (allowed ? method : 'cash') as InstallmentDraft['paymentMethod'],
           };
         })
@@ -274,11 +275,14 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
     setItems((prev) => prev.map((item) => (item.key === key ? { ...item, ...next } : item)));
 
   function chooseCompany(company: CompanyListItem) {
-    setParty((prev) => ({ ...prev, manualCompany: false, companyId: company.id }));
+    setParty((prev) => ({ ...prev, manualCompany: false, companyId: company.id,
+      ...(prev.companyId !== company.id ? { contactName: '', contactPhone: '' } : {}),
+    }));
     setCompanyLabel(company.shortName ?? company.legalTitle);
   }
 
   function submit(thenPdf = false) {
+    if (busy || !hydrated) return;
     const partyError = quickPartyError(party);
     if (partyError) return toast.error(partyError);
     if (divisions.length > 0 && !divisionId) return toast.error('İş alanı seçin');
@@ -340,11 +344,11 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
       toast.success(message);
       if (thenPdf) {
         setPdfBusy(true);
-        try { await shareSavedDocument(kind, saved.id || documentId || '', documentNo, (path, filename) => postPdfAndShare(path, filename, kind === 'proforma' && printVariant ? { variantKey: printVariant } : undefined)); }
+        try { await shareSavedDocument(kind, saved.id || documentId || '', documentNo, pdfIo); }
         catch (error) { toast.error(`Kayıt kaydedildi; PDF alınamadı. Belge detayından tekrar deneyin. ${error instanceof Error ? error.message : ''}`); }
         finally { setPdfBusy(false); }
       }
-      router.replace(`/modules/${kind === 'proforma' ? 'proformas' : 'contracts'}/${saved.id || documentId}`);
+      router.replace(recordDestination(`/modules/${kind === 'proforma' ? 'proformas' : 'contracts'}/${saved.id || documentId}`));
     };
     const fail = (error: Error) => toast.error(error.message);
 
@@ -381,7 +385,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
         importCostsExcluded: meta.importCostsExcluded,
         vatIncluded: meta.vatIncluded,
         freightPaidBySeller: meta.freightPaidBySeller,
-        ...(installmentPayload.length ? { installments: installmentPayload } : {}),
+        ...(isEdit || installmentPayload.length ? { installments: installmentPayload } : {}),
       };
       if (isEdit && documentId) updateContract.mutate({ id: documentId, body }, { onSuccess: done('CRM sözleşmesi güncellendi'), onError: fail });
       else
@@ -555,6 +559,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`${index + 1}. kalemi kaldır`}
+                    accessibilityState={{ disabled: items.length === 1 }}
                     disabled={items.length === 1}
                     onPress={() => setItems((prev) => prev.filter((entry) => entry.key !== item.key))}
                     className={`h-11 w-11 items-center justify-center ${items.length === 1 ? 'opacity-40' : ''}`}
@@ -607,7 +612,7 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
                   className="min-h-[44px] flex-row items-center gap-1.5"
                 >
                   <Ionicons name={item.detailOpen ? 'chevron-up' : 'chevron-down'} size={16} color={colors.primary} />
-                  <Text className="font-inter-semibold text-[13px] text-primary">Ürün detayı (marka, model, menşe, GTİP)</Text>
+                  <Text className="min-w-0 flex-1 font-inter-semibold text-[13px] text-primary">Ürün detayı (marka, model, menşe, GTİP)</Text>
                 </Pressable>
                 {item.detailOpen ? (
                   <>
@@ -716,8 +721,11 @@ export function QuickDocumentForm({ kind, documentId }: { kind: Kind; documentId
           </View>
         ) : null}
 
-        <TermsTemplatePicker scope={kind === 'contract' ? 'contract_terms' : 'proforma_terms'} value={{ payment, delivery, warranty }} onApply={(next) => { setPayment(next.payment); setDelivery(next.delivery); setWarranty(next.warranty); }} />
+        <TermsTemplatePicker scope={kind === 'contract' ? 'contract_terms' : 'proforma_terms'} value={{ payment, delivery, warranty }} onApply={(next) => { setPayment(next.payment); setDelivery(next.delivery); setWarranty(next.warranty); }}
+          fillContext={contractFillContext({ buyer: party.companyName, date, items, warranty })}
+          onBuiltInSelected={key => { const preset = CONTRACT_NOTE_METADATA[key]; if (preset) setMeta(prev => ({ ...prev, ...preset, estimatedDeliveryDaysMin: String(preset.estimatedDeliveryDaysMin), estimatedDeliveryDaysMax: String(preset.estimatedDeliveryDaysMax) })); }} />
             <DocumentTermsFields
+              numbered={kind === 'proforma'}
           title={kind === 'contract' ? 'Sözleşme Şartları' : 'Proforma Notları'}
           hint={
             kind === 'contract'

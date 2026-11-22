@@ -68,12 +68,12 @@ export function CashBalancePanel({ rows }: { rows: readonly CashMovement[] }) {
   );
 }
 
-/** "Yaklaşan Vadeler": önümüzdeki 60 gün, en yakın 5 kayıt. */
+/** "Yaklaşan Vadeler": önümüzdeki 60 gün. */
 export function UpcomingDuesPanel({ rows, onOpen }: { rows: readonly CashMovement[]; onOpen: (row: CashMovement) => void }) {
   const dues = useMemo(() => upcomingDues(rows), [rows]);
   if (!dues.length) return null;
   return (
-    <Panel title="Yaklaşan Vadeler" subtitle="Önümüzdeki 60 gün · en yakın 5 kayıt">
+    <Panel title="Yaklaşan Vadeler" subtitle="Önümüzdeki 60 gün">
       {dues.map((row) => (
         <Pressable
           key={`${row.source}-${row.id}`}
@@ -268,7 +268,7 @@ function DebtorRow({ debtor, rank }: { debtor: Debtor; rank: number }) {
       </View>
       <View className="flex-1">
         <Text className="font-inter-medium text-[13px] text-foreground" numberOfLines={1}>{debtor.companyName}</Text>
-        <Text className="font-inter text-[11px] text-muted-foreground">açık bakiye · {debtor.count} kayıt</Text>
+        <Text className="font-inter text-[11px] text-muted-foreground">açık bakiye</Text>
       </View>
       <Text className="font-inter-semibold text-[13px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>
         {money(debtor.amount, debtor.currencyCode)}
@@ -279,7 +279,7 @@ function DebtorRow({ debtor, rank }: { debtor: Debtor; rank: number }) {
         accessibilityState={{ disabled: !mail }}
         disabled={!mail}
         onPress={() => mail && open(`mailto:${mail}`)}
-        className={`h-11 w-9 items-center justify-center ${mail ? 'active:opacity-60' : 'opacity-30'}`}
+        className={`h-11 w-11 items-center justify-center ${mail ? 'active:opacity-60' : 'opacity-30'}`}
       >
         <Ionicons name="mail-outline" size={18} color={colors.primary} />
       </Pressable>
@@ -289,7 +289,7 @@ function DebtorRow({ debtor, rank }: { debtor: Debtor; rank: number }) {
         accessibilityState={{ disabled: !phone }}
         disabled={!phone}
         onPress={() => phone && void startCrmCall(phone, { companyId: debtor.companyId })}
-        className={`h-11 w-9 items-center justify-center ${phone ? 'active:opacity-60' : 'opacity-30'}`}
+        className={`h-11 w-11 items-center justify-center ${phone ? 'active:opacity-60' : 'opacity-30'}`}
       >
         <Ionicons name="call-outline" size={18} color={colors.primary} />
       </Pressable>

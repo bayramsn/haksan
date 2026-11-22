@@ -261,8 +261,10 @@ export function OverviewSection() {
         <ListRow
           title="Cari Rapor"
           lines={[
-            `${(balances.data ?? []).length} cari`,
-            ...balanceTotals.map(([currencyCode, total]) => `${currencyCode} net ${formatAmount(total.debt - total.credit, currencyCode)}`),
+            [
+              `${(balances.data ?? []).length} cari`,
+              ...balanceTotals.slice(0, 1).map(([currencyCode, total]) => `${currencyCode} net ${formatAmount(total.debt - total.credit, currencyCode)}`),
+            ].join(' · '),
           ]}
           icon="scale-outline"
           iconTone="stage"

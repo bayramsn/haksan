@@ -44,8 +44,8 @@ export default function NewConversationScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'bottom', 'left', 'right']}>
-      <DetailHeader title="Yeni Sohbet" subtitle="Bir ekip arkadaşı seçin" />
-      <View className="pb-3 pt-2">
+      <DetailHeader title="Yeni Sohbet" compact />
+      <View className="pb-1.5 pt-1">
         <SearchBar value={search} onChange={setSearch} placeholder="Ad veya e-posta ara" />
       </View>
 
@@ -74,7 +74,7 @@ export default function NewConversationScreen() {
                 accessibilityState={{ disabled: startDm.isPending, busy }}
                 disabled={startDm.isPending}
                 onPress={() => void openConversation(item)}
-                className="min-h-[60px] flex-row items-center gap-3 border-b border-border px-4 py-2 active:opacity-70"
+                className="min-h-12 flex-row items-center gap-2.5 border-b border-border px-4 py-2 active:opacity-70"
               >
                 <Avatar name={item.fullName} />
                 <View className="flex-1 gap-0.5">

@@ -87,7 +87,7 @@ export default function SignupScreen() {
       edges={['top', 'bottom', 'left', 'right']}
     >
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="flex-grow pb-6" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 640, alignSelf: 'center' }} contentContainerClassName="flex-grow pb-6" keyboardShouldPersistTaps="handled">
           <Enter>
             <View className="px-6 pt-2">
               <Logo width={156} />

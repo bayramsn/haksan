@@ -1,9 +1,11 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useRef, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -79,6 +81,7 @@ function TrackStep({
 export default function ShipmentDetailScreen() {
   const { goBack } = useHierarchyBack();
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
@@ -94,7 +97,7 @@ export default function ShipmentDetailScreen() {
   if (isPending || error || !data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Sevkiyat" />
+        <DetailHeader title="Sevkiyat" compact />
         {isPending ? (
           <DetailSkeleton />
         ) : (
@@ -165,10 +168,10 @@ export default function ShipmentDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Sevkiyat Detayı" subtitle={data.shipmentNo ?? undefined} />
+      <DetailHeader title="Sevkiyat Detayı" subtitle={data.shipmentNo ?? undefined} compact />
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-4 px-4 pt-4"
+        contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pt-3"
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={() => void refetch()} />}
       >
         <Card className="gap-2">
@@ -328,7 +331,7 @@ export default function ShipmentDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-2 px-5 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Yeni durum</Text>

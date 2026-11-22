@@ -29,7 +29,7 @@ export default function BulkMailDetailScreen() {
   if (!query.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Toplu mail" subtitle={query.isPending ? 'Yükleniyor…' : undefined} />
+        <DetailHeader title="Toplu mail" subtitle={query.isPending ? 'Yükleniyor…' : undefined} compact />
         {query.isPending ? (
           <Loading />
         ) : (
@@ -85,10 +85,10 @@ export default function BulkMailDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title={detail.subject} subtitle={`${formatDateTime(detail.createdAt)} · ${detail.recipients.length} alıcı`} />
+      <DetailHeader title={detail.subject} subtitle={`${formatDateTime(detail.createdAt)} · ${detail.recipients.length} alıcı`} compact />
       <ScrollView
-        contentContainerClassName="gap-4 px-4 pt-4"
-        contentContainerStyle={{ paddingBottom: bottomInset + 32 }}
+        contentContainerClassName="gap-3 px-4 pt-3"
+        contentContainerStyle={{ paddingBottom: bottomInset + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.primary} />}
       >
         {query.error ? (
@@ -163,6 +163,7 @@ export default function BulkMailDetailScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel={`${row.email} ret listesine ekle`}
+                    accessibilityState={{ disabled: Boolean(suppress.isPending) }}
                     disabled={suppress.isPending}
                     onPress={() => confirmSuppress(row.email)}
                     className="h-11 w-11 items-center justify-center active:opacity-60"

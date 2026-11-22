@@ -66,6 +66,7 @@ export default function ReferencesScreen() {
   const canDelete = useCan('companies.delete');
   const [search, setSearch] = useState('');
   const [view, setView] = useState<View_>('cards');
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const references = useReferences();
   const won = useWonOpportunityIds();
@@ -149,17 +150,29 @@ export default function ReferencesScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Referanslar" subtitle="Teslim edilmiş makineler ve satış referansları." />
+      <ScreenHeader title="Referanslar" compact />
       <View className="gap-2 pb-2">
-        <StatStrip
-          items={[
-            { label: 'Teslim edilen', value: String(stats.delivered) },
-            { label: 'Firma', value: String(stats.firms) },
-            { label: 'Şehir', value: String(stats.cities), tone: 'success' },
-            { label: 'Marka', value: String(stats.brands) },
-          ]}
-        />
         <SearchBar value={search} onChange={setSearch} placeholder="Firma, il, marka veya model ara..." />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen ? (
+          <StatStrip
+            dense
+            items={[
+              { label: 'Teslim edilen', value: String(stats.delivered) },
+              { label: 'Firma', value: String(stats.firms) },
+              { label: 'Şehir', value: String(stats.cities), tone: 'success' },
+              { label: 'Marka', value: String(stats.brands) },
+            ]}
+          />
+        ) : null}
       </View>
 
       {references.isPending ? (
@@ -168,7 +181,7 @@ export default function ReferencesScreen() {
         <ErrorState message={references.error.message || 'Referanslar yüklenemedi'} onRetry={refresh} />
       ) : view === 'table' ? (
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
+          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.mutedForeground} />}
         >
           {header}
@@ -198,28 +211,17 @@ export default function ReferencesScreen() {
           contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
           ListHeaderComponent={header}
           renderItem={({ item }) => (
-            <Card className="mb-2.5 gap-2.5">
+            <Card className="mb-2 gap-1.5 px-3 py-2.5">
               <View className="flex-row items-start gap-2">
-                <View className="flex-1">
-                  <Text className="font-inter-semibold text-[10px] uppercase tracking-wider text-primary">Teslim edilmiş makine</Text>
-                  <Text className="font-display text-xl text-foreground" numberOfLines={2}>{item.model}</Text>
-                  <Text className="font-inter text-xs text-muted-foreground">{item.brand}</Text>
+                <View className="min-w-0 flex-1 gap-0.5">
+                  <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
+                    {[item.brand, item.model].filter(Boolean).join(' · ') || item.model}
+                  </Text>
+                  <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
+                    {[item.firm, referenceLocation(item), item.contact, formatReferenceDate(item.deliveryDate)].filter(Boolean).join(' · ')}
+                  </Text>
                 </View>
                 <RowActions row={item} canUpdate={canUpdate} canDelete={canDelete} onEdit={openEdit} onDelete={confirmDelete} />
-              </View>
-              <View className="gap-1 border-y border-border py-2">
-                <Text className="font-inter-semibold text-[14px] text-foreground" numberOfLines={2}>{item.firm}</Text>
-                <View className="flex-row items-center gap-1">
-                  <Ionicons name="location-outline" size={12} color={colors.mutedForeground} />
-                  <Text className="font-inter text-xs text-muted-foreground">{referenceLocation(item)}</Text>
-                </View>
-              </View>
-              <View className="flex-row items-center justify-between gap-2">
-                <View className="flex-1">
-                  <Text className="font-inter text-[10px] uppercase text-muted-foreground">İlgili</Text>
-                  <Text className="font-inter-medium text-xs text-foreground" numberOfLines={1}>{item.contact}</Text>
-                </View>
-                <Chip tone="info" label={formatReferenceDate(item.deliveryDate)} />
               </View>
             </Card>
           )}

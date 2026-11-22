@@ -1,3 +1,4 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { navigationPreset } from '@/src/modules/navigationContext';
 import { useNavigationContext } from '@/src/modules/useNavigationContext';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
@@ -12,7 +13,6 @@ import { useAllInventory } from '@/src/api/inventory.hooks';
 import { useAllProducts } from '@/src/api/products.hooks';
 import type { CatalogProduct, StockRow } from '@/src/api/products.api';
 import { exportService } from '@/src/api/exports';
-import { formatDate } from '@/src/lib/format';
 import { useTheme, type Tone } from '@/src/theme/theme';
 import { Chip, EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
@@ -47,17 +47,6 @@ const STATUS_TONE: Record<string, Tone> = {
   damaged: 'destructive',
 };
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <View className="min-w-[46%] flex-1 gap-0.5">
-      <Text className="font-inter text-[10px] uppercase text-muted-foreground">{label}</Text>
-      <Text className="font-inter-medium text-xs text-foreground" numberOfLines={2}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 function StockCard({
   item,
   product,
@@ -74,39 +63,50 @@ function StockCard({
   const code = item.status?.code ?? '';
   const tone = STATUS_TONE[code] ?? 'neutral';
   const title = item.product?.fullName ?? item.product?.modelCode ?? 'Stok kalemi';
-  const location = item.warehouse?.name ?? LOCATION_STATUS_LABELS[item.locationStatus?.code ?? ''] ?? '—';
-  const isMachine = (item.category?.code ?? 'TEZGAH') === 'TEZGAH';
+  const location = item.warehouse?.name ?? LOCATION_STATUS_LABELS[item.locationStatus?.code ?? ''] ?? '';
+  const reserved = item.reservedCompany?.shortName ?? item.reservedCompany?.legalTitle ?? '';
+  const specs = product?.specs;
+  const techBits = [
+    (() => {
+      const v = specValue(specs, SPINDLE_SPEED_KEYS);
+      return v !== '—' ? `Devir ${v}` : null;
+    })(),
+    (() => {
+      const v = specValue(specs, TOOL_COUNT_KEYS);
+      return v !== '—' ? `Takım ${v}` : null;
+    })(),
+    (() => {
+      const v = specValue(specs, SPINDLE_POWER_KEYS);
+      return v !== '—' ? `Güç ${v}` : null;
+    })(),
+  ].filter(Boolean);
+  const metaLine = [
+    stockConditionLabel(item.itemCondition),
+    location && location !== '—' ? location : null,
+    reserved && reserved !== '—' ? reserved : null,
+    ...techBits,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <View className="my-1 rounded-[8px] border border-border bg-card">
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${title}, seri no ${item.serialNumber}`}
         onPress={() => onPress(item.id)}
-        className="gap-3 p-3 active:opacity-70"
+        className="gap-2 p-3 active:opacity-70"
       >
         <View className="flex-row items-center gap-3">
           <ProductThumb imageUrl={product?.imageUrl} label={title} size={48} />
           <View className="min-w-0 flex-1 gap-0.5">
-            <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>
+            <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
               {title}
             </Text>
             <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-              {[item.brand?.name, `SN: ${item.serialNumber}`].filter(Boolean).join(' · ')}
+              {[item.brand?.name, `SN: ${item.serialNumber}`, metaLine || null].filter(Boolean).join(' · ')}
             </Text>
           </View>
           <Chip label={stockStatusLabel(code, item.status?.name)} tone={tone} />
-        </View>
-        <View className="flex-row flex-wrap gap-x-3 gap-y-2">
-          <Detail label="Kondisyon" value={stockConditionLabel(item.itemCondition)} />
-          <Detail label="Ürünün Bulunduğu Yer" value={location} />
-          <Detail label="Rezerve Edildiği Firma" value={item.reservedCompany?.shortName ?? item.reservedCompany?.legalTitle ?? '—'} />
-          {isMachine ? <Detail label="Kontrol Ünitesi" value={item.controlUnit || '—'} /> : null}
-          {isMachine ? <Detail label="Fener Mili Devri" value={specValue(product?.specs, SPINDLE_SPEED_KEYS)} /> : null}
-          {isMachine ? <Detail label="Takım Adeti" value={specValue(product?.specs, TOOL_COUNT_KEYS)} /> : null}
-          {isMachine ? <Detail label="Fener Mili Motor Gücü" value={specValue(product?.specs, SPINDLE_POWER_KEYS)} /> : null}
-          <Detail label="Yüklendiği Tarih" value={item.loadingDate ? formatDate(item.loadingDate) : '—'} />
-          <Detail label="Geldiği Tarih" value={item.receivedDate ? formatDate(item.receivedDate) : '—'} />
-          <Detail label="Geleceği Tarih" value={item.arrivalDate ? formatDate(item.arrivalDate) : '—'} />
         </View>
       </Pressable>
       {options.length ? (
@@ -146,6 +146,7 @@ function StockCard({
 
 export default function InventoryScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const canCreate = useCan('inventory.create');
   const [category, setCategory] = useState<string | null>(null);
@@ -154,6 +155,7 @@ export default function InventoryScreen() {
   const [navigationFocus, setNavigationFocus] = useState<string | undefined>();
   useNavigationContext('stock', ({ query, focus }) => { setSearch(query ?? ''); setCategory(null); setStatus(navigationPreset('stock', focus)); setNavigationFocus(focus); });
   const [exporting, setExporting] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const list = useAllInventory();
   const products = useAllProducts();
@@ -181,12 +183,11 @@ export default function InventoryScreen() {
     <View className="gap-3 pb-2">
       <ScreenHeader
         title="Stoklar"
-        subtitle="Tüm stoklarınızı görüntüleyin ve yönetin."
         actions={[
           { icon: exporting ? 'hourglass-outline' : 'download-outline', label: 'Excel', onPress: () => void exportExcel() },
           { icon: 'qr-code-outline', label: 'QR / Barkod Tara', onPress: () => router.push('/modules/inventory/scan' as Href) },
         ]}
-      />
+        compact/>
       {navigationFocus === 'low' && <Text accessibilityRole="button" onPress={() => setNavigationFocus(undefined)} className="py-2 text-sm text-primary">Kritik stok odağı · Temizle</Text>}
       <FilterChips
         options={STOCK_CATEGORY_TABS.map((tab) => ({ value: tab.value, label: tab.label }))}
@@ -197,90 +198,103 @@ export default function InventoryScreen() {
         }}
         allLabel="Tüm Stok"
       />
-      <KpiGrid>
-        {[
-          <KpiTile key="available" icon="cube-outline" tone="success" label="Hazır Stok" value={String(counts.available)} sub="adet" selected={status === 'available'} onPress={() => setStatus(status === 'available' ? null : 'available')} />,
-          <KpiTile key="reserved" icon="time-outline" tone="warning" label="Rezerve" value={String(counts.reserved)} sub="bekleyen sipariş" selected={status === 'reserved'} onPress={() => setStatus(status === 'reserved' ? null : 'reserved')} />,
-          <KpiTile key="sold" icon="checkmark-circle-outline" tone="stage" label="Satılan" value={String(counts.sold)} sub="faturalanan" selected={status === 'sold'} onPress={() => setStatus(status === 'sold' ? null : 'sold')} />,
-          <KpiTile key="damaged" icon="alert-circle-outline" tone="destructive" label="Pasif" value={String(counts.damaged)} sub="kullanım dışı" selected={status === 'damaged'} onPress={() => setStatus(status === 'damaged' ? null : 'damaged')} />,
-        ]}
-      </KpiGrid>
-      {category === null || category === 'TEZGAH' ? (
-        <Panel
-          title="Kritik Makine Stoku"
-          subtitle={`Hazır adedi ${LOW_STOCK_THRESHOLD} ve altındaki modeller — yeniden sipariş sinyali`}
-          right={critical.length ? <Chip label={`${critical.length} model`} tone="warning" /> : undefined}
-        >
-          {critical.length === 0 ? (
-            <Text className="py-2 font-inter text-sm text-muted-foreground">Tüm modellerde yeterli hazır stok var.</Text>
-          ) : (
-            critical.slice(0, 6).map((row) => (
-              <Pressable
-                key={row.productId}
-                accessibilityRole="button"
-                accessibilityLabel={`${row.label} stoklarını ara`}
-                onPress={() => {
-                  setCategory(null);
-                  setStatus(null);
-                  setSearch(productById.get(row.productId)?.modelCode ?? row.label);
-                }}
-                className="min-h-11 flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
-              >
-                <ProductThumb imageUrl={productById.get(row.productId)?.imageUrl} label={row.label} size={36} />
-                <View className="min-w-0 flex-1">
-                  <Text className="font-inter-medium text-sm text-foreground" numberOfLines={1}>
-                    {row.label}
-                  </Text>
-                  <Text className="font-inter text-xs text-muted-foreground">
-                    Hazır: {row.available} · Rezerve: {row.reserved} · Toplam: {row.total}
-                  </Text>
-                </View>
-                <Chip label={row.out ? 'Tükendi' : 'Düşük'} tone={row.out ? 'destructive' : 'warning'} />
-              </Pressable>
-            ))
-          )}
-        </Panel>
-      ) : null}
-      <Panel title="Depo Bazında Stok">
-        {warehouses.length === 0 ? (
-          <Text className="py-2 font-inter text-sm text-muted-foreground">Depo dağılımı için stok kaydı bekleniyor.</Text>
-        ) : (
-          warehouses.map((item) => (
-            <View key={item.name} className="gap-1.5 py-1.5">
-              <View className="flex-row justify-between">
-                <Text className="flex-1 font-inter-medium text-sm text-foreground" numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text className="font-inter text-xs text-muted-foreground">{item.count} kalem</Text>
-              </View>
-              <ShareBar ratio={item.count / maxWarehouse} tone="info" />
-            </View>
-          ))
-        )}
-      </Panel>
-      {brands.length ? (
-        <Panel title="Marka Dağılımı" subtitle="Aktif kalemler">
-          {brands.map((item) => (
-            <View key={item.name} className="gap-1.5 py-1.5">
-              <View className="flex-row justify-between">
-                <Text className="flex-1 font-inter-medium text-sm text-foreground" numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text className="font-inter text-xs text-muted-foreground">
-                  {item.count} · %{Math.round(item.share * 100)}
-                </Text>
-              </View>
-              <ShareBar ratio={item.share} tone="stage" />
-            </View>
-          ))}
-        </Panel>
-      ) : null}
       <SearchBar value={search} onChange={setSearch} placeholder="Ürün adı / seri / marka..." />
       <FilterChips
         options={STOCK_STATUS_TABS.map((tab) => ({ value: tab.value, label: tab.label, count: counts[tab.value] }))}
         value={status}
         onChange={(value) => { setStatus(value); setNavigationFocus(undefined); }}
       />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: overviewOpen }}
+        onPress={() => setOverviewOpen((value) => !value)}
+        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3"
+      >
+        <Text className="font-inter-medium text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+      </Pressable>
+      {overviewOpen ? (
+        <View className="gap-3">
+          <KpiGrid>
+            {[
+              <KpiTile key="available" icon="cube-outline" tone="success" label="Hazır Stok" value={String(counts.available)} sub="adet" selected={status === 'available'} onPress={() => setStatus(status === 'available' ? null : 'available')} />,
+              <KpiTile key="reserved" icon="time-outline" tone="warning" label="Rezerve" value={String(counts.reserved)} sub="bekleyen sipariş" selected={status === 'reserved'} onPress={() => setStatus(status === 'reserved' ? null : 'reserved')} />,
+              <KpiTile key="sold" icon="checkmark-circle-outline" tone="stage" label="Satılan" value={String(counts.sold)} sub="faturalanan" selected={status === 'sold'} onPress={() => setStatus(status === 'sold' ? null : 'sold')} />,
+              <KpiTile key="damaged" icon="alert-circle-outline" tone="destructive" label="Pasif" value={String(counts.damaged)} sub="kullanım dışı" selected={status === 'damaged'} onPress={() => setStatus(status === 'damaged' ? null : 'damaged')} />,
+            ]}
+          </KpiGrid>
+          {category === null || category === 'TEZGAH' ? (
+            <Panel
+              title="Kritik Makine Stoku"
+              subtitle={`Hazır adedi ${LOW_STOCK_THRESHOLD} ve altındaki modeller — yeniden sipariş sinyali`}
+              right={critical.length ? <Chip label={`${critical.length} model`} tone="warning" /> : undefined}
+            >
+              {critical.length === 0 ? (
+                <Text className="py-2 font-inter text-sm text-muted-foreground">Tüm modellerde yeterli hazır stok var.</Text>
+              ) : (
+                critical.slice(0, 6).map((row) => (
+                  <Pressable
+                    key={row.productId}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${row.label} stoklarını ara`}
+                    onPress={() => {
+                      setCategory(null);
+                      setStatus(null);
+                      setSearch(productById.get(row.productId)?.modelCode ?? row.label);
+                    }}
+                    className="min-h-11 flex-row items-center gap-3 border-b border-border py-2 active:opacity-70"
+                  >
+                    <ProductThumb imageUrl={productById.get(row.productId)?.imageUrl} label={row.label} size={36} />
+                    <View className="min-w-0 flex-1">
+                      <Text className="font-inter-medium text-sm text-foreground" numberOfLines={1}>
+                        {row.label}
+                      </Text>
+                      <Text className="font-inter text-xs text-muted-foreground">
+                        Hazır: {row.available} · Rezerve: {row.reserved} · Toplam: {row.total}
+                      </Text>
+                    </View>
+                    <Chip label={row.out ? 'Tükendi' : 'Düşük'} tone={row.out ? 'destructive' : 'warning'} />
+                  </Pressable>
+                ))
+              )}
+            </Panel>
+          ) : null}
+          <Panel title="Depo Bazında Stok">
+            {warehouses.length === 0 ? (
+              <Text className="py-2 font-inter text-sm text-muted-foreground">Depo dağılımı için stok kaydı bekleniyor.</Text>
+            ) : (
+              warehouses.map((item) => (
+                <View key={item.name} className="gap-1.5 py-1.5">
+                  <View className="flex-row justify-between">
+                    <Text className="flex-1 font-inter-medium text-sm text-foreground" numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text className="font-inter text-xs text-muted-foreground">{item.count} kalem</Text>
+                  </View>
+                  <ShareBar ratio={item.count / maxWarehouse} tone="info" />
+                </View>
+              ))
+            )}
+          </Panel>
+          {brands.length ? (
+            <Panel title="Marka Dağılımı" subtitle="Aktif kalemler">
+              {brands.map((item) => (
+                <View key={item.name} className="gap-1.5 py-1.5">
+                  <View className="flex-row justify-between">
+                    <Text className="flex-1 font-inter-medium text-sm text-foreground" numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text className="font-inter text-xs text-muted-foreground">
+                      {item.count} · %{Math.round(item.share * 100)}
+                    </Text>
+                  </View>
+                  <ShareBar ratio={item.share} tone="stage" />
+                </View>
+              ))}
+            </Panel>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 
@@ -289,12 +303,12 @@ export default function InventoryScreen() {
       <SyncStatus />
       {list.isPending ? (
         <>
-          <ScreenHeader title="Stoklar" />
+          <ScreenHeader title="Stoklar" compact/>
           <ListSkeleton />
         </>
       ) : list.error ? (
         <>
-          <ScreenHeader title="Stoklar" />
+          <ScreenHeader title="Stoklar" compact/>
           <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
         </>
       ) : (
@@ -304,7 +318,7 @@ export default function InventoryScreen() {
           data={visible}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={header}
-          contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
           renderItem={({ item }) => (
             <View style={{ paddingHorizontal: SCREEN_PAD }}>
               <StockCard

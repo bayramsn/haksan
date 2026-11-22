@@ -198,7 +198,7 @@ export default function TargetsScreen() {
           />
         }
       >
-        <ScreenHeader title="Hedefler" subtitle="Hedefler, gerçekleşmeler ve ekip performansı." />
+        <ScreenHeader title="Hedefler" compact />
 
         {isAdmin ? (
           <Tabs

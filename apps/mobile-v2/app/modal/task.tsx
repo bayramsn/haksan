@@ -211,7 +211,7 @@ export default function TaskFormScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: editing ? 'Görevi düzenle' : 'Yeni görev', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-8" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <Text className="font-inter text-sm text-muted-foreground">
             {relationLabel ? `${relationLabel} kaydına bağlı görev.` : 'Kısa bir başlık, sorumlu ve son tarih yeterli.'}
           </Text>
@@ -305,7 +305,7 @@ export default function TaskFormScreen() {
             style={{ minHeight: 88, paddingTop: 12 }}
           />
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1">
             <Button label="Vazgeç" variant="ghost" disabled={busy} onPress={() => router.back()} />
           </View>

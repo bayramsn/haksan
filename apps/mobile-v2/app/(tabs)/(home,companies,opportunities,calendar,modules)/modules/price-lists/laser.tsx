@@ -110,7 +110,7 @@ export default function LaserPriceListsScreen() {
   if (query.isPending || query.error || !data || !list || !list.rows.length) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <ScreenHeader title={title} />
+        <ScreenHeader title={title} compact/>
         {query.isPending ? (
           <ListSkeleton />
         ) : query.error ? (
@@ -124,7 +124,7 @@ export default function LaserPriceListsScreen() {
 
   const header = (
     <View className="gap-3 pb-2">
-      <ScreenHeader title={title} subtitle="Fiber lazer kesim makineleri" />
+      <ScreenHeader title={title} compact />
       <View style={{ paddingHorizontal: SCREEN_PAD }} className="gap-2.5">
         <Segmented
           label="Fiyat listesi"
@@ -179,10 +179,11 @@ export default function LaserPriceListsScreen() {
           </View>
         </Panel>
       ) : null}
-      <Text accessibilityLiveRegion="polite" style={{ paddingHorizontal: SCREEN_PAD }} className="font-inter text-xs text-muted-foreground">
-        {rows.length} / {list.rows.length} satır · {priced} satır fiyatlı
-        {list.updatedAt ? ` · son hesaplama ${new Date(list.updatedAt).toLocaleString('tr-TR')}` : ''}
-      </Text>
+      {list.updatedAt ? (
+        <Text accessibilityLiveRegion="polite" style={{ paddingHorizontal: SCREEN_PAD }} className="font-inter text-xs text-muted-foreground">
+          Son hesaplama {new Date(list.updatedAt).toLocaleString('tr-TR')}
+        </Text>
+      ) : null}
       {preview && preview.skipped.length > 0 ? (
         <Text style={{ paddingHorizontal: SCREEN_PAD }} className="font-inter text-xs text-warning">
           Atlanan: {preview.skipped.map((row) => `${row.sourceModelCode} ${row.powerKw} kW`).join(', ')}

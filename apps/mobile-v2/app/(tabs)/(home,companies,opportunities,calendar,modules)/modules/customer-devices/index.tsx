@@ -1,18 +1,18 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
 import { useCustomerDevices } from '@/src/api/operations.hooks';
-import { useCompanyNames, useDeviceWarrantyTotals } from '@/src/api/service.hooks';
+import { useDeviceWarrantyTotals } from '@/src/api/service.hooks';
 import type { CustomerDevice } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
-import { formatAmount, formatDate } from '@/src/lib/format';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
-import { EmptyState, ErrorState, Fab, FilterChips, ListRow, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
+import { EmptyState, ErrorState, Fab, FilterChips, ListRow, ListSkeleton, Loading, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
-import { machineStatusLabel, WARRANTY_TONE, warrantyInfo, warrantyShortLabel, warrantyStats } from '@/src/ui/service/machines';
+import { machineStatusLabel, machineStatusTone, WARRANTY_TONE, warrantyInfo, warrantyShortLabel, warrantyStats } from '@/src/ui/service/machines';
 
 type Preset = 'warranty' | 'expired';
 type DeviceRow = CustomerDevice & { initialCompanyId?: string | null };
@@ -24,10 +24,12 @@ const PRESETS: { value: Preset; label: string }[] = [
 
 export default function CustomerDevicesScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const canCreate = useCan('customer_devices.update');
   const [search, setSearch] = useState('');
   const [preset, setPreset] = useState<Preset | null>(null);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const serverSearch = useDebouncedValue(search.trim());
 
   const list = useCustomerDevices({ search: serverSearch || undefined, preset: preset ?? undefined });
@@ -36,7 +38,6 @@ export default function CustomerDevicesScreen() {
   const [now] = useState(() => Date.now());
   const loadedStats = useMemo(() => warrantyStats(items, now), [items, now]);
   const fullyLoaded = !!list.data && !list.hasNextPage && !preset;
-  const initialNames = useCompanyNames(items.filter((item) => item.initialCompanyId && item.initialCompanyId !== item.companyId).map((item) => item.initialCompanyId!));
 
   // Liste tamamen yüklüyse kesin sayım; değilse sunucu toplamları + yüklenen satırlardaki 60 gün içindekiler.
   const stats = fullyLoaded || !totals
@@ -46,11 +47,23 @@ export default function CustomerDevicesScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Makineler" subtitle="Kurulu makineler, garanti ve servis geçmişi." />
+      <ScreenHeader title="Makineler" compact />
 
       <View className="gap-2 pb-2">
-        {items.length || totals?.all ? (
+        <SearchBar value={search} onChange={setSearch} placeholder="Model, seri no veya firma ara..." />
+        <FilterChips options={PRESETS} value={preset} onChange={setPreset} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen && (items.length || totals?.all) ? (
           <StatStrip
+            dense
             items={[
               { label: 'Garanti aktif', value: String(stats.active), tone: 'success' },
               { label: 'Yaklaşıyor', value: String(stats.expiring), tone: stats.expiring ? 'warning' : undefined },
@@ -59,9 +72,6 @@ export default function CustomerDevicesScreen() {
             ]}
           />
         ) : null}
-        <SearchBar value={search} onChange={setSearch} placeholder="Model, seri no veya firma ara..." />
-        <FilterChips options={PRESETS} value={preset} onChange={setPreset} />
-        <Text className="px-4 font-inter text-xs text-muted-foreground">{items.length} makine yüklendi{list.data ? ` · ${list.data.total} kayıt` : ''}</Text>
       </View>
 
       {list.isPending ? (
@@ -74,30 +84,23 @@ export default function CustomerDevicesScreen() {
           style={{ flex: 1 }}
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
           renderItem={({ item }) => {
             const info = warrantyInfo(item.warrantyEndDate, now);
-            const tone = WARRANTY_TONE[info.state];
+            const statusTone = machineStatusTone(item.warrantyEndDate, now, item.status);
             const user = item.company?.shortName ?? item.company?.legalTitle ?? null;
-            const initial = item.initialCompanyId && item.initialCompanyId !== item.companyId ? initialNames.get(item.initialCompanyId) ?? '…' : null;
-            const price = item.cashPrice ? formatAmount(item.cashPrice, item.currencyCode ?? 'TRY') : null;
             return (
               <ListRow
                 title={[item.brandName, item.productModelName ?? item.model].filter(Boolean).join(' ') || 'Makine'}
                 lines={[
                   item.serialNumber ? `SN · ${item.serialNumber}` : null,
                   user ? `Kullanıcı firma: ${user}` : null,
-                  initial ? `İlk müşteri: ${initial}` : null,
-                  item.controlUnit ? `Kontrol paneli: ${item.controlUnit}` : null,
-                  price ? `Peşin: ${price}` : null,
-                  item.warrantyEndDate ? `Garanti sonu: ${formatDate(item.warrantyEndDate)}` : null,
-                  item.installationDate ? `Kurulum · ${formatDate(item.installationDate)}` : null,
                 ]}
                 icon="hardware-chip-outline"
-                iconTone={tone}
+                iconTone={statusTone}
                 chips={[
-                  { label: warrantyShortLabel(info), tone },
-                  { label: machineStatusLabel(item.warrantyEndDate, now), tone: info.state === 'expired' ? 'neutral' : 'success' },
+                  { label: machineStatusLabel(item.warrantyEndDate, now, item.status), tone: statusTone },
+                  { label: warrantyShortLabel(info), tone: WARRANTY_TONE[info.state] },
                 ]}
                 onPress={() => router.push(`/modules/customer-devices/${item.id}` as Href)}
               />

@@ -42,3 +42,11 @@ test('yalnız verilen izinli girişleri gösterir ve boş kategori üretmez', ()
   assert.deepEqual(groups.map((group) => group.title), ['Genel']);
   assert.equal(groups[0].entries.length, 1);
 });
+test('şikayet kutusu aynı yetki alanındaki servis talepleriyle karışmaz', () => {
+  const result=buildModuleMenu([
+    entry('service-tickets','service-requests','service','Servis Talepleri'),
+    entry('service-complaints','service-requests','service','Şikayet Kutusu'),
+  ]).flatMap(group=>group.entries);
+  assert.deepEqual(result.map(item=>item.title),['Servis Talepleri','Şikayet Kutusu']);
+  assert.equal(result[1].navKey,'service-requests');
+});

@@ -74,6 +74,7 @@ export default function SalesPriceListScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [listId, setListId] = useState<string | null>(null);
   const [campaignOpen, setCampaignOpen] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
 
   const lists = useScopedPriceLists();
   const products = useAllProducts();
@@ -136,31 +137,8 @@ export default function SalesPriceListScreen() {
 
   const header = (
     <View className="gap-3 pb-2">
-      <ScreenHeader
-        title="Satış Fiyat Listesi"
-        subtitle="Tezgahları, satış fiyatlarını ve aktif kampanyaları karşılaştırın."
-      />
-      <KpiGrid>
-        {[
-          <KpiTile key="m" icon="construct-outline" label="Tezgah" value={String(counts.machines)} />,
-          <KpiTile key="p" icon="checkmark-done-outline" tone="success" label="Fiyatlı" value={String(counts.priced)} />,
-          <KpiTile key="c" icon="pricetags-outline" tone={counts.campaign ? 'warning' : 'neutral'} label="Kampanya" value={String(counts.campaign)} />,
-          <KpiTile key="l" icon="list-outline" label="Liste" value={selectedList?.code || '—'} sub={listCurrency || 'Para birimi yok'} />,
-        ]}
-      </KpiGrid>
+      <ScreenHeader title="Satış Fiyat Listesi" compact />
       <View style={{ paddingHorizontal: SCREEN_PAD }} className="gap-2.5">
-        <View className="flex-row items-start gap-2 rounded-control border border-border bg-card p-3">
-          <Ionicons name={campaignOpen ? 'pricetags-outline' : 'lock-closed-outline'} size={15} color={colors.mutedForeground} />
-          <Text className="flex-1 font-inter text-xs text-muted-foreground">{note}</Text>
-        </View>
-        {permissions.canManageCampaign ? (
-          <SmallButton
-            icon={campaignOpen ? 'close' : 'add'}
-            label={campaignOpen ? 'Kampanya Düzenlemeyi Kapat' : 'Kampanya Oluştur'}
-            disabled={!listId}
-            onPress={() => setCampaignOpen((open) => !open)}
-          />
-        ) : null}
         <View className="gap-2" accessibilityRole="list">
           {PRICING_SECTIONS.map((section) => (
             <Pressable
@@ -174,7 +152,6 @@ export default function SalesPriceListScreen() {
               <Ionicons name={section.icon} size={18} color={colors.primary} />
               <View className="min-w-0 flex-1">
                 <Text className="font-inter-semibold text-sm text-foreground">{section.title}</Text>
-                <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>{section.hint}</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
             </Pressable>
@@ -212,10 +189,42 @@ export default function SalesPriceListScreen() {
           ))}
         </View>
       ) : null}
-      <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row items-center justify-between">
-        <Text accessibilityLiveRegion="polite" className="font-inter text-xs text-muted-foreground">
-          {filtered.length} / {machines.length} tezgah gösteriliyor
-        </Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: overviewOpen }}
+        onPress={() => setOverviewOpen((value) => !value)}
+        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+      >
+        <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+      </Pressable>
+      {overviewOpen ? (
+        <>
+          <KpiGrid>
+            {[
+              <KpiTile key="m" icon="construct-outline" label="Tezgah" value={String(counts.machines)} />,
+              <KpiTile key="p" icon="checkmark-done-outline" tone="success" label="Fiyatlı" value={String(counts.priced)} />,
+              <KpiTile key="c" icon="pricetags-outline" tone={counts.campaign ? 'warning' : 'neutral'} label="Kampanya" value={String(counts.campaign)} />,
+              <KpiTile key="l" icon="list-outline" label="Liste" value={selectedList?.code || '—'} sub={listCurrency || 'Para birimi yok'} />,
+            ]}
+          </KpiGrid>
+          <View style={{ paddingHorizontal: SCREEN_PAD }} className="gap-2.5">
+            <View className="flex-row items-start gap-2 rounded-control border border-border bg-card p-3">
+              <Ionicons name={campaignOpen ? 'pricetags-outline' : 'lock-closed-outline'} size={15} color={colors.mutedForeground} />
+              <Text className="flex-1 font-inter text-xs text-muted-foreground">{note}</Text>
+            </View>
+            {permissions.canManageCampaign ? (
+              <SmallButton
+                icon={campaignOpen ? 'close' : 'add'}
+                label={campaignOpen ? 'Kampanya Düzenlemeyi Kapat' : 'Kampanya Oluştur'}
+                disabled={!listId}
+                onPress={() => setCampaignOpen((open) => !open)}
+              />
+            ) : null}
+          </View>
+        </>
+      ) : null}
+      <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row items-center justify-end">
         <SmallButton
           icon="close"
           label="Filtreleri temizle"
@@ -234,12 +243,12 @@ export default function SalesPriceListScreen() {
       <SyncStatus />
       {loading ? (
         <>
-          <ScreenHeader title="Satış Fiyat Listesi" />
+          <ScreenHeader title="Satış Fiyat Listesi" compact/>
           <ListSkeleton />
         </>
       ) : loadError ? (
         <>
-          <ScreenHeader title="Satış Fiyat Listesi" />
+          <ScreenHeader title="Satış Fiyat Listesi" compact/>
           <ErrorState
             message={loadError.message}
             onRetry={() => {
@@ -277,14 +286,11 @@ export default function SalesPriceListScreen() {
                   <View className="flex-row items-center gap-3">
                     <ProductThumb imageUrl={product.imageUrl} label={title} />
                     <View className="min-w-0 flex-1">
-                      <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>
+                      <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
                         {title}
                       </Text>
                       <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-                        {[product.brand?.name, product.series, product.modelCode].filter(Boolean).join(' · ') || '—'}
-                      </Text>
-                      <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
-                        Tip: {product.productType?.name || '—'}
+                        {[product.brand?.name, product.series, product.modelCode, product.productType?.name].filter(Boolean).join(' · ') || '—'}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
@@ -320,13 +326,7 @@ export default function SalesPriceListScreen() {
             );
           }}
           ListEmptyComponent={<EmptyState title="Tezgah bulunamadı" hint={hasFilters ? 'Seçili filtrelerle eşleşen tezgah yok.' : 'Bu fiyat listesinde tezgah kaydı yok.'} actionLabel={hasFilters ? "Filtreleri temizle" : undefined} onAction={hasFilters ? () => { setFilters(emptySalesPriceFilters()); setQuery(''); } : undefined} />}
-          ListFooterComponent={
-            filtered.length ? (
-              <Text style={{ paddingHorizontal: SCREEN_PAD }} className="pt-2 font-inter text-xs text-muted-foreground">
-                Toplam {filtered.length} tezgah
-              </Text>
-            ) : null
-          }
+          ListFooterComponent={null}
         />
       )}
     </SafeAreaView>

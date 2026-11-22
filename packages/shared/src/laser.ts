@@ -553,6 +553,11 @@ export function displayLaserSourceValue(raw: string): string {
 export function resolveLaserProfile(selectionInput: LaserSelection, models: readonly LaserCatalogModel[] = LASER_MODELS): LaserResolvedProfile {
   const selection = laserSelectionSchema.parse(selectionInput);
   if (selection.sourceRevision === HEX2026_REVISION) return resolveHex2026Profile(selection);
+  return resolveWorkbookProfile(selection, models);
+}
+
+/** Resolve a parsed selection against one workbook model, including non-discrete HEX powers. */
+function resolveWorkbookProfile(selection: LaserSelection, models: readonly LaserCatalogModel[]): LaserResolvedProfile {
   const model = models.find((m) => m.code === selection.sourceModelCode && m.series === selection.series);
   if (!model) throw new Error('Lazer modeli katalogda bulunamadı.');
   const supportedPower = selection.powerKw >= model.powerMin && selection.powerKw <= model.powerMax;
@@ -706,6 +711,17 @@ export const laserSelectionKey = (selection: LaserSelection) => [selection.sourc
 /** Catalog association survives renamed selling brands; names support existing installations. */
 export const isSupportedLaserBrand = (name?: string | null, technicalCatalogCode?: string | null) => technicalCatalogCode === 'AORE_LASER' || /\b(?:hex\s*laser|aore)\b/i.test(name ?? '');
 
+/** Shared exact mapping used by both product tables and quote profiles. */
+export function hex2026AoreCode(model: LaserCatalogModel): { series: string; code: string } {
+  let match: RegExpMatchArray | null;
+  if (model.series === 'FT' && (match = model.code.match(/^F(\d{4})\+T/))) return { series: 'FT', code: `FT-${match[1]}` };
+  if (model.series === 'PGT' && (match = model.code.match(/^PG(\d{4})\+T/))) return { series: 'PGT', code: `PGT${match[1]}` };
+  if (model.series === 'GR' && (match = model.code.match(/^GR(\d{4})(Pro)?-(\d+)$/i))) return { series: 'GR', code: `${match[1]}${match[2] ? 'pro' : ''}-${match[3]}` };
+  const existing = HEX2026_SERIES.find((row) => row.series === model.series);
+  const dashed = existing?.configurations.some((row) => /^[A-Z]+-\d/.test(row.sourceModelCode));
+  return { series: model.series, code: dashed ? model.code.replace(/^([A-Z]+)(\d)/, '$1-$2') : model.code };
+}
+
 /** Resolve the exact 2026 PDF column; never borrow data from a nearby model or old workbook. */
 export function resolveHex2026Profile(selection: LaserSelection): LaserResolvedProfile {
   const row = HEX2026_SERIES.find(row => row.series === selection.series)!;
@@ -728,6 +744,31 @@ export function resolveHex2026Profile(selection: LaserSelection): LaserResolvedP
     const split = blocked ? { value: '', unit: '' } : branch ? { value: branch.value, unit: branch.unit } : splitUnit(field.rawValue, /Alanı|Uzunluğu|Çapı|Boyutu|Hassasiyeti/.test(field.key) ? 'mm' : undefined);
     specs.push({ key: field.key, ...split, source: { ...field.source, verification: reviewed ? 'verified' : field.verification }, sourceValue: split.value, groupCode: sensitive ? 'MOTORLAR' : 'GENEL', isManual: false });
     if (blocked) issues.push({ code: 'needs_review', field: field.key, message: 'Bu alanın kaynak koşulu doğrulanmadan otomatik değer atanmaz.', sources: [field.source] });
+  }
+  // The product table also includes the current AORE workbook for this exact model.
+  // Resolve its conditions first; PDF cells (including review flags and branch gaps) remain authoritative.
+  const workbookModel = LASER_MODELS.find(model => {
+    if (!model.fields.some(field => field.source.document === LASER_EXCEL_DOCUMENT && field.source.sheet !== 'Standart Yapılandırma')) return false;
+    const mapped = hex2026AoreCode(model);
+    return mapped.series === selection.series && mapped.code.toLowerCase() === selection.sourceModelCode.toLowerCase();
+  });
+  if (workbookModel) {
+    const workbook = resolveWorkbookProfile({ ...selection, sourceRevision: LASER_SOURCE_REVISION, sourceModelCode: workbookModel.code }, [workbookModel]);
+    const completedKeys = new Set<string>();
+    for (const spec of workbook.specs) {
+      if (spec.key === 'Lazer Gücü' || spec.key === 'Kaynakta Desteklenen Güç' || spec.key === 'Tabla Boyutu') continue;
+      const key = HEX2026_AORE_KEYS[spec.key] ?? spec.key;
+      const pdfField = configuration.fields.find(field => field.key === key);
+      if (pdfField && (pdfField.verification !== 'aore_excel' || pdfField.powerBranches?.length)) continue;
+      const index = specs.findIndex(field => field.key === key);
+      const mapped = { ...spec, key };
+      if (index < 0) specs.push(mapped);
+      else specs[index] = mapped;
+      if (spec.value) completedKeys.add(key);
+    }
+    for (let index = issues.length - 1; index >= 0; index--) {
+      if (issues[index]!.code === 'needs_review' && completedKeys.has(issues[index]!.field ?? '')) issues.splice(index, 1);
+    }
   }
   const area = specs.find(field => /^Çalışma Alanı/.test(field.key));
   return { selection, profileId: null, sourceRevision: HEX2026_REVISION, modelLabel: configuration.sourceModelCode, sizeLabel: area?.value ? `${area.value} ${area.unit ?? ''}`.trim() : configuration.sourceModelCode, supportedPower, standardCabin, specs, issues };

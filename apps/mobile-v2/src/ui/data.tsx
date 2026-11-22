@@ -124,6 +124,7 @@ export function Tabs<T extends string>({
   onChange: (next: T) => void;
 }) {
   const { colors } = useTheme();
+  const { fontScale } = useWindowDimensions();
   return (
     // Mockup s16: alt çizgi değil, ikonlu pill; seçili olan dolu kırmızı.
     // Yatay ScrollView'un yüksekliği sabitlenmeli, yoksa dikeyde büyüyüp
@@ -131,7 +132,7 @@ export function Tabs<T extends string>({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      style={{ height: 46, flexGrow: 0, flexShrink: 0 }}
+      style={{ height: Math.max(46, Math.ceil(22 * fontScale + 24)), flexGrow: 0, flexShrink: 0 }}
       contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 8 }}
     >
       {tabs.map((tab) => {
@@ -142,7 +143,7 @@ export function Tabs<T extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             onPress={() => onChange(tab.value)}
-            className={`h-[44px] flex-row items-center gap-1.5 rounded-full border px-3.5 ${
+            className={`min-h-[44px] flex-row items-center gap-1.5 rounded-full border px-3.5 ${
               selected ? 'border-primary bg-primary' : 'border-border bg-card'
             }`}
           >
@@ -276,8 +277,8 @@ export type InfoItem = { label: string; value: string | null | undefined; tone?:
  */
 export function InfoRows({ items, showEmpty = false }: { items: InfoItem[]; showEmpty?: boolean }) {
   const { colors } = useTheme();
-  const { width } = useWindowDimensions();
-  const narrow = width < 380;
+  const { width, fontScale } = useWindowDimensions();
+  const narrow = width < 430 || fontScale >= 1.3;
   const rows = showEmpty ? items : items.filter((item) => Boolean(item.value));
   if (rows.length === 0) return null;
 

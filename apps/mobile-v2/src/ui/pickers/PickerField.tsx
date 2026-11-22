@@ -1,6 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetBackdrop } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import { useTheme } from '@/src/theme/theme';
 
 /** Açılır seçici alanı: formlarda elle metin girişi yerine dokunulur. */
@@ -8,7 +8,6 @@ export function PickerField({
   label,
   value,
   placeholder,
-  icon,
   error,
   disabled,
   onPress,
@@ -25,10 +24,11 @@ export function PickerField({
 }) {
   const { colors } = useTheme();
   return (
-    <View className="gap-1.5">
+    <View className="gap-1">
       <Text className="font-inter-medium text-[13px] text-muted-foreground">{label}</Text>
       <View
-        className={`min-h-14 flex-row items-center rounded-control border bg-input-background ${error ? 'border-destructive' : 'border-border'} ${disabled ? 'opacity-50' : ''}`}
+        style={{ backgroundColor: colors.card, borderColor: error ? colors.destructive : colors.border }}
+        className={`min-h-12 flex-row items-center rounded-control border bg-card ${error ? 'border-destructive' : 'border-border'} ${disabled ? 'opacity-50' : ''}`}
       >
         <Pressable
           accessibilityRole="button"
@@ -36,18 +36,15 @@ export function PickerField({
           accessibilityState={{ disabled }}
           disabled={disabled}
           onPress={onPress}
-          className="min-h-14 flex-1 flex-row items-center gap-3 px-3 active:opacity-70"
+          className="min-h-12 flex-1 flex-row items-center gap-2 px-3.5 active:opacity-70"
         >
-          <View className="h-8 w-8 items-center justify-center rounded-lg bg-primary-soft">
-            <Ionicons name={icon} size={18} color={colors.primary} />
-          </View>
           <Text
-            className={`flex-1 font-inter text-base ${value ? 'text-foreground' : 'text-muted-foreground'}`}
+            className={`flex-1 font-inter text-[16px] ${value ? 'text-foreground' : 'text-muted-foreground'}`}
             numberOfLines={1}
           >
             {value || placeholder}
           </Text>
-          {!onClear || !value ? <Ionicons name="chevron-down" size={18} color={colors.mutedForeground} /> : null}
+          {!onClear || !value ? <Ionicons name="chevron-down" size={16} color={colors.mutedForeground} /> : null}
         </Pressable>
         {onClear && value && !disabled ? (
           <Pressable
@@ -80,8 +77,6 @@ export function useSheetProps(snap: string = '80%') {
     keyboardBlurBehavior: 'restore' as const,
     backgroundStyle: { backgroundColor: colors.card },
     handleIndicatorStyle: { backgroundColor: colors.mutedForeground },
-    backdropComponent: (props: Parameters<typeof BottomSheetBackdrop>[0]) => (
-      <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} opacity={0.5} />
-    ),
+    backdropComponent: (props: Parameters<typeof SheetBackdrop>[0]) => <SheetBackdrop {...props} opacity={0.5} />,
   };
 }

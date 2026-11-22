@@ -1,26 +1,14 @@
-import { HEXLASER_2026_MANIFEST } from './hexlaser-2026-data';
 import { HEX2026_SUPPLEMENT_DOCUMENT } from './hexlaser-2026-supplement-data';
 import { findHex2026Configuration } from './hexlaser-2026';
-import { HEX2026_AORE_KEYS, LASER_EXCEL_DOCUMENT, LASER_MODELS, displayLaserSourceValue, type LaserCatalogModel } from './laser';
+import { HEX2026_AORE_KEYS, LASER_EXCEL_DOCUMENT, LASER_MODELS, displayLaserSourceValue, hex2026AoreCode, type LaserCatalogModel } from './laser';
 
 const CAPTURED_AT = '2026-09-14';
 // 'Kaynakta Desteklenen Güç' ayrı "Lazer Gücü" alanından gelir.
 const DROPPED_KEYS = new Set(['Kaynakta Desteklenen Güç', 'Tabla Boyutu']);
-type Manifest = { series: Array<{ series: string; configurations: Array<{ sourceModelCode: string }> }> };
-const manifest = HEXLASER_2026_MANIFEST as unknown as Manifest;
 
 export interface Hex2026AoreField { key: string; rawValue: string; verification: string; source: { document: string; page: number; capturedAt: string; sourceModelCode: string; rawValue: string } }
 
-/** AORE kodunu ilgili HEX serisinin yazım biçimine çevirir (F6015 → F-6015, PG6020+T6-230 → PGT6020). */
-export function hex2026AoreCode(model: LaserCatalogModel): { series: string; code: string } {
-  let match: RegExpMatchArray | null;
-  if (model.series === 'FT' && (match = model.code.match(/^F(\d{4})\+T/))) return { series: 'FT', code: `FT-${match[1]}` };
-  if (model.series === 'PGT' && (match = model.code.match(/^PG(\d{4})\+T/))) return { series: 'PGT', code: `PGT${match[1]}` };
-  if (model.series === 'GR' && (match = model.code.match(/^GR(\d{4})(Pro)?-(\d+)$/i))) return { series: 'GR', code: `${match[1]}${match[2] ? 'pro' : ''}-${match[3]}` };
-  const existing = manifest.series.find((row) => row.series === model.series);
-  const dashed = existing?.configurations.some((row) => /^[A-Z]+-\d/.test(row.sourceModelCode));
-  return { series: model.series, code: dashed ? model.code.replace(/^([A-Z]+)(\d)/, '$1-$2') : model.code };
-}
+export { hex2026AoreCode } from './laser';
 
 const decimal = (value: number) => String(value).replace('.', ',');
 

@@ -4,7 +4,8 @@ import { Alert, FlatList, Image, KeyboardAvoidingView, Linking, Platform, Pressa
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import {
   useConversations,
   useDeleteMessage,
@@ -14,7 +15,7 @@ import {
   useSendMessage,
   useToggleReaction,
 } from '@/src/api/chat.hooks';
-import { useChatConversation, useChatSearch, useChatWebRtcConfig } from '@/src/api/crm-general.hooks';
+import { useChatConversation, useChatSearch } from '@/src/api/crm-general.hooks';
 import type { ChatConversationDetail } from '@/src/api/crm-general.api';
 import type { ChatMessage } from '@/src/api/endpoints';
 import { mediaUrl } from '@/src/api/config';
@@ -37,6 +38,10 @@ import {
   type NormalizedAttachment,
 } from '@/src/ui/crm/chat-logic';
 import { useConversationRealtime } from '@/src/realtime/chat';
+import { useChatCall } from '@/src/realtime/ChatCallProvider';
+import { ChatAudioRecorder } from '@/src/ui/crm/ChatAudioRecorder';
+import { ChatAudioAttachment } from '@/src/ui/crm/ChatAudioAttachment';
+import { isChatAudioMime } from '@/src/native/chat-audio-policy';
 import { files } from '@/src/api/endpoints';
 import { downloadAndShareFile, pickDocument, pickImage, uploadChatAttachment, type LocalUpload, type UploadedAttachment } from '@/src/native/files';
 import * as Location from 'expo-location';
@@ -141,7 +146,7 @@ function Bubble({
             >
               <Image source={{ uri: imageUri }} style={{ width: 220, height: 160 }} resizeMode="cover" accessibilityIgnoresInvertColors />
             </Pressable>
-          ) : (
+          ) : isChatAudioMime(file.mimeType) ? <ChatAudioAttachment key={file.fileId} fileId={file.fileId} filename={file.filename} /> : (
             <Pressable
               key={file.fileId}
               accessibilityRole="button"
@@ -252,6 +257,8 @@ export default function ConversationScreen() {
   const [pendingAttachments, setPendingAttachments] = useState<UploadedAttachment[]>([]);
   const [pendingLocation, setPendingLocation] = useState<{ latitude: number; longitude: number; label?: string } | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [audioBusy, setAudioBusy] = useState(false);
+  const chatCall = useChatCall();
   const [showSearch, setShowSearch] = useState(false);
   const [searchDraft, setSearchDraft] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -259,6 +266,7 @@ export default function ConversationScreen() {
   const actionSheetRef = useRef<BottomSheetModal>(null);
   const addSheetRef = useRef<BottomSheetModal>(null);
   const pendingAttachmentsRef = useRef<UploadedAttachment[]>([]);
+  const submittingRef = useRef(false);
   const mountedRef = useRef(true);
   useConversationRealtime(id);
 
@@ -276,7 +284,6 @@ export default function ConversationScreen() {
   const conversations = useConversations();
   const detailQuery = useChatConversation(id);
   const search = useChatSearch(id, showSearch ? searchTerm : '');
-  const webrtc = useChatWebRtcConfig();
   const send = useSendMessage(id);
   const edit = useEditMessage(id);
   const toggleReaction = useToggleReaction(id);
@@ -319,14 +326,15 @@ export default function ConversationScreen() {
   const headerTitle = detail ? conversationDisplayName(detail, user?.id, title ?? 'Sohbet') : title ?? 'Sohbet';
   const headerSubtitle = memberSubtitle(detail, user?.id);
   const composerEnabled = Boolean(editing) || canPost;
-  const composerBusy = send.isPending || edit.isPending || attachmentBusy;
+  const composerBusy = send.isPending || edit.isPending || attachmentBusy || audioBusy || chatCall.phase !== 'idle';
   const hasComposerContent = editing
     ? draft.trim().length > 0
     : draft.trim().length > 0 || pendingAttachments.length > 0 || Boolean(pendingLocation);
 
   function submit() {
     const body = draft.trim();
-    if (!hasComposerContent || composerBusy) return;
+    if (!hasComposerContent || composerBusy || submittingRef.current) return;
+    submittingRef.current = true;
     setDraft('');
     setShowEmoji(false);
     if (editing) {
@@ -338,6 +346,7 @@ export default function ConversationScreen() {
             setDraft(body);
             Alert.alert('Mesaj düzenlenemedi', error.message);
           },
+          onSettled: () => { submittingRef.current = false; },
         }
       );
       return;
@@ -361,6 +370,7 @@ export default function ConversationScreen() {
           setDraft(body);
           Alert.alert('Mesaj gönderilemedi', error.message);
         },
+        onSettled: () => { submittingRef.current = false; },
       }
     );
   }
@@ -438,22 +448,6 @@ export default function ConversationScreen() {
     else await Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`);
   }
 
-  /**
-   * Web sesli/görüntülü arama WebRTC kullanır. Sunucu ICE yapılandırması
-   * okunur; mobil derlemede WebRTC yerel modülü olmadığından arama başlatılamaz.
-   */
-  async function startCall() {
-    const result = await webrtc.refetch();
-    if (result.error) {
-      Alert.alert('Arama başlatılamadı', result.error.message);
-      return;
-    }
-    Alert.alert(
-      'Arama bu cihazda desteklenmiyor',
-      'Sesli ve görüntülü arama şimdilik yalnız web uygulamasında kullanılabilir. Mobil uygulamaya arama modülü eklendiğinde bu düğme doğrudan aramayı başlatacak.',
-    );
-  }
-
   function toggleSearch() {
     const next = !showSearch;
     setShowSearch(next);
@@ -507,24 +501,24 @@ export default function ConversationScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <View className="flex-row items-center gap-2.5 border-b border-border bg-card px-4 py-3">
+      <View className="flex-row items-center gap-2 border-b border-border bg-card px-3.5 py-2">
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Sohbet listesine dön"
           onPress={() => goBack()}
-          className="h-11 w-11 items-center justify-center rounded-full active:opacity-60 -ml-2"
+          className="-ml-1 h-10 w-10 items-center justify-center rounded-full active:opacity-60"
         >
-          <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+          <Ionicons name="arrow-back" size={20} color={colors.foreground} />
         </Pressable>
-        <View className="h-11 w-11 items-center justify-center rounded-full bg-secondary">
-          <Ionicons name={isGroup ? 'people' : 'person'} size={20} color={colors.secondaryForeground} />
+        <View className="h-9 w-9 items-center justify-center rounded-full bg-secondary">
+          <Ionicons name={isGroup ? 'people' : 'person'} size={18} color={colors.secondaryForeground} />
         </View>
         <View className="flex-1 justify-center gap-0.5">
-          <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground" numberOfLines={1}>
+          <Text accessibilityRole="header" className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
             {headerTitle}
           </Text>
           {headerSubtitle ? (
-            <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={1}>
+            <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
               {headerSubtitle}
             </Text>
           ) : null}
@@ -532,7 +526,10 @@ export default function ConversationScreen() {
         <View className="flex-row items-center gap-1">
           <HeaderIconButton icon="search-outline" label="Mesajlarda ara" active={showSearch} onPress={toggleSearch} />
           {detail?.type === 'dm' ? (
-            <HeaderIconButton icon="call-outline" label="Sesli arama başlat" busy={webrtc.isFetching} onPress={() => void startCall()} />
+            <>
+              <HeaderIconButton icon="call-outline" label="Sesli arama başlat" busy={audioBusy || attachmentBusy || chatCall.phase !== 'idle'} onPress={() => void chatCall.start(id, 'audio').catch(() => Alert.alert('Arama başlatılamadı', 'Mikrofon ve bağlantınızı kontrol edin.'))} />
+              <HeaderIconButton icon="videocam-outline" label="Görüntülü arama başlat" busy={audioBusy || attachmentBusy || chatCall.phase !== 'idle'} onPress={() => void chatCall.start(id, 'video').catch(() => Alert.alert('Arama başlatılamadı', 'Kamera, mikrofon ve bağlantınızı kontrol edin.'))} />
+            </>
           ) : null}
           {detail?.type === 'group' ? (
             <HeaderIconButton
@@ -632,6 +629,17 @@ export default function ConversationScreen() {
         )}
 
         <View className="border-t border-border bg-card px-3 py-2" style={{ marginBottom: tabClearance }}>
+          {!editing && canCreateFiles && canPost ? <ChatAudioRecorder
+            disabled={attachmentBusy || send.isPending || chatCall.phase !== 'idle'}
+            onBusyChange={setAudioBusy}
+            onAttach={async local => {
+              if (pendingAttachmentsRef.current.length >= 10) throw new Error('Bir mesaja en fazla 10 dosya eklenebilir.');
+              const uploaded = await uploadChatAttachment(id, local);
+              if (!mountedRef.current) { void files.remove(uploaded.fileId).catch(() => {}); throw new Error('Sohbet kapatıldı.'); }
+              const next = [...pendingAttachmentsRef.current, uploaded];
+              pendingAttachmentsRef.current = next;
+              setPendingAttachments(next);
+            }} /> : null}
           {!editing && (pendingAttachments.length > 0 || pendingLocation) ? (
             <View className="mb-2 flex-row flex-wrap gap-2">
               {pendingAttachments.map((attachment) => (
@@ -705,8 +713,8 @@ export default function ConversationScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={canCreateFiles ? 'Mesaja dosya, fotoğraf, konum veya kayıt ekle' : 'Mesaja konum veya kayıt ekle'}
-                accessibilityState={{ disabled: !composerEnabled || attachmentBusy }}
-                disabled={!composerEnabled || attachmentBusy}
+                accessibilityState={{ disabled: !composerEnabled || attachmentBusy || audioBusy }}
+                disabled={!composerEnabled || attachmentBusy || audioBusy}
                 onPress={() => addSheetRef.current?.present()}
                 className="h-11 w-11 items-center justify-center active:opacity-60"
               >
@@ -757,7 +765,7 @@ export default function ConversationScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
           <Text className="pb-1 font-inter-semibold text-base text-foreground">Mesaja ekle</Text>
@@ -832,7 +840,7 @@ export default function ConversationScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Mesaj işlemleri</Text>
@@ -842,6 +850,7 @@ export default function ConversationScreen() {
                 key={emoji}
                 accessibilityRole="button"
                 accessibilityLabel={`${emoji} tepkisi ver`}
+                accessibilityState={{ disabled: Boolean(!selectedMessage || toggleReaction.isPending) }}
                 disabled={!selectedMessage || toggleReaction.isPending}
                 onPress={() => {
                   if (!selectedMessage) return;

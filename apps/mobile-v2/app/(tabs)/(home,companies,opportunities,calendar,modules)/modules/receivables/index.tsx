@@ -2,7 +2,7 @@ import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
 import { SectionList, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-gifted-charts';
 import {
@@ -11,11 +11,13 @@ import {
   useReceivables,
   useReceivableSummary,
 } from '@/src/api/finance.hooks';
+import { useAllQuoteList } from '@/src/api/quotes.hooks';
 import type { Receivable2 } from '@/src/api/endpoints';
+import { firstParam, receivableBelongsToOpportunity } from '@/src/features/opportunities/case-scope';
 import { dueLabel, formatAmount, formatDate } from '@/src/lib/format';
 import { toneColor, useTheme, type Tone } from '@/src/theme/theme';
 import { useCan } from '@/src/auth/AuthProvider';
-import { Button, SearchBar, ListSkeleton, Card, EmptyState, ErrorState, ListRow, Loading, ScreenHeader, StatStrip } from '@/src/ui';
+import { Button, SearchBar, ListSkeleton, Card, EmptyState, ErrorState, ListRow, ScreenHeader, StatStrip } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 
 type Bucket = 'overdue' | 'upcoming' | 'settled';
@@ -111,12 +113,23 @@ function MonthlyCollectionSummary() {
 export default function ReceivablesScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
   const router = useRouter();
+  const params = useLocalSearchParams<{ opportunityId?: string; companyId?: string }>();
+  const scopeOpportunityId = firstParam(params.opportunityId);
+  const scopeCompanyId = firstParam(params.companyId) || undefined;
   const [search, setSearch] = useState('');
   const [showSummary, setShowSummary] = useState(false);
   const canCreate = useCan('receivables.create');
-  const list = useReceivables();
-  const summary = useReceivableSummary();
-  const items = useMemo(() => list.data?.items ?? [], [list.data]);
+  const list = useReceivables(scopeCompanyId);
+  const summary = useReceivableSummary(scopeCompanyId);
+  const quotes = useAllQuoteList({ opportunityId: scopeOpportunityId }, Boolean(scopeOpportunityId));
+  const quoteIds = useMemo(() => new Set((quotes.data?.items ?? []).map((quote) => quote.id)), [quotes.data]);
+  const items = useMemo(() => {
+    const rows = list.data?.items ?? [];
+    if (!scopeOpportunityId) return rows;
+    return rows.filter((row) =>
+      receivableBelongsToOpportunity(row, quoteIds, { companyId: scopeCompanyId ?? null }),
+    );
+  }, [list.data, quoteIds, scopeCompanyId, scopeOpportunityId]);
 
   const sections = useMemo(
     () =>
@@ -136,14 +149,18 @@ export default function ReceivablesScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Tahsilatlar"
-        subtitle="Tahsilat süreçlerinizi takip edin ve yönetin."
         actions={
           canCreate
             ? [{ icon: 'add' as const, label: 'Yeni alacak', onPress: () => router.push('/modal/new-receivable' as Href) }]
             : []
         }
-      />
+        compact/>
 
+      {scopeOpportunityId || scopeCompanyId ? (
+        <Text className="px-4 pb-1 font-inter text-[12px] text-muted-foreground">
+          {scopeOpportunityId ? 'Bu fırsata bağlı alacaklar' : 'Bu firmaya bağlı alacaklar'}
+        </Text>
+      ) : null}
       <SearchBar value={search} onChange={setSearch} placeholder="Firma, fatura veya belge ara" />
       <View className="px-4 py-2">
         <Button variant="ghost" label={showSummary ? 'Tahsilat özetini gizle' : 'Tahsilat özetini göster'} trailingIcon={showSummary ? 'chevron-up' : 'analytics-outline'} onPress={() => setShowSummary((value) => !value)} />
@@ -160,6 +177,7 @@ export default function ReceivablesScreen() {
       <MonthlyCollectionSummary />
 
       <StatStrip
+        dense
         items={[
           { label: 'Kayıt', value: String(summary.data?.total ?? list.data?.total ?? 0) },
           { label: 'Açık', value: String(summary.data?.openCount ?? '—'), tone: 'warning' },
@@ -168,6 +186,7 @@ export default function ReceivablesScreen() {
       />
       {(summary.data?.byCurrency ?? []).map((row) => (
         <StatStrip
+          dense
           key={row.currencyCode}
           items={[
             { label: `${row.currencyCode} açık`, value: formatAmount(row.openAmount, row.currencyCode), tone: 'warning' },
@@ -197,8 +216,7 @@ export default function ReceivablesScreen() {
                 title={item.company.shortName ?? item.company.legalTitle}
                 lines={[
                   item.invoiceNo ? `Fatura: ${item.invoiceNo}` : item.documentRef,
-                  `Vade: ${formatDate(item.dueDate)}`,
-                  item.paymentMethod,
+                  [`Vade: ${formatDate(item.dueDate)}`, item.paymentMethod].filter(Boolean).join(' · '),
                 ]}
                 icon="wallet-outline"
                 iconTone={tone}
@@ -224,7 +242,6 @@ export default function ReceivablesScreen() {
           ListEmptyComponent={<EmptyState title={search.trim() ? "Eşleşen tahsilat yok" : "Tahsilat kaydı yok"} hint={search.trim() ? "Aramayı değiştirin. Arama yüklenen kayıtlar içinde yapılır." : "Tahsilat kayıtları oluşturulduğunda burada görünür."} actionLabel={search.trim() ? "Aramayı temizle" : undefined} onAction={search.trim() ? () => setSearch('') : undefined} />}
           ListFooterComponent={
             <View className="gap-2 py-3">
-              <Text className="text-center font-inter text-xs text-muted-foreground">{items.length} / {list.data?.total ?? items.length} kayıt yüklendi</Text>
               {list.hasNextPage ? <Button variant="ghost" label="Daha fazla kayıt yükle" loading={list.isFetchingNextPage} onPress={() => void list.fetchNextPage()} /> : null}
             </View>
           }

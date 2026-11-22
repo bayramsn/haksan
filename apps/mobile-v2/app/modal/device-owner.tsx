@@ -54,7 +54,7 @@ export default function DeviceOwnerScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Kullanıcı Firma', headerShown: true }} />
-      <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
         <Card>
           <Text className="font-inter text-sm text-muted-foreground">
             İlk müşteri: <Text className="font-inter-semibold text-foreground">{first(params.initialCompanyName) || '—'}</Text>
@@ -83,7 +83,7 @@ export default function DeviceOwnerScreen() {
           />
         </FormSection>
       </ScrollView>
-      <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+      <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
         <Button className="flex-1" label="Vazgeç" variant="ghost" disabled={update.isPending} onPress={() => router.back()} />
         <Button className="flex-[2]" label="Kaydet" loading={update.isPending} disabled={!company || update.isPending} onPress={save} />
       </View>

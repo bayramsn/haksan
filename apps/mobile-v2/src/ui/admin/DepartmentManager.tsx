@@ -1,6 +1,6 @@
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
 import { useAdminDepartments, useDeleteDepartment, useDepartmentTargets } from '@/src/api/admin.hooks';
@@ -27,6 +27,7 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
 
   const [query, setQuery] = useState('');
   const [period, setPeriod] = useState(currentPeriod());
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const list = useAdminDepartments();
   const targets = useDepartmentTargets(period, canSetTargets);
   const remove = useDeleteDepartment();
@@ -58,29 +59,40 @@ export function DepartmentManager({ mode }: { mode: 'module' | 'settings' }) {
 
   const header = (
     <View className="gap-3 pb-2">
-      {mode === 'module' && list.data ? (
-        <StatStrip
-          items={[
-            { label: 'Departman', value: String(rows.length), icon: 'git-network-outline' },
-            { label: 'Hedefli', value: String(rows.filter((d) => targetSet.has(d.id)).length), tone: 'success', icon: 'flag-outline' },
-            { label: 'Dönem', value: period, icon: 'calendar-outline' },
-          ]}
-        />
-      ) : null}
       <SearchBar
         value={query}
         onChange={setQuery}
         placeholder={mode === 'module' ? 'Departman, kod veya açıklama ara...' : 'Departman ara...'}
       />
       {canSetTargets ? <PeriodStepper period={period} onChange={setPeriod} /> : null}
-      <View className="flex-row items-center justify-between">
-        <Text className="font-inter text-[12px] text-muted-foreground">
-          {mode === 'module' ? `${visible.length} / ${rows.length} departman gösteriliyor` : `${rows.length} departman`}
-        </Text>
-        {canCreate ? (
+      {canCreate ? (
+        <View className="flex-row justify-end">
           <ActionPill icon="add" tone="info" label="Departman ekle" onPress={() => router.push(editHref())} />
-        ) : null}
-      </View>
+        </View>
+      ) : null}
+      {mode === 'module' ? (
+        <>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: overviewOpen }}
+            onPress={() => setOverviewOpen((value) => !value)}
+            className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+          >
+            <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+            <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+          </Pressable>
+          {overviewOpen && list.data ? (
+            <StatStrip
+              dense
+              items={[
+                { label: 'Departman', value: String(rows.length), icon: 'git-network-outline' },
+                { label: 'Hedefli', value: String(rows.filter((d) => targetSet.has(d.id)).length), tone: 'success', icon: 'flag-outline' },
+                { label: 'Dönem', value: period, icon: 'calendar-outline' },
+              ]}
+            />
+          ) : null}
+        </>
+      ) : null}
     </View>
   );
 

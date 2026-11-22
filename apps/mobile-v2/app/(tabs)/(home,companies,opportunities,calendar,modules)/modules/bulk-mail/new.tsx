@@ -256,7 +256,7 @@ export default function BulkMailComposeScreen() {
   if (!canSend) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Yeni toplu mail" />
+        <DetailHeader title="Yeni toplu mail" compact />
         <EmptyState icon="lock-closed-outline" title="Toplu mail gönderme yetkiniz yok." />
       </SafeAreaView>
     );
@@ -325,10 +325,10 @@ export default function BulkMailComposeScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Yeni toplu mail" subtitle="Alıcıları seçin, mesajı yazın, gerekirse genel katalog ekleyin." />
+      <DetailHeader title="Yeni toplu mail" compact />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
-          contentContainerClassName="gap-4 px-4 pt-4"
+          contentContainerClassName="gap-3 px-4 pt-3"
           contentContainerStyle={{ paddingBottom: bottomInset + 32, width: '100%', maxWidth: 720, alignSelf: 'center' }}
           keyboardShouldPersistTaps="handled"
         >

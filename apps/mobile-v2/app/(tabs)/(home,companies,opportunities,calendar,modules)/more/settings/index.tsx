@@ -4,7 +4,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { useRouter, type Href } from 'expo-router';
 import { apiBaseUrl, setApiBaseUrl } from '@/src/api/config';
-import { clearFailedQueue, failedCount, flushQueue, pendingCount, subscribeQueue } from '@/src/offline/queue';
+import {
+  clearFailedQueue,
+  failedCount,
+  flushQueue,
+  listQueuedMutations,
+  MUTATION_KIND_LABELS,
+  pendingCount,
+  subscribeQueue,
+  type QueuedMutation,
+} from '@/src/offline/queue';
 import { useAuth } from '@/src/auth/AuthProvider';
 import { queryClient } from '@/src/query/client';
 import {
@@ -36,6 +45,7 @@ export default function SettingsScreen() {
   const [theme, setTheme] = useState<ThemePreference>(loadThemePreference);
   const [pending, setPending] = useState(pendingCount);
   const [failed, setFailed] = useState(failedCount);
+  const [queued, setQueued] = useState<QueuedMutation[]>([]);
   const [apiUrl, setApiUrl] = useState(apiBaseUrl);
   const [editingApi, setEditingApi] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -43,6 +53,7 @@ export default function SettingsScreen() {
   useEffect(() => subscribeQueue((count) => {
     setPending(count);
     setFailed(failedCount());
+    setQueued(listQueuedMutations());
   }), []);
 
   function chooseTheme(next: ThemePreference | null) {
@@ -113,11 +124,11 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Ayarlar" />
+      <DetailHeader title="Ayarlar" compact />
 
-      <ScrollView contentContainerClassName="gap-4 px-4 pb-10 pt-4" keyboardShouldPersistTaps="handled">
-        <View className="gap-2">
-          <Text className="px-1 font-inter-semibold text-[13px] text-muted-foreground">Görünüm</Text>
+      <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-10 pt-2" keyboardShouldPersistTaps="handled">
+        <View className="gap-1.5">
+          <Text className="px-1 font-inter-semibold text-[12px] text-muted-foreground">Görünüm</Text>
           <FilterChips
             options={(['light', 'dark'] as const).map((value) => ({
               value,
@@ -131,7 +142,7 @@ export default function SettingsScreen() {
 
         <SettingsGroup title="Uygulama">
           <SettingsRow kind="switch" first icon="contrast-outline" title="Gezinme efektlerini azalt"
-            subtitle="Cam ve bulanıklığı kapatır; daha sade bir yüzey kullanır."
+            subtitle="Cam efektlerini kapatır."
             value={reducedEffects} onValueChange={setReducedEffects} />
           <SettingsRow
             icon="notifications-outline"
@@ -152,10 +163,42 @@ export default function SettingsScreen() {
               icon="warning-outline"
               tone="destructive"
               title="Başarısız İşlemleri İncele"
-              subtitle="Sunucudaki güncel kaydı kontrol ettikten sonra bu yerel talepleri silebilirsiniz."
+              subtitle="Yerel başarısız işlemleri silin."
               value={String(failed)}
               onPress={discardFailed}
             />
+          ) : null}
+          {queued.length > 0 ? (
+            <View className="gap-1.5 border-t border-border px-3.5 py-2">
+              <Text className="font-inter-semibold text-[12px] text-foreground">Kuyruk</Text>
+              {queued.slice(0, 8).map((item) => {
+                const when = new Date(item.createdAt).toLocaleString('tr-TR', {
+                  day: '2-digit',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                });
+                const stateLabel =
+                  item.state === 'failed'
+                    ? item.failure === 'conflict'
+                      ? 'çakışma'
+                      : 'başarısız'
+                    : 'bekliyor';
+                return (
+                  <View key={item.id} className="gap-0.5 rounded-control bg-muted px-2.5 py-1.5">
+                    <Text className="font-inter-medium text-[12px] text-foreground">
+                      {MUTATION_KIND_LABELS[item.kind]} · {stateLabel}
+                    </Text>
+                    <Text className="font-inter text-[11px] text-muted-foreground" style={{ fontVariant: ['tabular-nums'] }}>
+                      {when}
+                    </Text>
+                  </View>
+                );
+              })}
+              {queued.length > 8 ? (
+                <Text className="font-inter text-[11px] text-muted-foreground">+{queued.length - 8} işlem daha</Text>
+              ) : null}
+            </View>
           ) : null}
           <SettingsRow
             icon="finger-print-outline"
@@ -163,10 +206,10 @@ export default function SettingsScreen() {
             title="Biyometrik Uygulama Kilidi"
             subtitle={
               biometric.enabled
-                ? 'Uygulama arka planda 30 saniye kaldığında kilitlenir.'
+                ? 'Açılışta doğrulama ister.'
                 : biometric.available
-                  ? 'Face ID, parmak izi veya cihaz parolasıyla koruyun.'
-                  : 'Bu cihazda kayıtlı biyometrik kimlik bulunamadı.'
+                  ? 'Face ID veya parmak izi.'
+                  : 'Biyometrik kimlik yok.'
             }
             value={biometric.enabled ? 'Açık' : 'Kapalı'}
             onPress={() => {
@@ -192,7 +235,7 @@ export default function SettingsScreen() {
             icon="business-outline"
             tone="info"
             title="Şirket"
-            subtitle={canEditTenant ? 'Şirket profili ve haftalık rapor alıcıları' : 'Tüm kullanıcıların gördüğü şirket bilgileri'}
+            subtitle={canEditTenant ? 'Profil ve rapor alıcıları' : 'Şirket bilgileri'}
             onPress={() => open('company')}
           />
           {canEditTenant ? (
@@ -200,7 +243,7 @@ export default function SettingsScreen() {
               icon="create-outline"
               tone="info"
               title="Belge İmzaları"
-              subtitle="Teklif, proforma ve sözleşme altına basılan imzalar"
+              subtitle="Teklif ve sözleşme imzaları"
               onPress={() => open('signatures')}
             />
           ) : null}
@@ -209,7 +252,7 @@ export default function SettingsScreen() {
               icon="eye-outline"
               tone="info"
               title="Menü & Akış"
-              subtitle="Kullanıcıların kullanacağı sayfaları yönetin"
+              subtitle="Menü görünürlüğü"
               onPress={() => open('menu')}
             />
           ) : null}
@@ -217,7 +260,7 @@ export default function SettingsScreen() {
             icon="mail-outline"
             tone="info"
             title="Webmail"
-            subtitle="CRM e-postalarını kendi kurumsal adresinizden gönderin"
+            subtitle="Kurumsal e-posta gönderimi"
             onPress={() => open('webmail')}
           />
           {canSyncCalendar ? (
@@ -225,7 +268,7 @@ export default function SettingsScreen() {
               icon="calendar-outline"
               tone="info"
               title="Takvim Senkronu"
-              subtitle="Telefon takvimini CRM takviminizle eşitleyin"
+              subtitle="Telefon ↔ CRM takvim"
               onPress={() => open('calendar-sync')}
             />
           ) : null}
@@ -234,7 +277,7 @@ export default function SettingsScreen() {
               icon="images-outline"
               tone="info"
               title="Kullanıcı Mail İmzaları"
-              subtitle="Kullanıcıların görsel mail imzalarını yönetin"
+              subtitle="Mail imzaları"
               onPress={() => open('mail-signatures')}
             />
           ) : null}
@@ -248,7 +291,7 @@ export default function SettingsScreen() {
                 icon="options-outline"
                 tone="info"
                 title="CRM Alan Ayarları"
-                subtitle="Kayıt formlarının alan yapısı ve seçim sözlükleri"
+                subtitle="Alanlar ve sözlükler"
                 onPress={() => open('lookups')}
               />
             ) : null}
@@ -258,7 +301,7 @@ export default function SettingsScreen() {
                 icon="people-outline"
                 tone="info"
                 title="Kullanıcı Departmanları"
-                subtitle="Kullanıcı eklerken ve düzenlerken seçilebilen departman listesini yönetin."
+                subtitle="Departman listesi"
                 onPress={() => open('departments')}
               />
             ) : null}
@@ -268,7 +311,7 @@ export default function SettingsScreen() {
                 icon="git-branch-outline"
                 tone="info"
                 title="Fırsat Atama"
-                subtitle="Yeni fırsatları bölüm ve ticari kriterlere göre sırayla yönlendirin."
+                subtitle="Otomatik fırsat atama"
                 onPress={() => open('lead-rules')}
               />
             ) : null}
@@ -277,7 +320,7 @@ export default function SettingsScreen() {
                 icon="layers-outline"
                 tone="info"
                 title="Teknik Bilgi"
-                subtitle="Ürün ailelerine göre teknik bilgi kapsamı"
+                subtitle="Teknik bilgi şablonları"
                 onPress={() => open('spec-templates')}
               />
             ) : null}
@@ -305,7 +348,7 @@ export default function SettingsScreen() {
 
         {__DEV__ ? <SettingsGroup title="Geliştirici Sunucusu">
           {editingApi ? (
-            <View className="gap-3 p-3.5">
+            <View className="gap-2 p-3">
               <Field
                 label="API adresi"
                 value={apiUrl}

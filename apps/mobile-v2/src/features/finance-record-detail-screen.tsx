@@ -1,3 +1,5 @@
+import { RecordHero } from '@/src/ui/finance/RecordHero';
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
@@ -66,6 +68,7 @@ const formatBytes = (bytes: number) =>
 /** Web `PaymentDetailDialog`: durum, düzenle/sil (yalnız ödeme) ve firmaya bağlı Fiş / Fatura. */
 export function FinanceRecordDetailScreen(props: Props) {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const qc = useQueryClient();
   const { colors } = useTheme();
@@ -85,7 +88,7 @@ export function FinanceRecordDetailScreen(props: Props) {
   if (props.isPending || props.error || !props.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title={props.kind === 'receivable' ? 'Tahsilat' : 'Ödeme'} />
+        <DetailHeader title={props.kind === 'receivable' ? 'Tahsilat' : 'Ödeme'} compact />
         {props.isPending ? <Loading /> : <ErrorState message={props.error?.message ?? 'Kayıt yüklenemedi.'} onRetry={() => void props.refetch()} />}
       </SafeAreaView>
     );
@@ -200,22 +203,11 @@ export function FinanceRecordDetailScreen(props: Props) {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <DetailHeader
-        title={props.kind === 'receivable' ? 'Tahsilat Detayı' : 'Ödeme Detayı'}
-        subtitle={row.invoiceNo ?? undefined}
-      />
-      <ScrollView contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-4 px-4 pb-10 pt-4">
-        <Card className="gap-2">
-          <Chip tone={tone} label={row.status?.name ?? 'Durum belirtilmedi'} />
-          <Text className="text-[19px] font-inter-semibold text-foreground">{companyName}</Text>
-          <View className="flex-row items-end justify-between gap-3">
-            <Text className="font-inter text-[12px] text-muted-foreground">
-              {receivable ? `Vade: ${formatDate(receivable.dueDate)}` : formatDate(payment?.paymentDate)}
-            </Text>
-            <Text className={`font-inter-bold text-[20px] ${payment?.direction === 'out' ? 'text-destructive' : 'text-foreground'}`}>
-              {payment ? `${payment.direction === 'in' ? '+' : '−'} ` : ''}{amount}
-            </Text>
-          </View>
-        </Card>
+        title={props.kind === 'receivable' ? 'Tahsilat Detayı' : 'Ödeme Detayı'} compact />
+      <ScrollView contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-3 px-4 pb-8 pt-3">
+        <RecordHero title={companyName} reference={row.invoiceNo ?? undefined} icon={payment?.direction === 'out' ? 'arrow-up-circle-outline' : 'arrow-down-circle-outline'} amount={`${payment ? `${payment.direction === 'in' ? '+' : '−'} ` : ''}${amount}`} amountLabel={payment ? payment.direction === 'in' ? 'Alınan tutar' : 'Ödenen tutar' : 'Beklenen tahsilat'} subtitle={receivable ? `Vade · ${formatDate(receivable.dueDate)}` : `Ödeme tarihi · ${formatDate(payment?.paymentDate)}`}>
+          <View className="flex-row flex-wrap gap-2"><Chip tone={tone} label={row.status?.name ?? 'Durum belirtilmedi'} />{receivable && !['paid', 'cancelled'].includes(code) && dueLabel(receivable.dueDate)?.overdue ? <Chip tone="destructive" label={dueLabel(receivable.dueDate)?.text ?? 'Vadesi geçti'} /> : null}</View>
+        </RecordHero>
 
         <Card>
           <InfoRows

@@ -1,8 +1,9 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { navigationPreset } from '@/src/modules/navigationContext';
 import { useNavigationContext } from '@/src/modules/useNavigationContext';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
@@ -52,6 +53,7 @@ const joinAmounts = (items: { amount: number; currencyCode: string }[]) =>
 /** Web `PaymentsPage` (Ödemeler & Kasa): alacak + ödemeler tek kasa listesi. */
 export default function PaymentsScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const canCreate = useCan('payments.create');
   const canCreateInvoice = useCan('accounting_invoices.create');
@@ -60,6 +62,7 @@ export default function PaymentsScreen() {
   const [search, setSearch] = useState('');
   useNavigationContext('payments', ({ query, focus }) => { setSearch(query ?? ''); setDirection('all'); setStatus((navigationPreset('payments', focus) ?? 'all') as StatusFilter); });
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const movements = useCashMovements();
   const rows = useMemo(() => movements.data ?? [], [movements.data]);
@@ -89,67 +92,8 @@ export default function PaymentsScreen() {
 
   const header = (
     <View className="gap-3 pb-2">
-      <ScreenHeader title="Ödemeler & Kasa" subtitle="Nakit hareketlerini ve ödeme kayıtlarını takip edin." actions={actions} />
-      <KpiGrid>
-        {[
-          <KpiTile
-            key="in"
-            icon="arrow-down-circle-outline"
-            tone="success"
-            label="Alınan (Giren)"
-            value={joinAmounts(balances.map((item) => ({ amount: item.incoming, currencyCode: item.currencyCode })))}
-            sub={`${inflowPaid} tahsilat`}
-          />,
-          <KpiTile
-            key="out"
-            icon="arrow-up-circle-outline"
-            tone="destructive"
-            label="Ödenen (Çıkan)"
-            value={joinAmounts(balances.map((item) => ({ amount: item.outgoing, currencyCode: item.currencyCode })))}
-            sub={`${outflowPaid} ödeme`}
-          />,
-          <KpiTile
-            key="net"
-            icon="wallet-outline"
-            tone="info"
-            label="Net Kasa"
-            value={joinAmounts(balances.map((item) => ({ amount: item.net, currencyCode: item.currencyCode })))}
-            sub="gerçekleşen"
-          />,
-          <KpiTile
-            key="pending"
-            icon="time-outline"
-            tone="warning"
-            label="Bekleyen Tahsilat"
-            value={joinAmounts(balances.map((item) => ({ amount: item.pendingIn, currencyCode: item.currencyCode })))}
-            sub={`${inflowPending} kayıt`}
-            selected={status === 'Pending' && direction === 'in'}
-            onPress={() => {
-              setDirection('in');
-              setStatus('Pending');
-            }}
-          />,
-        ]}
-      </KpiGrid>
+      <ScreenHeader title="Ödemeler & Kasa" actions={actions} compact />
       <View style={{ paddingHorizontal: SCREEN_PAD }}>
-        <Button variant="ghost" label={showAnalysis ? 'Kasa analizlerini gizle' : 'Kasa analizlerini göster'} trailingIcon={showAnalysis ? 'chevron-up' : 'analytics-outline'} onPress={() => setShowAnalysis((value) => !value)} />
-      </View>
-      {showAnalysis ? <>
-      <CashBalancePanel rows={rows} />
-      <UpcomingDuesPanel rows={rows} onOpen={openRow} />
-      <TrendPanel rows={rows} />
-      <CurrencySharePanel rows={rows} />
-      <AgingPanel rows={rows} />
-      <DailyFlowPanel rows={rows} />
-      <TopDebtorsPanel
-        rows={rows}
-        onShowAll={() => {
-          setStatus('Overdue');
-          setDirection('in');
-        }}
-      />
-      </> : null}
-      <View style={{ paddingHorizontal: SCREEN_PAD }} className="pt-2">
         <SearchBar value={search} onChange={setSearch} placeholder="Firma ara..." />
       </View>
       <FilterChips
@@ -169,6 +113,76 @@ export default function PaymentsScreen() {
         value={status === 'all' ? null : status}
         onChange={(next) => setStatus(next ?? 'all')}
       />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: overviewOpen }}
+        onPress={() => setOverviewOpen((value) => !value)}
+        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+      >
+        <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+      </Pressable>
+      {overviewOpen ? (
+        <KpiGrid>
+          {[
+            <KpiTile
+              key="in"
+              icon="arrow-down-circle-outline"
+              tone="success"
+              label="Alınan (Giren)"
+              value={joinAmounts(balances.map((item) => ({ amount: item.incoming, currencyCode: item.currencyCode })))}
+              sub={`${inflowPaid} tahsilat`}
+            />,
+            <KpiTile
+              key="out"
+              icon="arrow-up-circle-outline"
+              tone="destructive"
+              label="Ödenen (Çıkan)"
+              value={joinAmounts(balances.map((item) => ({ amount: item.outgoing, currencyCode: item.currencyCode })))}
+              sub={`${outflowPaid} ödeme`}
+            />,
+            <KpiTile
+              key="net"
+              icon="wallet-outline"
+              tone="info"
+              label="Net Kasa"
+              value={joinAmounts(balances.map((item) => ({ amount: item.net, currencyCode: item.currencyCode })))}
+              sub="gerçekleşen"
+            />,
+            <KpiTile
+              key="pending"
+              icon="time-outline"
+              tone="warning"
+              label="Bekleyen Tahsilat"
+              value={joinAmounts(balances.map((item) => ({ amount: item.pendingIn, currencyCode: item.currencyCode })))}
+              sub={`${inflowPending} kayıt`}
+              selected={status === 'Pending' && direction === 'in'}
+              onPress={() => {
+                setDirection('in');
+                setStatus('Pending');
+              }}
+            />,
+          ]}
+        </KpiGrid>
+      ) : null}
+      <View style={{ paddingHorizontal: SCREEN_PAD }}>
+        <Button variant="ghost" label={showAnalysis ? 'Kasa analizlerini gizle' : 'Kasa analizlerini göster'} trailingIcon={showAnalysis ? 'chevron-up' : 'analytics-outline'} onPress={() => setShowAnalysis((value) => !value)} />
+      </View>
+      {showAnalysis ? <>
+      <CashBalancePanel rows={rows} />
+      <UpcomingDuesPanel rows={rows} onOpen={openRow} />
+      <TrendPanel rows={rows} />
+      <CurrencySharePanel rows={rows} />
+      <AgingPanel rows={rows} />
+      <DailyFlowPanel rows={rows} />
+      <TopDebtorsPanel
+        rows={rows}
+        onShowAll={() => {
+          setStatus('Overdue');
+          setDirection('in');
+        }}
+      />
+      </> : null}
     </View>
   );
 
@@ -177,12 +191,12 @@ export default function PaymentsScreen() {
       <SyncStatus />
       {movements.isPending ? (
         <>
-          <ScreenHeader title="Ödemeler & Kasa" />
+          <ScreenHeader title="Ödemeler & Kasa" compact/>
           <ListSkeleton />
         </>
       ) : movements.error ? (
         <>
-          <ScreenHeader title="Ödemeler & Kasa" />
+          <ScreenHeader title="Ödemeler & Kasa" compact/>
           <ErrorState message={movements.error.message} onRetry={() => void movements.refetch()} />
         </>
       ) : (
@@ -192,7 +206,7 @@ export default function PaymentsScreen() {
           data={filtered}
           keyExtractor={(item) => `${item.source}-${item.id}`}
           ListHeaderComponent={header}
-          contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
           renderItem={({ item }) => {
             const incoming = item.direction === 'in';
             const late = overdueDays(item);
@@ -202,8 +216,12 @@ export default function PaymentsScreen() {
                   title={item.companyName}
                   lines={[
                     item.invoiceNo ? `Fatura: ${item.invoiceNo}` : item.notes,
-                    item.paidDate ? `Ödeme: ${formatDate(item.paidDate)}` : `Vade: ${formatDate(item.dueDate)}`,
-                    item.paymentMethod ? (METHOD_LABEL[item.paymentMethod] ?? item.paymentMethod) : null,
+                    [
+                      item.paidDate ? `Ödeme: ${formatDate(item.paidDate)}` : `Vade: ${formatDate(item.dueDate)}`,
+                      item.paymentMethod ? (METHOD_LABEL[item.paymentMethod] ?? item.paymentMethod) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · '),
                   ]}
                   icon={incoming ? 'arrow-down-circle-outline' : 'arrow-up-circle-outline'}
                   iconTone={incoming ? 'success' : 'destructive'}

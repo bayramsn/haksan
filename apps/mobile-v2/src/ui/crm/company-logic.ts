@@ -96,6 +96,7 @@ export type CompanyListFilters = {
   salesTab: SalesStatusTab;
   divisionId: string;
   city?: string;
+  district?: string;
   sector?: string;
   supplierCategory: 'all' | 'transportation' | 'logistics';
   sortMode: CompanySortMode;
@@ -110,6 +111,7 @@ export function buildCompanyQuery(filters: CompanyListFilters) {
     ...(salesStatusToCode(filters.salesTab) ? { customerStatusCode: salesStatusToCode(filters.salesTab) } : {}),
     ...(filters.divisionId !== 'all' ? { divisionId: filters.divisionId } : {}),
     ...(filters.city ? { city: filters.city } : {}),
+    ...(filters.city && filters.district ? { district: filters.district } : {}),
     ...(filters.sector ? { sector: filters.sector } : {}),
     ...(filters.supplierCategory !== 'all' ? { supplierCategoryCode: filters.supplierCategory } : {}),
     ...sortModeToQuery(filters.sortMode),

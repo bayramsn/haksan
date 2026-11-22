@@ -9,7 +9,7 @@ import { useAuth } from '@/src/auth/AuthProvider';
 import { relativeTime } from '@/src/lib/format';
 import { useTheme } from '@/src/theme/theme';
 import { Avatar } from '@/src/ui/Avatar';
-import { Chip, EmptyState, ErrorState, Loading, ScreenHeader, SearchBar } from '@/src/ui';
+import { EmptyState, ErrorState, Loading, ScreenHeader, SearchBar } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { groupConversations } from '@/src/ui/crm/chat-logic';
 
@@ -22,36 +22,36 @@ function Row({ item, title, onPress }: { item: Conversation; title: string; onPr
       accessibilityRole="button"
       accessibilityLabel={`${title}${unread ? `, ${item.unreadCount} okunmamış mesaj` : ''}`}
       onPress={onPress}
-      className="flex-row items-center gap-3 border-b border-border px-4 py-3 active:opacity-70"
+      className="mx-4 my-1 min-h-[56px] flex-row items-center gap-2.5 rounded-surface border border-border bg-card px-3.5 py-2 active:opacity-70"
     >
       {item.type === 'group' ? (
-        <View className="h-11 w-11 items-center justify-center rounded-full bg-secondary">
-          <Ionicons name="people" size={20} color={colors.secondaryForeground} />
+        <View className="h-10 w-10 items-center justify-center rounded-full bg-secondary">
+          <Ionicons name="people" size={18} color={colors.secondaryForeground} />
         </View>
       ) : (
         <Avatar name={title} />
       )}
 
-      <View className="flex-1 gap-0.5">
+      <View className="min-w-0 flex-1 gap-0.5">
         <Text
-          className={`text-[15px] text-foreground ${unread ? 'font-inter-semibold' : 'font-inter-medium'}`}
-          numberOfLines={1}
+          className={`text-[14px] text-foreground ${unread ? 'font-inter-semibold' : 'font-inter-medium'}`}
+          numberOfLines={2}
         >
           {title}
         </Text>
         <Text
-          className={`text-[13px] ${unread ? 'font-inter-medium text-foreground' : 'font-inter text-muted-foreground'}`}
+          className={`text-[12px] ${unread ? 'font-inter-medium text-foreground' : 'font-inter text-muted-foreground'}`}
           numberOfLines={1}
         >
           {item.lastMessage?.preview ?? 'Henüz mesaj yok'}
         </Text>
       </View>
 
-      <View className="items-end gap-1">
+      <View className="items-end gap-0.5">
         <Text className="font-inter text-[11px] text-muted-foreground">{relativeTime(item.lastActivityAt)}</Text>
         {unread ? (
-          <View className="min-w-[20px] items-center rounded-full bg-destructive px-1.5 py-0.5">
-            <Text className="font-inter-semibold text-[11px] text-white">{item.unreadCount}</Text>
+          <View className="min-w-[18px] items-center rounded-full bg-primary px-1.5 py-0.5">
+            <Text className="font-inter-semibold text-[10px] text-primary-foreground">{item.unreadCount}</Text>
           </View>
         ) : null}
       </View>
@@ -76,14 +76,11 @@ export default function ConversationsScreen() {
       { title: 'Tüm Sohbetler', data: rest },
     ].filter((section) => section.data.length > 0);
   }, [data, search, user?.id]);
-  const totalUnread = (data ?? []).reduce((sum, conversation) => sum + conversation.unreadCount, 0);
-
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
       <ScreenHeader
         title="Sohbet"
-        subtitle="Ekiplerinizle hızlı ve güvenli iletişim kurun."
         actions={[
           ...(user?.roles.includes('super_admin')
             ? [
@@ -100,13 +97,8 @@ export default function ConversationsScreen() {
             onPress: () => router.push('/chat/new'),
           },
         ]}
-      />
-      <View className="gap-2 pb-2">
-        {totalUnread > 0 ? (
-          <View className="flex-row px-4">
-            <Chip tone="destructive" label={`${totalUnread} yeni`} />
-          </View>
-        ) : null}
+        compact/>
+      <View className="gap-1.5 pb-1.5">
         <SearchBar value={search} onChange={setSearch} placeholder="Kişi veya grup ara…" />
       </View>
 

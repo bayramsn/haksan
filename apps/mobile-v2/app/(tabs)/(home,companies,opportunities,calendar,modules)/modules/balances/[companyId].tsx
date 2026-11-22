@@ -75,7 +75,7 @@ export default function CustomerStatementScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Cari Ekstre" subtitle={name} />
+      <DetailHeader title="Cari Ekstre" subtitle={name} compact />
       {statement.isPending ? (
         <Loading />
       ) : statement.error ? (

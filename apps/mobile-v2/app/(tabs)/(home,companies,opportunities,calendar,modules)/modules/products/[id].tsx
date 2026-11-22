@@ -1,10 +1,11 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { useQuery } from '@tanstack/react-query';
 import { inventoryApi } from '@/src/api/endpoints';
 import { collectPaginated } from '@/src/api/pagination';
 import { hasProductPrice, productPriceLabel } from '@/src/ui/products/product-price';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Alert, Image, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
@@ -20,7 +21,13 @@ import { formatAmount } from '@/src/lib/format';
 import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, DetailSkeleton, ListRow } from '@/src/ui';
 import { Tabs } from '@/src/ui/data';
 import { useTheme, type Tone } from '@/src/theme/theme';
-import { useAuth } from '@/src/auth/AuthProvider';
+import { useAuth, useCan } from '@/src/auth/AuthProvider';
+import { useMailAccountStatus } from '@/src/api/crm-general.hooks';
+import { printDocument } from '@/src/native/print-document';
+import { shareServerPdf } from '@/src/api/server-pdf';
+import { productPrintImage } from '@/src/native/print-image';
+import { productTechnicalPrintInput } from '@/src/ui/products/product-technical-print';
+import { stageMailDocument } from '@/src/ui/crm/mail-document-handoff';
 import { useDeleteProduct } from '@/src/api/products.hooks';
 import { toast } from '@/src/ui/toast';
 import { optionalEquipmentTotals } from '@/src/ui/products/catalog-logic';
@@ -103,6 +110,7 @@ function EquipmentCard({
 export default function ProductDetailScreen() {
   const { goBack } = useHierarchyBack();
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { data, isPending, error, refetch } = useProduct(id);
@@ -112,6 +120,11 @@ export default function ProductDetailScreen() {
   const isAdmin = roles.includes('super_admin') || roles.includes('admin');
   const canUpdate = isAdmin || (user?.permissions ?? []).includes('products.update');
   const canDelete = isAdmin || (user?.permissions ?? []).includes('products.delete');
+  const canRead = useCan('products.read');
+  const mailAccount = useMailAccountStatus();
+  const canMail = Boolean(mailAccount.data?.featureEnabled);
+  const [printing, setPrinting] = useState(false);
+  const printInFlight = useRef(false);
   const remove = useDeleteProduct();
   const [tab, setTab] = useState<ProductTab>('general');
   const [deselected, setDeselected] = useState<ReadonlySet<string>>(new Set());
@@ -143,7 +156,7 @@ export default function ProductDetailScreen() {
   if (isPending || error || !data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Ürün Detayı" />
+        <DetailHeader title="Ürün Detayı" compact />
         {isPending ? (
           <DetailSkeleton />
         ) : (
@@ -166,6 +179,49 @@ export default function ProductDetailScreen() {
   const otherCurrencyOptional = optionalTotals.filter((total) => total.currencyCode !== currency);
   const machineList = Number(data.listPrice ?? 0) || 0;
 
+  async function shareTechnicalPdf(mail = false) {
+    if (!canRead || !data || printInFlight.current || (mail && !canMail)) return;
+    if (optionSets.isFetching || compatibleOptional.isFetching || (!data.imageUrl && media.isFetching)) {
+      return toast.error('Teknik bilgiler yükleniyor. Lütfen bekleyin.');
+    }
+    printInFlight.current = true;
+    setPrinting(true);
+    try {
+      // Görsel alınamazsa PDF yine üretilir; görsel hatası paylaşımı engellemez.
+      let image: string | undefined;
+      const imageRef = data.imageUrl || media.data?.find((item) => item.mediaType === 'image')?.url;
+      if (imageRef) {
+        try {
+          image = await productPrintImage(imageRef);
+        } catch {
+          // Görsel yoksa PDF yine teknik satırlarla üretilir.
+        }
+      }
+      const input = productTechnicalPrintInput(data, {
+        image,
+        optionSets: optionSets.error ? undefined : optionSets.data,
+        compatibleOptional: compatibleOptional.error ? undefined : compatibleOptional.data,
+      });
+      const html = printDocument(input);
+      const filename = `${data.modelCode || 'urun'}-teknik-bilgiler.pdf`;
+      if (mail) {
+        const draftId = stageMailDocument({
+          label: 'Ürün teknik föyü',
+          subject: `${data.fullName} teknik bilgileri`,
+          payload: { productDocument: { id: data.id, pdf: { html, filename } } },
+        });
+        router.push({ pathname: '/modal/mail-compose', params: { draftId } } as Href);
+      } else {
+        await shareServerPdf('product-technical', html, filename);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Teknik PDF paylaşılamadı.');
+    } finally {
+      printInFlight.current = false;
+      setPrinting(false);
+    }
+  }
+
   function confirmDelete() {
     const label = [data!.brand?.name, data!.modelCode].filter(Boolean).join(' ');
     Alert.alert('Ürünü sil?', `${label} arşive alınacak. Bağlı kayıtlarda kullanılıyorsa işlem reddedilebilir.`, [
@@ -187,12 +243,12 @@ export default function ProductDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Ürün Detayı" />
+      <DetailHeader title="Ürün Detayı" actions={canRead ? [{ icon: 'document-text-outline', label: 'Teknik PDF paylaş', onPress: () => void shareTechnicalPdf() }] : []} compact />
 
-      <ScrollView contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="" showsVerticalScrollIndicator={false}>
-        <View className="px-[18px] pt-4">
-          <Card className="min-h-[188px] flex-row items-center gap-4 p-4">
-            <View className="h-[150px] w-[45%] items-center justify-center overflow-hidden rounded-control bg-card-subtle">
+      <ScrollView contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: 24, width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="" showsVerticalScrollIndicator={false}>
+        <View className="px-[18px] pt-3">
+          <Card className="min-h-[112px] flex-row items-center gap-3 p-2.5">
+            <View className="h-[96px] w-[38%] items-center justify-center overflow-hidden rounded-control bg-card-subtle">
               {imageUri ? (
                 <Image
                   source={{ uri: imageUri }}
@@ -202,13 +258,13 @@ export default function ProductDetailScreen() {
                   accessibilityIgnoresInvertColors
                 />
               ) : (
-                <Ionicons name="cube-outline" size={64} color={colors.lineStrong} />
+                <Ionicons name="cube-outline" size={48} color={colors.lineStrong} />
               )}
             </View>
-            <View className="min-w-0 flex-1 gap-3">
+            <View className="min-w-0 flex-1 gap-1.5">
               <Text
-                className="font-inter-bold text-[22px] leading-[1.16] text-foreground"
-                numberOfLines={3}
+                className="font-inter-bold text-[16px] leading-[1.2] text-foreground"
+                numberOfLines={2}
                 adjustsFontSizeToFit
                 minimumFontScale={0.78}
                 style={{ letterSpacing: 0 }}
@@ -216,24 +272,24 @@ export default function ProductDetailScreen() {
                 {data.fullName}
               </Text>
               <Chip tone={data.isActive ? 'success' : 'destructive'} label={data.isActive ? 'Aktif' : 'Pasif'} />
-              <View className="gap-1">
-                <Text className="font-inter text-[13px] text-muted-foreground" style={{ letterSpacing: 0 }}>
-                  Ürün Kodu
-                </Text>
-                <Text
-                  className="font-inter-semibold text-[18px] text-primary"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  style={{ letterSpacing: 0, fontVariant: ['tabular-nums'] }}
-                >
-                  {data.modelCode}
-                </Text>
-              </View>
+              <Text
+                className="font-inter-semibold text-[15px] text-primary"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={{ letterSpacing: 0, fontVariant: ['tabular-nums'] }}
+              >
+                {data.modelCode}
+              </Text>
             </View>
           </Card>
         </View>
 
-        <View className="pt-5">
+        {canRead ? <View className="gap-2 px-[18px] pt-3">
+          <Button label="Teknik PDF paylaş" trailingIcon="share-outline" loading={printing} disabled={printing || optionSets.isFetching || compatibleOptional.isFetching} onPress={() => void shareTechnicalPdf()} />
+          {canMail ? <Button label="Teknik bilgileri e-posta ile gönder" variant="ghost" trailingIcon="mail-outline" disabled={printing || optionSets.isFetching || compatibleOptional.isFetching} onPress={() => void shareTechnicalPdf(true)} /> : null}
+        </View> : null}
+
+        <View className="pt-3">
           <Tabs
             tabs={[
               { value: 'general', label: 'Genel', icon: 'document-text-outline' },
@@ -246,7 +302,7 @@ export default function ProductDetailScreen() {
           />
         </View>
 
-        <View className="gap-4 px-[18px] pt-4">
+        <View className="gap-3 px-[18px] pt-3">
           {tab === 'general' ? (
             <>
               <Card className="gap-0 px-4 py-1">
@@ -528,7 +584,10 @@ export default function ProductDetailScreen() {
         </View>
       </ScrollView>
 
-      <View className="flex-row gap-3 border-t border-border bg-card px-[18px] py-3">
+      <View
+        className="flex-row gap-3 border-t border-border bg-card px-[18px] pt-3"
+        style={{ paddingBottom: Math.max(GLASS_TAB_BAR_HEIGHT, 12) + 8 }}
+      >
         {canUpdate ? (
           <View className="flex-1">
             <Button

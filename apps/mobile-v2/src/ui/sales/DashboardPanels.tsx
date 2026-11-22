@@ -36,7 +36,7 @@ function SectionTitle({ title, hint, action }: { title: string; hint?: string; a
   return (
     <View className="flex-row items-start justify-between gap-2">
       <View className="min-w-0 flex-1">
-        <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">
+        <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-foreground">
           {title}
         </Text>
         {hint ? <Text className="font-inter text-[12px] text-muted-foreground">{hint}</Text> : null}
@@ -130,47 +130,216 @@ export function DashboardBriefing({
   counts,
   onToday,
   onOverdue,
+  compact = false,
 }: {
   firstName: string;
   counts: { total: number; critical: number; warning: number };
   onToday?: () => void;
   onOverdue?: () => void;
+  compact?: boolean;
 }) {
   const { colors } = useTheme();
   const today = new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: 'long', weekday: 'long' }).format(new Date());
   return (
-    <View className="gap-3 rounded-[16px] bg-primary p-4">
+    <View className={`gap-2 rounded-[16px] bg-primary ${compact ? 'px-3.5 py-2.5' : 'gap-3 p-4'}`}>
       <View className="gap-1">
-        <Text className="font-inter-semibold text-[11px] uppercase text-primary-foreground opacity-80">{today}</Text>
-        <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-primary-foreground">
-          {`Hoş geldin ${firstName}`}
+        {compact ? null : (
+          <Text className="font-inter-semibold text-[11px] uppercase text-primary-foreground opacity-80">{today}</Text>
+        )}
+        <Text accessibilityRole="header" className={`font-display-semibold text-primary-foreground ${compact ? 'text-[15px]' : 'text-[22px]'}`}>
+          {compact
+            ? counts.total
+              ? `${counts.total} öncelikli · ${firstName}`
+              : `Bugün sakin · ${firstName}`
+            : `Hoş geldin ${firstName}`}
         </Text>
-        <Text className="font-inter text-[13px] text-primary-foreground opacity-80">
-          {`${counts.total} takip sinyali · ${counts.critical} kritik · ${counts.warning} yakın takip`}
+        <Text className={`font-inter text-primary-foreground opacity-80 ${compact ? 'text-[12px]' : 'text-[13px]'}`}>
+          {compact
+            ? `${counts.critical} kritik · ${counts.warning} yakın takip`
+            : `${counts.total} takip sinyali · ${counts.critical} kritik · ${counts.warning} yakın takip`}
         </Text>
       </View>
-      <View className="flex-row gap-2">
-        {onToday ? <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Takvimi aç"
-          onPress={onToday}
-          className="min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-white/15 active:opacity-70"
-        >
-          <Ionicons name="calendar-outline" size={16} color={colors.primaryForeground} />
-          <Text className="font-inter-semibold text-[14px] text-primary-foreground">Takvimi aç</Text>
-        </Pressable> : null}
-        {onOverdue ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Geciken ödemeler"
-            onPress={onOverdue}
-            className="min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-card active:opacity-70"
-          >
-            <Text className="font-inter-semibold text-[14px] text-primary">Geciken ödemeler</Text>
-          </Pressable>
-        ) : null}
-      </View>
+      {onToday || onOverdue ? (
+        <View className="flex-row gap-2">
+          {onToday ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Takvimi aç"
+              onPress={onToday}
+              className="min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-primary-foreground/15 active:opacity-70"
+            >
+              <Ionicons name="calendar-outline" size={16} color={colors.primaryForeground} />
+              <Text className="font-inter-semibold text-[14px] text-primary-foreground">Takvim</Text>
+            </Pressable>
+          ) : null}
+          {onOverdue ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Geciken ödemeler"
+              onPress={onOverdue}
+              className="min-h-[44px] flex-1 flex-row items-center justify-center gap-1.5 rounded-[10px] bg-card active:opacity-70"
+            >
+              <Text className="font-inter-semibold text-[14px] text-primary">Geciken</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
     </View>
+  );
+}
+
+/** Web Yönetim Merkezi’nin kompakt mobil özeti — risk/fırsat/aksiyon; Bugün’e KPI duvarı değil. */
+export type OpsInsight = {
+  id: string;
+  category: 'risk' | 'opportunity' | 'action' | 'trend';
+  title: string;
+  detail: string;
+  metric: string;
+  tone: Tone;
+  href: Href;
+};
+
+export function buildMobileManagementInsights(input: {
+  overdueReceivables: number | null;
+  openServices: number | null;
+  openOpportunities: number | null;
+  quoteConversion: number | null;
+  stockReserved: number | null;
+  signals: WorkSignal[];
+}): OpsInsight[] {
+  const out: OpsInsight[] = [];
+  if (input.overdueReceivables && input.overdueReceivables > 0) {
+    out.push({
+      id: 'risk-overdue',
+      category: 'risk',
+      title: 'Tahsilat gecikmesi',
+      detail: `${input.overdueReceivables} vadesi geçmiş alacak`,
+      metric: String(input.overdueReceivables),
+      tone: 'destructive',
+      href: '/modules/receivables' as Href,
+    });
+  }
+  if (input.openServices && input.openServices > 0) {
+    out.push({
+      id: 'risk-service',
+      category: 'risk',
+      title: 'Açık servis',
+      detail: `${input.openServices} talep çözüm bekliyor`,
+      metric: String(input.openServices),
+      tone: 'warning',
+      href: '/modules/service-tickets' as Href,
+    });
+  }
+  if (input.openOpportunities != null) {
+    out.push({
+      id: 'opp-pipeline',
+      category: 'opportunity',
+      title: 'Açık fırsat',
+      detail: 'Pipeline’daki açık satış kartları',
+      metric: String(input.openOpportunities),
+      tone: 'info',
+      href: opportunitiesHref({ focus: 'open' }),
+    });
+  }
+  if (input.quoteConversion != null) {
+    out.push({
+      id: 'trend-conversion',
+      category: 'trend',
+      title: 'Teklif dönüşümü',
+      detail: 'Onaylanan / tüm teklif oranı',
+      metric: `%${input.quoteConversion}`,
+      tone: input.quoteConversion >= 40 ? 'success' : input.quoteConversion >= 25 ? 'warning' : 'destructive',
+      href: '/modules/quotes' as Href,
+    });
+  }
+  if (input.stockReserved && input.stockReserved > 0) {
+    out.push({
+      id: 'risk-stock',
+      category: 'risk',
+      title: 'Rezerve stok',
+      detail: `${input.stockReserved} kalem rezervede`,
+      metric: String(input.stockReserved),
+      tone: 'warning',
+      href: '/modules/inventory' as Href,
+    });
+  }
+  for (const signal of input.signals.slice(0, 3)) {
+    if (out.some((row) => row.title === signal.title)) continue;
+    out.push({
+      id: `action-${signal.id}`,
+      category: 'action',
+      title: signal.title,
+      detail: signal.detail,
+      metric: String(signal.count),
+      tone: signal.severity === 'critical' ? 'destructive' : signal.severity === 'warning' ? 'warning' : 'info',
+      href: signalHref(signal),
+    });
+  }
+  return out.slice(0, 6);
+}
+
+const OPS_COLUMNS: { key: OpsInsight['category']; title: string; empty: string }[] = [
+  { key: 'risk', title: 'Riskler', empty: 'Aktif yönetim riski yok' },
+  { key: 'opportunity', title: 'Fırsatlar', empty: 'Yeni fırsat sinyali yok' },
+  { key: 'action', title: 'Aksiyon', empty: 'Acil aksiyon yok' },
+  { key: 'trend', title: 'Trend', empty: 'Trend verisi yok' },
+];
+
+/** Web Yönetim Merkezi: 4 kolon + Rapor Detayı — mobilde dikey kompakt. */
+export function ManagementOpsSummary({ insights }: { insights: OpsInsight[] }) {
+  const push = useGuardedPush();
+  const byCategory = (key: OpsInsight['category']) => insights.filter((row) => row.category === key).slice(0, 3);
+
+  return (
+    <Card className="gap-2">
+      <View className="flex-row items-start justify-between gap-2">
+        <View className="min-w-0 flex-1">
+          <SectionTitle title="Yönetim Merkezi" hint="Risk, fırsat, aksiyon ve trend · kayıtlardan hesaplanır" />
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Rapor detayına git"
+          onPress={() => push('/modules/reports?mode=operational' as Href)}
+          className="min-h-11 shrink-0 justify-center px-1 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[12px] text-primary">Rapor Detayı</Text>
+        </Pressable>
+      </View>
+      {OPS_COLUMNS.map((column) => {
+        const items = byCategory(column.key);
+        return (
+          <View key={column.key} className="gap-0.5 border-t border-border pt-2">
+            <View className="mb-1 flex-row items-center justify-between">
+              <Text className="font-inter-semibold text-[13px] text-foreground">{column.title}</Text>
+              <Text className="font-inter text-[11px] text-muted-foreground">{items.length}</Text>
+            </View>
+            {items.length === 0 ? (
+              <Text className="py-2 font-inter text-[12px] text-muted-foreground">{column.empty}</Text>
+            ) : (
+              items.map((item) => (
+                <Pressable
+                  key={item.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.title}: ${item.metric}`}
+                  onPress={() => push(item.href)}
+                  className="min-h-[44px] flex-row items-center gap-2 py-1.5 active:opacity-70"
+                >
+                  <View className="min-w-0 flex-1">
+                    <Text className="font-inter-semibold text-[13px] text-foreground" numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    <Text className="font-inter text-[11px] text-muted-foreground" numberOfLines={1}>
+                      {item.detail}
+                    </Text>
+                  </View>
+                  <Chip tone={item.tone} label={item.metric} />
+                </Pressable>
+              ))
+            )}
+          </View>
+        );
+      })}
+    </Card>
   );
 }
 
@@ -479,6 +648,7 @@ export function TeamActivityPanel() {
                       accessibilityRole="button"
                       accessibilityLabel={`${metric.label} kayıtlarını aç: ${current}`}
                       disabled={current === 0}
+                      accessibilityState={{ disabled: current === 0 }}
                       onPress={() => openDetails(metric.key)}
                       className={`min-h-[64px] flex-1 rounded-[12px] border border-border bg-canvas px-3 py-2.5 active:opacity-70 ${current === 0 ? 'opacity-60' : ''}`}
                     >
@@ -521,6 +691,7 @@ export function TeamActivityPanel() {
                   accessibilityRole="button"
                   accessibilityLabel={`${row.name} için tüm aktivite kayıtlarını aç`}
                   disabled={row.total.current === 0 && row.won.current === 0}
+                  accessibilityState={{ disabled: row.total.current === 0 && row.won.current === 0 }}
                   onPress={() => openDetails('all', { id: row.userId, name: row.name })}
                   className="min-h-[44px] flex-row items-center gap-2 border-t border-border py-1.5 active:opacity-70"
                 >

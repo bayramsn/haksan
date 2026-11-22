@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +20,7 @@ function first(value: string | string[] | undefined): string {
 /** Web CreateMachineDialog: "Yeni Makine / Varlık Ekle". */
 export default function NewDeviceScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const canCreate = useCan('customer_devices.update');
   const params = useLocalSearchParams<{ companyId?: string; companyName?: string }>();
   const create = useCreateCustomerDevice();
@@ -94,7 +96,7 @@ export default function NewDeviceScreen() {
       {
         onSuccess: (device) => {
           toast.success('Makine başarıyla eklendi.');
-          router.replace(`/modules/customer-devices/${device.id}` as Href);
+          router.replace(recordDestination(`/modules/customer-devices/${device.id}`));
         },
         onError: (error) => toast.error(`Makine eklenirken hata oluştu: ${error.message}`),
       },
@@ -105,7 +107,7 @@ export default function NewDeviceScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Makine / Varlık Ekle', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <FormSection title="Müşteri" hint="Müşteriye satılmış ve kurulumu yapılmış cihazı kaydedin.">
             <CompanyPicker
               label="Firma Seçimi *"
@@ -165,7 +167,7 @@ export default function NewDeviceScreen() {
             ) : null}
           </FormSection>
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button className="flex-1" label="Vazgeç" variant="ghost" onPress={() => router.back()} />
           <Button className="flex-[2]" label="Kaydet" loading={create.isPending} disabled={create.isPending} onPress={submit} />
         </View>

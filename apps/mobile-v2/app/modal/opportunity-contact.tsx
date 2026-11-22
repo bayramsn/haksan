@@ -83,9 +83,9 @@ export default function OpportunityContactScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Temas Kaydet', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           {typeof title === 'string' && title ? (
-            <Text className="font-display text-lg text-foreground" numberOfLines={2}>{title}</Text>
+            <Text className="font-inter-semibold text-lg text-foreground" numberOfLines={2}>{title}</Text>
           ) : null}
           <View className="gap-3">
             <Eyebrow>İlk temas</Eyebrow>
@@ -107,7 +107,7 @@ export default function OpportunityContactScreen() {
             <Text accessibilityRole="alert" className="font-inter-medium text-sm text-destructive">{error}</Text>
           ) : null}
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View>
           <View className="flex-[2]"><Button label="Temas Kaydet" loading={record.isPending} onPress={submit} /></View>
         </View>

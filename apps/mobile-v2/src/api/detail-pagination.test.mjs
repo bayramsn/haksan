@@ -59,8 +59,15 @@ test('product stock query traverses search pages before exact product filter', a
 for (const [variable, api, flat] of [['devicesQuery', 'devices', false], ['receivablesQuery', 'receivables', false], ['paymentsQuery', 'payments', false], ['invoicesQuery', 'invoices', true]]) {
   test(`company ${variable} includes later rows and retains company filter`, async () => {
     const calls = []; const fetch = async input => { calls.push(input); return flat ? { data: [{ id: `row-${input.page}` }], page: input.page, pageSize: 1, total: 2 } : page(input.page, [{ id: 'row-1' }], [{ id: 'row-2' }]); };
-    const query = initializer(modules + 'companies/[id].tsx', variable, { id: 'company', tab: 'cari', devices: { list: fetch }, finance: { [api]: fetch } });
+    const query = initializer(modules + 'companies/[id].tsx', variable, { id: 'company', tab: 'cari', canReadDevices: true, canReadReceivables: true, canReadPayments: true, canReadInvoices: true, devices: { list: fetch }, finance: { [api]: fetch } });
     const result = await query.queryFn();
     assert.deepEqual(Array.from(result.data, row => row.id), ['row-1', 'row-2']); assert.ok(calls.every(row => row.companyId === 'company'));
+  });
+}
+
+for (const [variable, permission] of [['devicesQuery', 'canReadDevices'], ['receivablesQuery', 'canReadReceivables'], ['paymentsQuery', 'canReadPayments'], ['invoicesQuery', 'canReadInvoices']]) {
+  test(`company ${variable} does not fetch without read permission`, () => {
+    const query = initializer(modules + 'companies/[id].tsx', variable, { id: 'company', tab: 'cari', [permission]: false });
+    assert.equal(query.enabled, false);
   });
 }

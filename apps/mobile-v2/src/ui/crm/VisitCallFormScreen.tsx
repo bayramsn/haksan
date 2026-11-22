@@ -94,7 +94,7 @@ export function VisitCallFormScreen({ kind }: { kind: VisitCallKind }) {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: `${label} Kaydı`, headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <Text className="font-inter text-sm text-muted-foreground">Firma ile yapılan görüşmeyi CRM aktivite geçmişine ekleyin.</Text>
           <CompanyPicker
             label="Firma *"

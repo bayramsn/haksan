@@ -3,7 +3,8 @@ import { startCrmCall } from '@/src/call-assistant/call';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { Alert, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -42,8 +43,11 @@ import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Field, ListRow, 
 import { InfoRows, ProgressBar } from '@/src/ui/data';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { OpportunityPaymentTermsPanel, OpportunityTasksPanel } from '@/src/ui/sales/OpportunityInfoPanels';
+import { OpportunityOpsRecords, OpportunityPaymentRecords } from '@/src/ui/sales/OpportunityCaseLinkedRecords';
 import { useConvertLead } from '@/src/api/sales.hooks';
 import { can, useAuth, useCan } from '@/src/auth/AuthProvider';
+import { OpenServiceWarning, OpportunityServicePanel } from '@/src/ui/service/SalesServiceLinks';
+import { LeadContactSheet } from '@/src/features/LeadContactSheet';
 import { useCanAccessModule } from '@/src/modules/useModuleAccess';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { canPerformOpportunityAction } from '@/src/ui/sales/process-access';
@@ -96,11 +100,11 @@ type WorkspaceTab = 'surec' | 'ozet' | 'teklifler' | 'belgeler' | 'odemeler' | '
 
 const WORKSPACE_TABS: { value: WorkspaceTab; label: string }[] = [
   { value: 'surec', label: 'Süreç' },
-  { value: 'ozet', label: 'Fırsat bilgileri' },
-  { value: 'teklifler', label: 'Teklifler' },
-  { value: 'belgeler', label: 'Belgeler' },
-  { value: 'odemeler', label: 'Ödeme bilgileri' },
-  { value: 'aktivite', label: 'Notlar ve görüşmeler' },
+  { value: 'ozet', label: 'Bilgi' },
+  { value: 'teklifler', label: 'Teklif' },
+  { value: 'belgeler', label: 'Belge' },
+  { value: 'odemeler', label: 'Ödeme' },
+  { value: 'aktivite', label: 'Aktivite' },
 ];
 
 /**
@@ -229,6 +233,7 @@ export default function OpportunityDetailScreen() {
   const { colors } = useTheme();
   const sheetRef = useRef<BottomSheetModal>(null);
   const docsSheetRef = useRef<BottomSheetModal>(null);
+  const contactRef = useRef<BottomSheetModal>(null);
   const canUpdate = useCan('opportunities.update');
   const canApprove = useCan('opportunities.approve');
   const canReadAssignees = useCan('opportunities.read');
@@ -263,10 +268,12 @@ export default function OpportunityDetailScreen() {
   const showStock = useCanAccessModule('inventory');
   const showShipments = useCanAccessModule('shipments');
   const showInstallations = useCanAccessModule('installations');
+  const showDeliveries = useCanAccessModule('deliveries');
   const showDocuments = useCanAccessModule('documents');
   const showPayments = useCanAccessModule('payments');
   const showReceivables = useCanAccessModule('receivables');
   const showActivities = useCanAccessModule('activities');
+  const canCreateInstallation = useCan('installations.create');
   const tileAllowed: Record<string, boolean> = {
     quote: showQuotes,
     proforma: showProformas,
@@ -418,7 +425,7 @@ export default function OpportunityDetailScreen() {
   if (isPending || error || !data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Fırsat" />
+        <DetailHeader title="Fırsat" compact />
         {isPending ? <Loading /> : <ErrorState message={error?.message ?? 'Kayıt yüklenemedi.'} onRetry={() => void refetch()} />}
       </SafeAreaView>
     );
@@ -575,6 +582,16 @@ export default function OpportunityDetailScreen() {
     } as unknown as Href);
   }
 
+  function openScopedModule(module: 'shipments' | 'installations' | 'deliveries' | 'receivables') {
+    router.push({
+      pathname: `/modules/${module}`,
+      params: {
+        opportunityId: id,
+        ...(companyIdForDocs ? { companyId: companyIdForDocs } : {}),
+      },
+    } as Href);
+  }
+
   function handleModuleTile(key: string, listRoute: string) {
     if (!tileAllowed[key]) return;
     if (key === 'quote') {
@@ -595,11 +612,15 @@ export default function OpportunityDetailScreen() {
     }
     if (key === 'shipment') {
       if (canPerformAction('create_shipment') && !isClosed) openShipmentCreate();
-      else router.push(listRoute as Href);
+      else openScopedModule('shipments');
       return;
     }
     if (key === 'stock' && !showStock) return;
-    if (key === 'installation' && !showInstallations) return;
+    if (key === 'installation') {
+      if (!showInstallations) return;
+      openScopedModule('installations');
+      return;
+    }
     router.push(listRoute as Href);
   }
 
@@ -738,7 +759,7 @@ export default function OpportunityDetailScreen() {
         </Pressable>)}
       </ScrollView>
       <ScrollView ref={contentRef} keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ gap: 16, paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32, paddingTop: 4 }}
+        contentContainerStyle={{ gap: 16, paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32, paddingTop: 4 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
       >
         {neighbors.previous || neighbors.next ? (
           <View className="flex-row justify-between gap-3">
@@ -772,6 +793,7 @@ export default function OpportunityDetailScreen() {
               <Pressable
                 accessibilityRole={canUpdate ? 'button' : undefined}
                 accessibilityLabel={canUpdate ? 'Satış aşamasını değiştir' : undefined}
+                accessibilityState={{ disabled: Boolean(!canUpdate) }}
                 disabled={!canUpdate}
                 onPress={() => {
                   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -786,12 +808,12 @@ export default function OpportunityDetailScreen() {
                   {canUpdate ? <Ionicons name="chevron-down" size={15} color={colors.stage} /> : null}
                 </View>
               </Pressable>
-              <Text className="text-[24px] font-display-semibold leading-[30px] text-foreground" numberOfLines={3}>{data.title}</Text>
+              <Text className="text-[17px] font-display-semibold leading-[22px] text-foreground" numberOfLines={3}>{data.title}</Text>
               <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={2}>{company ?? 'Firma bağlanmadı'}</Text>
             </View>
             <View className="max-w-[43%] items-end pt-2">
               <Text className="font-inter text-[12px] text-muted-foreground">Tahmini Tutar</Text>
-              <Text className="text-right text-[22px] font-inter-bold text-primary" numberOfLines={1} adjustsFontSizeToFit>
+              <Text className="text-right text-[18px] font-inter-bold text-primary" numberOfLines={1} adjustsFontSizeToFit>
                 {formatAmount(data.estimatedValue, data.currency?.code ?? 'TRY')}
               </Text>
               <Text className="font-inter-medium text-[12px] text-primary">%{data.probability} olasılık</Text>
@@ -800,8 +822,9 @@ export default function OpportunityDetailScreen() {
         </View>
 
         {workspaceTab === 'ozet' ? <>
+          {/* Firmada açık servis varsa satışçı görüşmeden önce bilsin; ayrıntı alttaki Servis kartında. */}
+          <OpenServiceWarning companyId={data.company?.id ?? data.companyId} />
           <Card className="gap-1">
-            <Eyebrow>Firma ve iletişim</Eyebrow>
             <OpportunityFact icon="business-outline" label="Firma" value={company ?? 'Firma bağlanmadı'}
               onPress={data.company?.id && canReadCompanies ? () => router.push(`/modules/companies/${data.company!.id}`) : undefined} />
             <OpportunityFact icon="person-outline" label="İlgili kişi" value={contactName ?? 'Belirtilmedi'} />
@@ -810,9 +833,10 @@ export default function OpportunityDetailScreen() {
             <OpportunityFact icon="location-outline" label="İl / İlçe" value={[data.leadCity, data.leadDistrict].filter(Boolean).join(' / ') || 'Belirtilmedi'} />
             <QuickContactRow opportunityId={data.id} phone={phone ?? (data.leadContactValue as string | null | undefined)} email={data.leadEmail}
               companyId={data.company?.id ?? data.companyId} name={contactName ?? data.title} />
+            {canUpdate ? <Button label="Görüşme kaydet" variant="ghost" trailingIcon="chatbubbles-outline" onPress={() => contactRef.current?.present()} /> : null}
           </Card>
+          <OpportunityServicePanel opportunityId={data.id} companyId={data.company?.id ?? data.companyId} sourceServiceTicketId={data.sourceServiceTicketId} />
           <Card className="gap-1">
-            <Eyebrow>Makine ve satış bilgileri</Eyebrow>
             <OpportunityFact icon="cube-outline" label="Makine" value={Array.isArray(data.products) && data.products.length
               ? data.products.map((row) => `${row.machineName}${Number(row.quantity) > 1 ? ` ×${row.quantity}` : ''}`).join(', ')
               : data.requestedMachine ?? 'Belirtilmedi'} />
@@ -859,13 +883,12 @@ export default function OpportunityDetailScreen() {
 
         {workspaceTab === 'ozet' && data.description ? (
           <Card className="gap-1.5">
-            <Eyebrow>Açıklama</Eyebrow>
             <Text className="font-inter text-sm text-foreground">{data.description}</Text>
           </Card>
         ) : null}
 
         {workspaceTab === 'ozet' && data.contractTerms ? (
-          <Card className="gap-2"><Eyebrow>Sözleşme şartları</Eyebrow>
+          <Card className="gap-2">
             <Text className="font-inter text-sm text-foreground">{data.contractTerms}</Text>
           </Card>
         ) : null}
@@ -1034,13 +1057,30 @@ export default function OpportunityDetailScreen() {
         ) : null}
 
         {workspaceTab === 'surec' ? <>
-          {showShipments || showInstallations ? <Card className="gap-3">
-            <Eyebrow>Sevkiyat, teslim ve kurulum</Eyebrow>
-            <Text className="font-inter text-[13px] text-muted-foreground">Mevcut operasyon: {data.stage?.name ?? 'Belirtilmedi'}</Text>
-            {canPerformAction('create_shipment') && !isClosed ? <Button label="Sevkiyat oluştur" variant="ghost" onPress={openShipmentCreate} /> : null}
-            {showShipments ? <Button label="Sevkiyat modülünü aç" variant="ghost" onPress={() => router.push('/modules/shipments' as Href)} /> : null}
-            {showInstallations ? <Button label="Kurulum modülünü aç" variant="ghost" onPress={() => handleModuleTile('installation', '/modules/installations')} /> : null}
-          </Card> : null}
+          {showShipments || showInstallations || showDeliveries ? (
+            <OpportunityOpsRecords
+              opportunityId={id}
+              companyId={companyIdForDocs || undefined}
+              showShipments={showShipments}
+              showInstallations={showInstallations}
+              showDeliveries={showDeliveries}
+              canCreateShipment={canPerformAction('create_shipment') && !isClosed}
+              canCreateInstallation={canCreateInstallation && !isClosed && Boolean(companyIdForDocs)}
+              onCreateShipment={openShipmentCreate}
+              onCreateInstallation={() =>
+                router.push({
+                  pathname: '/modal/installation-form',
+                  params: {
+                    opportunityId: id,
+                    opportunityName: data.title,
+                    companyId: companyIdForDocs,
+                    companyName: companyNameForDocs,
+                  },
+                } as Href)
+              }
+              onOpenModule={(module) => openScopedModule(module)}
+            />
+          ) : null}
         {!data.company && canUpdate && canReadCompanies && !isClosed ? (
           <CompanyLinkCard opportunityId={id} leadCompanyTitle={data.leadCompanyTitle ?? null} />
         ) : null}
@@ -1109,7 +1149,6 @@ export default function OpportunityDetailScreen() {
 
         {workspaceTab === 'ozet' && data.externalSource ? (
           <Card className="gap-1.5">
-            <Eyebrow>Dış Kaynak</Eyebrow>
             <InfoRows
               items={[
                 { label: 'Kaynak', value: data.externalSource },
@@ -1246,30 +1285,26 @@ export default function OpportunityDetailScreen() {
         ) : null}
 
         {workspaceTab === 'odemeler' ? (
-          <View className="gap-4">
+          <View className="gap-3">
           <OpportunityPaymentTermsPanel key={id} opportunity={data} canEdit={canUpdate && !isClosed} />
-          <Card className="gap-2">
-            <Eyebrow>Ödeme planı</Eyebrow>
-            <Text className="font-inter text-[12px] text-muted-foreground">
-              Vadeli satışlarda taksit alacaklarını oluşturun; peşin ve leasingde yalnız yöntem kaydedilir.
-            </Text>
-            {canPerformAction('create_payment_plan') && !isClosed ? (
-              <Button label="Ödeme planı oluştur" trailingIcon="add" onPress={openPaymentPlan} />
-            ) : null}
-            {showReceivables ? <Button label="Alacak listesini aç" variant="ghost"
-              onPress={() => router.push('/modules/receivables' as Href)} /> : null}
-            {canCreatePayment && !isClosed ? <Button
-              label="Ödeme kaydet"
-              variant="ghost"
-              onPress={() =>
-                router.push(
-                  (companyIdForDocs
-                    ? `/modal/payment?companyId=${encodeURIComponent(companyIdForDocs)}`
-                    : '/modal/payment') as Href,
-                )
-              }
-            /> : null}
-          </Card>
+          <OpportunityPaymentRecords
+            opportunityId={id}
+            companyId={companyIdForDocs || undefined}
+            quoteIds={opportunityQuotes.map((quote) => quote.id)}
+            titleHint={data.requestedMachine || data.title}
+            enabled={showReceivables}
+            canCreatePlan={canPerformAction('create_payment_plan') && !isClosed}
+            canCreatePayment={canCreatePayment && !isClosed}
+            onCreatePlan={openPaymentPlan}
+            onCreatePayment={() =>
+              router.push(
+                (companyIdForDocs
+                  ? `/modal/payment?companyId=${encodeURIComponent(companyIdForDocs)}`
+                  : '/modal/payment') as Href,
+              )
+            }
+            onOpenReceivables={() => openScopedModule('receivables')}
+          />
           </View>
         ) : null}
 
@@ -1310,7 +1345,7 @@ export default function OpportunityDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Satış derecesi</Text>
@@ -1383,7 +1418,7 @@ export default function OpportunityDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Belge ve süreç</Text>
@@ -1469,7 +1504,7 @@ export default function OpportunityDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground" numberOfLines={1}>{data.title}</Text>
@@ -1560,7 +1595,7 @@ export default function OpportunityDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Sorumlu</Text>
@@ -1583,12 +1618,14 @@ export default function OpportunityDetailScreen() {
         </BottomSheetView>
       </BottomSheetModal>
 
+      <LeadContactSheet ref={contactRef} opportunityId={id} />
+
       <BottomSheetModal
         ref={followUpSheetRef}
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">İlk temas durumu</Text>
@@ -1620,7 +1657,7 @@ export default function OpportunityDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Ödeme vadesi</Text>
@@ -1658,7 +1695,7 @@ export default function OpportunityDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Sonraki Aksiyon</Text>
@@ -1691,7 +1728,7 @@ export default function OpportunityDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Fırsatı Takibe Al</Text>
@@ -1736,7 +1773,7 @@ export default function OpportunityDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-3 px-5 pb-10 pt-2">
           <Text className="font-inter-semibold text-base text-foreground">Geçmişe Al</Text>

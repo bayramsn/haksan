@@ -1,8 +1,9 @@
+import { reconcileScope } from './scope-options';
 import { getRandomValues } from 'expo-crypto';
 import { bindNavigationContext } from '@/src/modules/navigationContext';
 import { endAllLiveActivities } from '@/src/native/live-activity';
 import { runStartup } from '@/src/security/startup';
-import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as SecureStore from '@/src/security/secure-store';
 import { auth, type AuthTenant, type AuthUser } from '@/src/api/endpoints';
 import {
@@ -34,11 +35,12 @@ type AuthState = {
   user: AuthUser | null;
   tenant: AuthTenant | null;
   scope: ActiveScope;
+  scopeBoundary: string;
   /** İlk açılışta token/oturum çözülene kadar true. */
   loading: boolean;
   signIn: (identifier: string, password: string, tenantSlug?: string) => Promise<void>;
   signOut: () => Promise<void>;
-  changeScope: (scope: ActiveScope) => void;
+  changeScope: (scope: ActiveScope, resource?: string) => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -125,19 +127,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const changeScope = useCallback(
-    (next: ActiveScope) => {
+    (next: ActiveScope, resource?: string) => {
       if (!user) return;
       const divisionIds = new Set(user.divisions?.map((item) => item.id) ?? []);
       const departmentIds = new Set(user.departments?.map((item) => item.id) ?? []);
+      const requested = resource ? reconcileScope(user, next, resource) : next;
+      if (!requested) return;
       const validated: ActiveScope = {
         divisionId:
-          next.divisionId && divisionIds.has(next.divisionId)
-            ? next.divisionId
+          requested.divisionId && divisionIds.has(requested.divisionId)
+            ? requested.divisionId
             : (user.canViewAllDivisions || user.accessScopes.some((grant) => grant.divisionId === null))
               ? null
               : scope.divisionId,
         departmentId:
-          next.departmentId && departmentIds.has(next.departmentId) ? next.departmentId : scope.departmentId,
+          requested.departmentId && departmentIds.has(requested.departmentId) ? requested.departmentId : scope.departmentId,
       };
       setActiveScope(validated);
       setScopeState(validated);
@@ -234,15 +238,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
   }, [applySession]);
 
-  const value = useMemo<AuthState>(
-    () => ({ user, tenant, scope, loading, signIn, signOut, changeScope }),
-    [user, tenant, scope, loading, signIn, signOut, changeScope]
-  );
   // Clearing the cache does not rebind mounted QueryObservers. Recreate all
   // account-owned screens/providers so local forms and active queries start clean.
   const boundary = JSON.stringify([apiOrigin(), user?.tenantId, user?.id, scope.divisionId, scope.departmentId, user?.roles, user?.canViewAllDivisions, user?.departmentId, user?.permissions, user?.divisions, user?.departments, user?.accessScopes]);
   bindNavigationContext(user ? boundary : null, requestContextKey, getRandomValues);
-  return <AuthContext.Provider value={value}><Fragment key={boundary}>{children}</Fragment></AuthContext.Provider>;
+  const value = useMemo<AuthState>(
+    () => ({ user, tenant, scope, scopeBoundary: boundary, loading, signIn, signOut, changeScope }),
+    [user, tenant, scope, boundary, loading, signIn, signOut, changeScope]
+  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthState {

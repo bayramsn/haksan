@@ -27,6 +27,7 @@ import {
   contactNameOf,
   kanbanMoveOptions,
   lostStageBody,
+  machineLabelOf,
   moveKind,
   partyName,
   QUALIFICATION_DESCRIPTIONS,
@@ -73,7 +74,7 @@ function BoardCard({
   const [expanded, setExpanded] = useState(false);
   const stage = asQualification(item.qualificationStage);
   const party = partyName(item);
-  const machine = (stage === 'win' ? item.wonProductName : null) ?? item.requestedMachine ?? 'Makine belirtilmedi';
+  const machine = machineLabelOf(item);
   const amount = Number(item.estimatedValue ?? 0) ? formatAmount(item.estimatedValue, item.currency?.code ?? 'TRY') : 'Tutar belirtilmedi';
   const overdue = stage !== 'win' && stage !== 'lost' && !!item.nextActionAt && Date.parse(item.nextActionAt) < Date.now();
   return (
@@ -84,9 +85,12 @@ function BoardCard({
             <Text className="min-w-0 flex-1 font-inter-semibold text-[16px] leading-[22px] text-foreground" numberOfLines={2}>{party}</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
           </View>
-          <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground" numberOfLines={2}>Konu: {item.title || 'Belirtilmedi'}</Text>
-          <Text className="pt-1 font-inter-semibold text-[16px] text-primary" style={{ fontVariant: ['tabular-nums'] }}>{amount}</Text>
+          <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground" numberOfLines={2}>{item.title || 'Konu belirtilmedi'}</Text>
         </Pressable>
+        <View className="flex-row flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
+          <Text className="font-inter-medium text-[12px] text-muted-foreground">Tahmini tutar</Text>
+          <Text className="font-inter-semibold text-[16px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>{amount}</Text>
+        </View>
         <View className="flex-row items-start gap-2">
           <Ionicons name="person-outline" size={16} color={colors.mutedForeground} />
           <Text className="flex-1 font-inter text-[13px] leading-[18px] text-foreground" numberOfLines={2}>İlgili: {contactNameOf(item)}</Text>
@@ -95,14 +99,15 @@ function BoardCard({
           <Ionicons name="hardware-chip-outline" size={16} color={colors.mutedForeground} />
           <Text className="flex-1 font-inter text-[13px] leading-[18px] text-foreground" numberOfLines={2}>Makina: {machine}</Text>
         </View>
-        <View className={`gap-1 rounded-control p-3 ${overdue ? 'bg-destructive-soft' : 'bg-muted'}`}>
+        <View className={`gap-2 rounded-control border p-3 ${overdue ? 'border-warning-border bg-warning-soft' : 'border-border bg-muted'}`}>
           <View className="flex-row items-center gap-2">
-            <Ionicons name="time-outline" size={16} color={overdue ? colors.destructive : colors.mutedForeground} />
-            <Text className={`flex-1 font-inter-medium text-[12px] ${overdue ? 'text-destructive' : 'text-muted-foreground'}`}>
-              {overdue ? 'Aktivite tarihi geçti' : 'Sonraki aktivite'}{item.nextActionAt ? ` · ${formatDate(item.nextActionAt)}` : ''}
+            <Ionicons name={overdue ? 'alert-circle-outline' : 'calendar-outline'} size={16} color={overdue ? colors.warning : colors.mutedForeground} />
+            <Text className={`flex-1 font-inter-medium text-[12px] ${overdue ? 'text-warning' : 'text-muted-foreground'}`}>
+              {overdue ? 'Takip gecikti' : 'Sonraki adım'}
             </Text>
           </View>
           <Text className="font-inter text-[13px] leading-[18px] text-foreground" numberOfLines={2}>{item.nextAction || 'Aktivite planlanmamış'}</Text>
+          {item.nextActionAt ? <Text className={`font-inter-medium text-[12px] ${overdue ? 'text-warning' : 'text-muted-foreground'}`} style={{ fontVariant: ['tabular-nums'] }}>{formatDate(item.nextActionAt)}</Text> : null}
         </View>
         {expanded ? <View>
           <CardLine label="Adres" value={addressOf(item)} />
@@ -118,7 +123,7 @@ function BoardCard({
         <Pressable accessibilityRole="button" accessibilityLabel={`${party} aşama ve kart işlemleri`} onPress={onMenu}
           className="min-h-11 flex-1 flex-row items-center justify-center gap-2 border-l border-border px-2 active:opacity-70">
           <Ionicons name="options-outline" size={16} color={colors.primary} />
-          <Text className="font-inter-medium text-[12px] text-primary">Kart işlemleri</Text>
+          <Text className="font-inter-medium text-[12px] text-primary">Aşama ve işlemler</Text>
         </Pressable>
       </View>
       {stage === 'lost' ? <Pressable accessibilityRole="button" accessibilityLabel="Kayıp ayrıntısını oku" onPress={onLostDetails}
@@ -154,6 +159,7 @@ export function QualificationBoard({
   const wide = width >= 768;
   const [selectedStage, setSelectedStage] = useState<Qualification>('lead');
   const stageTabsRef = useRef<ScrollView>(null);
+  const stagePickerRef = useRef<BottomSheetModal>(null);
   const columnScrollRef = useRef<ScrollView>(null);
   const stagePositions = useRef<Partial<Record<Qualification, number>>>({});
   const canUpdate = useCan('opportunities.update');
@@ -191,7 +197,7 @@ export function QualificationBoard({
     return () => cancelAnimationFrame(handle);
   }, [markClosedTarget]);
 
-  const columnWidth = 336;
+  const columnWidth = width >= 1200 ? 360 : 336;
   const selectStage = (stage: Qualification) => {
     setSelectedStage(stage);
     void Haptics.selectionAsync();
@@ -316,7 +322,7 @@ export function QualificationBoard({
   const columnSummary = (column: typeof selectedColumn) => {
     const totals = totalsByCurrency(column.items);
     return (
-      <View className="gap-1 rounded-control border border-border bg-card px-4 py-3">
+      <View className="gap-1 rounded-control bg-muted px-4 py-3">
         <Text className="font-inter text-[12px] text-muted-foreground">
           {column.total > column.items.length ? `Görünen ${column.items.length} kartın tutarı · ${column.total} karttan` : 'Kartların toplam tutarı'}
         </Text>
@@ -340,8 +346,7 @@ export function QualificationBoard({
   );
   const moreCards = (column: typeof selectedColumn) => column.total > column.items.length ? (
     <View className="gap-2 py-4">
-      <Text className="text-center font-inter text-[12px] text-muted-foreground">{column.total} karttan {column.items.length} kart gösteriliyor.</Text>
-      {onStageList ? <Button label="Bu aşamadaki tüm kartları aç" variant="ghost" onPress={() => onStageList(column.stage as Qualification)} /> : null}
+      {onStageList ? <Button label="Daha fazla" variant="ghost" onPress={() => onStageList(column.stage as Qualification)} /> : null}
     </View>
   ) : null;
 
@@ -351,7 +356,11 @@ export function QualificationBoard({
       <View className="gap-2 pb-3">
         <View className="flex-row items-center justify-between px-4">
           <Text className="font-inter-medium text-[12px] text-muted-foreground">{searching ? 'Arama sonuçları' : 'Satış aşamaları'} · {totalCards} kart</Text>
-          <Text className="font-inter text-[12px] text-muted-foreground">Aşama seçin</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Tüm satış aşamalarını göster" onPress={() => stagePickerRef.current?.present()}
+            className="min-h-11 flex-row items-center gap-1 pl-3 active:opacity-70">
+            <Text className="font-inter-medium text-[12px] text-primary">Aşama seç</Text>
+            <Ionicons name="chevron-down" size={14} color={colors.primary} />
+          </Pressable>
         </View>
         <ScrollView ref={stageTabsRef} horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }}
           contentContainerStyle={{ gap: 8, paddingHorizontal: 16 }}>
@@ -365,7 +374,9 @@ export function QualificationBoard({
                 onPress={() => selectStage(stage)}
                 className={`min-h-12 flex-row items-center gap-2 rounded-control border px-4 ${active ? 'border-primary bg-primary' : 'border-border bg-card'} active:opacity-70`}>
                 <Text className={`font-inter-semibold text-[14px] ${active ? 'text-primary-foreground' : 'text-foreground'}`}>{QUALIFICATION_LABELS[stage]}</Text>
-                <Text className={`font-inter-medium text-[12px] ${active ? 'text-primary-foreground' : 'text-muted-foreground'}`} style={{ fontVariant: ['tabular-nums'] }}>{column.total}</Text>
+                <View className={`min-w-6 items-center rounded-full px-1.5 py-1 ${active ? 'bg-primary-foreground/15' : 'bg-muted'}`}>
+                  <Text className={`font-inter-medium text-[12px] ${active ? 'text-primary-foreground' : 'text-muted-foreground'}`} style={{ fontVariant: ['tabular-nums'] }}>{column.total}</Text>
+                </View>
               </Pressable>
             );
           })}
@@ -377,7 +388,7 @@ export function QualificationBoard({
           {board.columns.map((column) => {
             const stage = column.stage as Qualification;
             return (
-              <View key={stage} className="gap-3 rounded-surface border border-border bg-muted p-3" style={{ width: columnWidth }}>
+              <View key={stage} className="gap-3 rounded-surface border bg-muted p-3" style={{ width: columnWidth, borderColor: stage === selectedStage ? colors.primary : colors.border }}>
                 <View className="flex-row items-center gap-2">
                   <View className="h-2 w-2 rounded-full" style={{ backgroundColor: toneColor(colors, STAGE_TONE[stage]) }} />
                   <Text accessibilityRole="header" className="flex-1 font-display-semibold text-[24px] text-foreground">{QUALIFICATION_LABELS[stage]}</Text>
@@ -421,6 +432,14 @@ export function QualificationBoard({
           </View>}
           ListEmptyComponent={emptyColumn(selectedStage)} ListFooterComponent={moreCards(selectedColumn)} />
       )}
+
+      <SalesSheet ref={stagePickerRef} title="Satış aşaması seç" subtitle="Bir aşama seçerek kartlarını ve toplam tutarını görün.">
+        {board.columns.map((column) => {
+          const stage = column.stage as Qualification;
+          return <SheetOption key={stage} label={`${QUALIFICATION_LABELS[stage]} · ${column.total} kart`} hint={QUALIFICATION_DESCRIPTIONS[stage]}
+            selected={stage === selectedStage} onPress={() => { stagePickerRef.current?.dismiss(); selectStage(stage); }} />;
+        })}
+      </SalesSheet>
 
       <SalesSheet ref={menuRef} title={menuItem ? partyName(menuItem) : 'Kart işlemleri'} subtitle={menuStage ? `Mevcut aşama: ${QUALIFICATION_LABELS[menuStage]} · ${QUALIFICATION_DESCRIPTIONS[menuStage]}` : 'Kart işlemleri'}>
         {menuItem && menuStage ? (

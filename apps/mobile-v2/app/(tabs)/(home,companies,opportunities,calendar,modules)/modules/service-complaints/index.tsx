@@ -1,17 +1,17 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { OptionPicker } from '@/src/ui/pickers/OptionPicker';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
 import { useServiceComplaints } from '@/src/api/operations.hooks';
 import { exportService } from '@/src/api/exports';
 import { useCan } from '@/src/auth/AuthProvider';
-import { relativeTime } from '@/src/lib/format';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import type { Tone } from '@/src/theme/theme';
-import { Button, EmptyState, ErrorState, Fab, FilterChips, ListRow, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
+import { Button, EmptyState, ErrorState, Fab, FilterChips, ListRow, ListSkeleton, Loading, ScreenHeader, SearchBar } from '@/src/ui';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { toast } from '@/src/ui/toast';
 import { COMPLAINT_SOURCE_LABELS, COMPLAINT_STATUS_LABELS, SEVERITY_LABELS } from '@/src/ui/service/serviceStage';
@@ -27,6 +27,7 @@ const SEVERITY_OPTIONS = toOptions(['critical', 'high', 'normal', 'low'], SEVERI
 /** Web Şikayet Kutusu → "Gelen Şikayetler". */
 export default function ServiceComplaintsScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const canCreate = useCan('service_tickets.create');
   const [search, setSearch] = useState('');
@@ -64,12 +65,11 @@ export default function ServiceComplaintsScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Şikayet Kutusu"
-        subtitle={list.data ? `${list.data.total} şikayet` : 'Müşteriden gelen kayıtları inceleyip talebe dönüştürün.'}
         actions={[
           { icon: 'link-outline', label: 'Public Linkler', onPress: () => router.push('/modules/service-complaints/links' as Href) },
           { icon: exporting ? 'hourglass-outline' : 'download-outline', label: "Excel'e aktar", onPress: () => void (exporting ? null : runExport()) },
         ]}
-      />
+        compact/>
 
       <View className="gap-2 pb-2">
         <SearchBar
@@ -81,7 +81,7 @@ export default function ServiceComplaintsScreen() {
         />
         <FilterChips options={STATUS_OPTIONS} value={status} onChange={setStatus} allLabel="Tüm durumlar" />
         {filtersOpen ? (
-          <ScrollView style={{ maxHeight: 280 }} contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: 12, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+          <ScrollView style={{ maxHeight: 280 }} contentContainerStyle={{ paddingHorizontal: listPad, gap: 12, paddingBottom: 12 , width: '100%', maxWidth: 960, alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
               <OptionPicker label="Kaynak" value={source} options={SOURCE_OPTIONS} placeholder="Tüm kaynaklar" clearable onChange={(next) => setSource(next)} />
               <OptionPicker label="Öncelik" value={severity} options={SEVERITY_OPTIONS} placeholder="Tüm öncelikler" clearable onChange={(next) => setSeverity(next)} />
             <View className="flex-row gap-2">
@@ -90,10 +90,11 @@ export default function ServiceComplaintsScreen() {
             </View>
           </ScrollView>
         ) : null}
-        <View className="flex-row items-center justify-between gap-2 px-4">
-          <Text className="flex-1 font-inter text-xs text-muted-foreground">{items.length} kayıt yüklendi{filterCount ? ` · ${filterCount} filtre` : ''}</Text>
-          {search || status || filterCount ? <Button label="Temizle" variant="ghost" onPress={clearFilters} /> : null}
-        </View>
+        {search || status || filterCount ? (
+          <View className="flex-row items-center justify-end px-4">
+            <Button label="Temizle" variant="ghost" onPress={clearFilters} />
+          </View>
+        ) : null}
       </View>
 
       {list.isPending ? (
@@ -106,26 +107,15 @@ export default function ServiceComplaintsScreen() {
           style={{ flex: 1 }}
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 88 }}
           renderItem={({ item }) => {
             const tone = STATUS_TONE[item.status] ?? 'neutral';
-            const machine = [item.machine?.brand, item.machine?.model, item.machine?.serialNumber].filter(Boolean).join(' · ') || 'Eşleşmemiş';
-            const contact = [item.contactName, item.contactPhone].filter(Boolean).join(' · ');
             return (
               <ListRow
                 title={item.complaintNo}
                 lines={[
                   item.company?.shortName ?? item.company?.legalTitle ?? 'Firma eşleşmemiş',
-                  `Makine: ${machine}`,
                   item.subject,
-                  [
-                    COMPLAINT_SOURCE_LABELS[item.source] ?? item.source,
-                    SEVERITY_LABELS[item.severity] ?? item.severity,
-                    relativeTime(item.createdAt),
-                  ]
-                    .filter(Boolean)
-                    .join(' · '),
-                  contact || null,
                 ]}
                 icon="chatbox-ellipses-outline"
                 iconTone={tone}

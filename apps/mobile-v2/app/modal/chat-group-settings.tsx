@@ -67,8 +67,8 @@ export default function ChatGroupSettingsScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: `${group.title ?? 'Grup'} · Ayarlar`, headerShown: true }} />
-      <ScrollView
-        contentContainerClassName="gap-4 p-4 pb-10"
+      <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }}
+        contentContainerClassName="gap-3 px-4 pb-6 pt-3"
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={detail.isRefetching} onRefresh={() => void detail.refetch()} />}
       >
@@ -110,6 +110,7 @@ export default function ChatGroupSettingsScreen() {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={member.role === 'admin' ? `${member.fullName} yöneticiliğini al` : `${member.fullName} yönetici yap`}
+                      accessibilityState={{ disabled: Boolean(busy) }}
                       disabled={busy}
                       onPress={() =>
                         setRole.mutate(
@@ -124,6 +125,7 @@ export default function ChatGroupSettingsScreen() {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`${member.fullName} gruptan çıkar`}
+                      accessibilityState={{ disabled: Boolean(busy) }}
                       disabled={busy}
                       onPress={() => confirmRemove(member.userId, member.fullName)}
                       className="h-11 w-11 items-center justify-center active:opacity-60"
@@ -161,6 +163,7 @@ export default function ChatGroupSettingsScreen() {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`${person.fullName} gruba ekle`}
+                      accessibilityState={{ disabled: Boolean(busy) }}
                       disabled={busy}
                       onPress={() =>
                         addMembers.mutate([person.id], {

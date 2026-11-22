@@ -1,6 +1,7 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter, type Href } from 'expo-router';
@@ -37,11 +38,13 @@ const ETA_TONE = { neutral: 'neutral', danger: 'destructive', warning: 'warning'
 
 export default function PurchaseOrdersScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const canCreate = useCan('purchase_orders.create');
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const list = useAllPurchaseOrders();
   const rows = list.data ?? [];
 
@@ -64,55 +67,67 @@ export default function PurchaseOrdersScreen() {
     <View className="gap-3 pb-2">
       <ScreenHeader
         title="Satın Alma"
-        subtitle="Satın alma taleplerini ve siparişlerini yönetin."
         actions={[{ icon: exporting ? 'hourglass-outline' : 'download-outline', label: 'Excel', onPress: () => void exportExcel() }]}
-      />
-      <KpiGrid>
-        {[
-          <KpiTile
-            key="total"
-            icon="cart-outline"
-            tone="stage"
-            label="Toplam Sipariş"
-            value={String(kpis.total)}
-            sub={kpis.totals.map((item) => formatAmount(item.amount, item.currencyCode)).join(' · ') || '—'}
-            selected={tab === null}
-            onPress={() => setTab(null)}
-          />,
-          <KpiTile key="commercial" icon="cube-outline" tone="success" label="Ticari" value={String(kpis.commercial)} sub="mal/hizmet alımı" />,
-          <KpiTile key="admin" icon="receipt-outline" tone="info" label="İdari" value={String(kpis.administrative)} sub="genel gider" />,
-          <KpiTile
-            key="pending"
-            icon="time-outline"
-            tone="warning"
-            label="Bekleyen"
-            value={String(kpis.pending)}
-            sub="onay bekliyor"
-            selected={tab === 'pending_manager_approval'}
-            onPress={() => setTab('pending_manager_approval')}
-          />,
-        ]}
-      </KpiGrid>
-      {insights.length ? (
-        <Panel title="Tedarikçi İçgörüsü" subtitle="Sipariş hacmi ve açık teslim yükü">
-          {insights.map((item) => (
-            <View key={item.name} className="flex-row items-center justify-between gap-3 border-b border-border py-2">
-              <Text className="flex-1 font-inter-medium text-sm text-foreground" numberOfLines={1}>
-                {item.name}
-              </Text>
-              <Text className="font-inter text-xs text-muted-foreground">
-                {item.count} sipariş · {item.pending} açık
-              </Text>
-            </View>
-          ))}
-        </Panel>
-      ) : null}
+        compact/>
       <SearchBar value={search} onChange={setSearch} placeholder="Sipariş no, tedarikçi veya fatura" />
       <FilterChips
         options={PURCHASE_STATUS_TABS.map((item) => ({ value: item.value, label: item.label, count: tabCounts.get(item.value) ?? 0 }))}
         value={tab}
         onChange={setTab}
       />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: overviewOpen }}
+        onPress={() => setOverviewOpen((value) => !value)}
+        className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+      >
+        <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+        <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+      </Pressable>
+      {overviewOpen ? (
+        <>
+          <KpiGrid>
+            {[
+              <KpiTile
+                key="total"
+                icon="cart-outline"
+                tone="stage"
+                label="Toplam Sipariş"
+                value={String(kpis.total)}
+                sub={kpis.totals.map((item) => formatAmount(item.amount, item.currencyCode)).join(' · ') || '—'}
+                selected={tab === null}
+                onPress={() => setTab(null)}
+              />,
+              <KpiTile key="commercial" icon="cube-outline" tone="success" label="Ticari" value={String(kpis.commercial)} sub="mal/hizmet alımı" />,
+              <KpiTile key="admin" icon="receipt-outline" tone="info" label="İdari" value={String(kpis.administrative)} sub="genel gider" />,
+              <KpiTile
+                key="pending"
+                icon="time-outline"
+                tone="warning"
+                label="Bekleyen"
+                value={String(kpis.pending)}
+                sub="onay bekliyor"
+                selected={tab === 'pending_manager_approval'}
+                onPress={() => setTab('pending_manager_approval')}
+              />,
+            ]}
+          </KpiGrid>
+          {insights.length ? (
+            <Panel title="Tedarikçi İçgörüsü" subtitle="Sipariş hacmi ve açık teslim yükü">
+              {insights.map((item) => (
+                <View key={item.name} className="flex-row items-center justify-between gap-3 border-b border-border py-2">
+                  <Text className="flex-1 font-inter-medium text-sm text-foreground" numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text className="font-inter text-xs text-muted-foreground">
+                    {item.count} sipariş · {item.pending} açık
+                  </Text>
+                </View>
+              ))}
+            </Panel>
+          ) : null}
+        </>
+      ) : null}
     </View>
   );
 
@@ -121,12 +136,12 @@ export default function PurchaseOrdersScreen() {
       <SyncStatus />
       {list.isPending ? (
         <>
-          <ScreenHeader title="Satın Alma" />
+          <ScreenHeader title="Satın Alma" compact/>
           <ListSkeleton />
         </>
       ) : list.error ? (
         <>
-          <ScreenHeader title="Satın Alma" />
+          <ScreenHeader title="Satın Alma" compact/>
           <ErrorState message={list.error.message} onRetry={() => void list.refetch()} />
         </>
       ) : (
@@ -136,7 +151,7 @@ export default function PurchaseOrdersScreen() {
           data={filtered}
           keyExtractor={(item) => item.id}
           ListHeaderComponent={header}
-          contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
           renderItem={({ item }) => {
             const code = item.status?.code ?? '';
             const tone = STATUS_TONE[code] ?? 'neutral';
@@ -148,8 +163,12 @@ export default function PurchaseOrdersScreen() {
                   title={item.orderNo}
                   lines={[
                     item.supplier?.shortName ?? item.supplier?.legalTitle ?? 'Firma seçilmemiş',
-                    `${purchaseTypeLabel(item.purchaseType)} · ${formatDate(item.orderDate)}`,
-                    code === 'cancelled' ? null : `Adım ${step + 1}/5 · ${PURCHASE_STEPS[step]}`,
+                    [
+                      `${purchaseTypeLabel(item.purchaseType)} · ${formatDate(item.orderDate)}`,
+                      code === 'cancelled' ? null : `Adım ${step + 1}/5 · ${PURCHASE_STEPS[step]}`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · '),
                   ]}
                   icon="cart-outline"
                   iconTone={tone}

@@ -48,10 +48,21 @@ export function useSalesList(query: SalesListQuery, enabled = true) {
 
 export function useKanbanColumns(query: SalesListQuery, stages: readonly QualificationStage[]) {
   return useQueries({
-    queries: stages.map((stage) => ({
-      queryKey: salesKeys.kanban(query, stage),
-      queryFn: () => salesApi.list({ ...query, qualificationStage: stage, page: 1, pageSize: KANBAN_COLUMN_SIZE }),
-    })),
+    queries: stages.map((stage) => {
+      // LOST yazılırken closedAt set edilir; view=active onu gizler. Web kanbanı
+      // kapalı LOST'u ayrıca birleştirir — mobilde LOST kolonu view=all ile çekilir.
+      const columnQuery = stage === 'lost' ? { ...query, view: 'all' as const } : query;
+      return {
+        queryKey: salesKeys.kanban(columnQuery, stage),
+        queryFn: () =>
+          salesApi.list({
+            ...columnQuery,
+            qualificationStage: stage,
+            page: 1,
+            pageSize: KANBAN_COLUMN_SIZE,
+          }),
+      };
+    }),
     combine: (results) => ({
       columns: stages.map((stage, index) => ({
         stage,

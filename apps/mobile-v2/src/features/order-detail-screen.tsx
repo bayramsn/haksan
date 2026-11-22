@@ -1,3 +1,5 @@
+import { RecordHero } from '@/src/ui/finance/RecordHero';
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -78,6 +80,7 @@ function money(value: string, currencyCode: string | undefined): string {
 
 export function OrderDetailScreen(props: Props) {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const { user } = useAuth();
   const companyId = props.kind === 'sales' ? props.data?.companyId : props.data?.supplierCompanyId;
@@ -97,7 +100,7 @@ export function OrderDetailScreen(props: Props) {
   if (props.isPending || props.error || !props.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title={props.kind === 'sales' ? 'Satış Siparişi' : 'Satın Alma Siparişi'} />
+        <DetailHeader title={props.kind === 'sales' ? 'Satış Siparişi' : 'Satın Alma Siparişi'} compact />
         {props.isPending ? (
           <Loading />
         ) : (
@@ -155,24 +158,12 @@ export function OrderDetailScreen(props: Props) {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <DetailHeader
-        title={props.kind === 'sales' ? 'Satış Siparişi Detayı' : 'Satın Alma Siparişi Detayı'}
-        subtitle={order.orderNo}
-      />
+        title={props.kind === 'sales' ? 'Satış Siparişi Detayı' : 'Satın Alma Siparişi Detayı'} compact />
 
-      <ScrollView contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-4 px-4 pb-10 pt-4">
-        <Card className="gap-2">
-          <Chip tone={tone} label={status?.name ?? (statusLookup.isPending ? 'Durum yükleniyor' : 'Durum bilinmiyor')} />
-          <Text className="text-[20px] font-inter-semibold text-foreground">{order.orderNo}</Text>
-          <Text className="font-inter text-[13px] text-muted-foreground">
-            {company.data?.shortName ?? company.data?.legalTitle ?? (company.isPending ? 'Firma yükleniyor…' : 'Firma bağlanmadı')}
-          </Text>
-          <View className="flex-row items-end justify-between gap-3 pt-1">
-            <Text className="font-inter text-[12px] text-muted-foreground">{formatDate(order.orderDate)}</Text>
-            <Text className="font-inter-bold text-[18px] text-foreground">
-              {money(order.grandTotal, currency?.code)}
-            </Text>
-          </View>
-        </Card>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="gap-3 px-4 pb-8 pt-3">
+        <RecordHero title={company.data?.shortName ?? company.data?.legalTitle ?? (company.isPending ? 'Firma yükleniyor…' : 'Firma bağlanmadı')} reference={order.orderNo} icon={props.kind === 'sales' ? 'bag-check-outline' : 'cart-outline'} amount={money(order.grandTotal, currency?.code)} subtitle={`Sipariş tarihi · ${formatDate(order.orderDate)}`}>
+          <View className="flex-row flex-wrap gap-2"><Chip tone={tone} label={status?.name ?? 'Durum belirtilmedi'} /></View>
+        </RecordHero>
 
         <Card>
           <InfoRows

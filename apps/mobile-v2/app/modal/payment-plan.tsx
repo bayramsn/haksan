@@ -21,8 +21,12 @@ import { formatAmount } from '@/src/lib/format';
 import { Button, Card, Eyebrow, Field, Loading } from '@/src/ui';
 import { Segmented } from '@/src/ui/finance/kit';
 import { DateTextField } from '@/src/ui/select/DateTextField';
+import { TermsTemplatePicker } from '@/src/ui/documents/TermsTemplatePicker';
 import { buildPlanReceivable, recalculatePlanRows, type PlanInstallment } from '@/src/features/receivable-form';
 import { toast } from '@/src/ui/toast';
+
+/** Web CreatePaymentPlanDialog ile aynı şablon kapsamı. */
+const PAYMENT_PLAN_TERMS_SCOPE = 'payment_plan_terms' as const;
 
 const CURRENCIES = ['USD', 'EUR', 'TRY'] as const;
 type Currency = (typeof CURRENCIES)[number];
@@ -105,7 +109,10 @@ export default function PaymentPlanScreen() {
   const [installmentCount, setInstallmentCount] = useState('3');
   const [termDays, setTermDays] = useState('30');
   const [installments, setInstallments] = useState<Installment[]>([]);
+  /** Web CreatePaymentPlanDialog: 3 UI alan; karta yalnız paymentTerms yazılır (şema tek string). */
   const [paymentTerms, setPaymentTerms] = useState('');
+  const [deliveryTerms, setDeliveryTerms] = useState('');
+  const [warrantyTerms, setWarrantyTerms] = useState('');
   const [saving, setSaving] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
@@ -126,7 +133,10 @@ export default function PaymentPlanScreen() {
     setQuoteId(initial?.id ?? first(params.quoteId));
     setAmount(total > 0 ? String(total) : '');
     setCurrencyCode((CURRENCIES as readonly string[]).includes(currency) ? (currency as Currency) : 'USD');
+    // Web: sc.paymentTerms → ödeme kutusu; teslim/garanti şablondan veya boş.
     setPaymentTerms(detail.data?.paymentTerms ?? '');
+    setDeliveryTerms('');
+    setWarrantyTerms('');
     setTermDays(detail.data?.paymentTermDays != null ? String(detail.data.paymentTermDays) : '30');
     const method = detail.data?.paymentMethod;
     if (method && (OPPORTUNITY_PAYMENT_METHODS as readonly string[]).includes(method) && method !== 'undecided') {
@@ -187,12 +197,19 @@ export default function PaymentPlanScreen() {
       if (!invalid.ok) toast.error(`${invalidIndex + 1}. taksit: ${Object.values(invalid.errors).join(' ')}`);
       return;
     }
+    // Şema tek alan: yalnız ödeme şartı karta yazılır (web CreatePaymentPlanDialog ile aynı).
+    // Teslim/garanti şablon düzenleme içindir; not şablonlarında JSON olarak saklanır.
+    const cardPaymentTerms = paymentTerms.trim();
+    if (cardPaymentTerms.length > 4000) {
+      toast.error('Ödeme şartları en fazla 4000 karakter olabilir');
+      return;
+    }
     setSaving(true);
     try {
       if (opportunityId && canUpdateOpp) {
         await updateOpp.mutateAsync({
           id: opportunityId,
-          paymentTerms: paymentTerms.trim() || undefined,
+          paymentTerms: cardPaymentTerms || undefined,
           paymentTermDays: Number(termDays) || null,
           paymentMethod,
         });
@@ -223,7 +240,7 @@ export default function PaymentPlanScreen() {
         <Loading />
       ) : (
         <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerClassName="gap-3 p-4 pb-10" keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 p-4 pb-10" keyboardShouldPersistTaps="handled">
             <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground">
               {companyName || 'Firma'} için vadeli alacak ödeme planı oluşturun.
             </Text>
@@ -267,7 +284,7 @@ export default function PaymentPlanScreen() {
                           accessibilityRole="radio"
                           accessibilityState={{ selected: active }}
                           onPress={() => setCurrencyCode(code)}
-                          className={`min-h-11 flex-1 items-center justify-center rounded-control border ${active ? 'border-primary bg-secondary' : 'border-border bg-card'}`}
+                          className={`min-h-11 flex-1 items-center justify-center rounded-control border ${active ? 'border-primary bg-primary-soft' : 'border-border bg-card'}`}
                         >
                           <Text className={`font-inter-semibold text-xs ${active ? 'text-primary' : 'text-foreground'}`}>{code}</Text>
                         </Pressable>
@@ -347,19 +364,52 @@ export default function PaymentPlanScreen() {
             ) : null}
 
             <Card className="gap-3">
-              <Eyebrow>Ödeme şartları</Eyebrow>
+              <Eyebrow>Ödeme ve teslim şartları</Eyebrow>
+              <Text className="font-inter text-[12px] text-muted-foreground">
+                Şablon üç alanı doldurur; satış kartına yalnız ödeme şartı yazılır.
+              </Text>
+              <TermsTemplatePicker
+                scope={PAYMENT_PLAN_TERMS_SCOPE}
+                value={{ payment: paymentTerms, delivery: deliveryTerms, warranty: warrantyTerms }}
+                onApply={(next) => {
+                  setPaymentTerms(next.payment);
+                  setDeliveryTerms(next.delivery);
+                  setWarrantyTerms(next.warranty);
+                }}
+              />
               <Field
                 label="Ödeme şartları"
                 value={paymentTerms}
                 onChangeText={setPaymentTerms}
                 multiline
-                numberOfLines={3}
-                placeholder="Kart ve belgelerde görünen ödeme koşulları"
-                className="min-h-[72px] rounded-control border border-transparent bg-input-background px-3.5 py-2.5 font-inter text-base text-foreground"
+                numberOfLines={2}
+                maxLength={4000}
+                placeholder="Kartta görünen ödeme koşulları"
+                className="min-h-[56px] rounded-control border border-transparent bg-input-background px-3.5 py-2.5 font-inter text-base text-foreground"
+              />
+              <Field
+                label="Teslim şartları"
+                value={deliveryTerms}
+                onChangeText={setDeliveryTerms}
+                multiline
+                numberOfLines={2}
+                maxLength={4000}
+                placeholder="Şablon / belge uyumu (karta yazılmaz)"
+                className="min-h-[56px] rounded-control border border-transparent bg-input-background px-3.5 py-2.5 font-inter text-base text-foreground"
+              />
+              <Field
+                label="Garanti şartları"
+                value={warrantyTerms}
+                onChangeText={setWarrantyTerms}
+                multiline
+                numberOfLines={2}
+                maxLength={4000}
+                placeholder="Şablon / belge uyumu (karta yazılmaz)"
+                className="min-h-[56px] rounded-control border border-transparent bg-input-background px-3.5 py-2.5 font-inter text-base text-foreground"
               />
             </Card>
           </ScrollView>
-          <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+          <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
             <View className="flex-1">
               <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} disabled={saving} />
             </View>

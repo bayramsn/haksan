@@ -47,21 +47,6 @@ const RECORD_META: Record<RecordFolder, { icon: keyof typeof Ionicons.glyphMap; 
   invoice: { icon: 'receipt-outline', tone: 'success' },
 };
 
-const HERO: Record<'all' | 'proforma' | 'contract', { title: string; subtitle: string }> = {
-  all: {
-    title: 'Ticari belge merkezi',
-    subtitle: 'Teklif, proforma ve sözleşme PDF’lerini sunucuda oluşturun; kayıtları ve yüklenen nüshaları buradan takip edin.',
-  },
-  proforma: {
-    title: 'Proforma kontrol merkezi',
-    subtitle: 'Proforma oluşturun; PDF’ini belge detayından alıp paylaşın.',
-  },
-  contract: {
-    title: 'Sözleşme kontrol merkezi',
-    subtitle: 'Sözleşme PDF’ini oluşturup paylaşın; imzalı nüshayı aynı kayda ekleyin.',
-  },
-};
-
 function isFolder(value: unknown): value is DocFolder {
   return typeof value === 'string' && DOC_FOLDERS.some((entry) => entry.value === value);
 }
@@ -157,8 +142,6 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
   const pending = activeLists.some((list) => list.isPending && list.fetchStatus !== 'idle') || (canFiles && links.isPending);
   const error = activeLists.find((list) => list.error)?.error ?? links.error;
   const fetchingMore = activeLists.some((list) => list.isFetchingNextPage) || links.isFetchingNextPage;
-  const hero = HERO[fixedFolder ?? 'all'];
-
   async function exportExcel() {
     setExporting(true);
     try {
@@ -236,16 +219,15 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
     const relation = recordRelationLabel({ quoteId: row.quoteId, companyId: row.companyId, standalone: row.standalone, kind });
     return (
       <ListRow
-        title={row.no}
+        title={row.companyName || row.no}
         icon={meta.icon}
         iconTone={row.finalized ? 'success' : meta.tone}
         lines={[
-          row.companyName ?? 'Firma bilgisi yok',
-          [relation, row.quoteNo].filter(Boolean).join(' · '),
+          [relation, row.quoteNo].filter(Boolean).join(' · ') || null,
           [
             row.date ? formatDate(row.date) : null,
             row.statusName ?? (row.finalized ? 'Kesinleşti' : 'Taslak'),
-            row.fileId ? 'Yüklü nüsha var' : kind === 'invoice' ? 'Yüklü nüsha yok' : 'PDF oluşturulabilir',
+            row.fileId ? 'Yüklü nüsha var' : kind === 'invoice' ? 'Yüklü nüsha yok' : null,
           ]
             .filter(Boolean)
             .join(' · '),
@@ -255,6 +237,7 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
           ...(row.fileId ? [{ label: 'CRM PDF', tone: 'info' as const }] : []),
         ]}
         trailing={row.grandTotal ? formatAmount(row.grandTotal, row.currencyCode ?? 'USD') : undefined}
+        metaLabel="Belge tutarı"
         trailingTone="neutral"
         onPress={() => router.push(`/modules/documents/${kind}/${row.id}`)}
       />
@@ -352,7 +335,7 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
                   accessibilityLabel={`${step.label}: ${step.count}`}
                   onPress={() => (step.folder ? setFolder(step.folder) : router.push('/modules/quotes'))}
                   className={`min-h-[56px] flex-1 items-center justify-center rounded-control border px-1 ${
-                    step.folder && folder === step.folder ? 'border-primary bg-secondary' : 'border-border bg-muted'
+                    step.folder && folder === step.folder ? 'border-primary bg-primary-soft' : 'border-border bg-muted'
                   }`}
                 >
                   <Text className="font-inter-semibold text-lg text-foreground" style={{ fontVariant: ['tabular-nums'] }}>{step.count}</Text>
@@ -414,7 +397,6 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
       <SyncStatus />
       <ScreenHeader
         title={fixedFolder === 'proforma' ? 'Proformalar' : fixedFolder === 'contract' ? 'Sözleşmeler' : 'Ticari Belgeler'}
-        subtitle={hero.subtitle}
         actions={[
           {
             icon: exporting ? 'hourglass-outline' : 'download-outline',
@@ -424,7 +406,7 @@ export function DocumentCenter({ fixedFolder }: { fixedFolder?: 'proforma' | 'co
             },
           },
         ]}
-      />
+        compact/>
       <FlashList
         maintainVisibleContentPosition={{ disabled: true }}
         style={{ flex: 1 }}

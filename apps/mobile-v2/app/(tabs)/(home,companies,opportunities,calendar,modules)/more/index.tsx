@@ -17,7 +17,7 @@ export default function MoreScreen() {
   const [busy, setBusy] = useState(false);
   const signOutPending = useRef(false);
   const divisionName = user?.divisions?.find((item) => item.id === scope.divisionId)?.name ??
-    (user?.canViewAllDivisions && !scope.divisionId ? 'Tüm bölümler' : 'Varsayılan bölüm');
+    (!scope.divisionId ? 'Modüle göre yetkili bölüm kapsamı' : 'Bölüm seçimi gerekli');
   const departmentName = user?.departments?.find((item) => item.id === scope.departmentId)?.name;
 
   function confirmSignOut() {
@@ -42,13 +42,13 @@ export default function MoreScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Profil ve Hesap" hideProfile />
+      <ScreenHeader title="Profil ve Hesap" hideProfile compact/>
 
-      <ScrollView contentContainerClassName="gap-3 px-4 pt-1" contentContainerStyle={{ paddingBottom: 40 + GLASS_TAB_BAR_HEIGHT }}>
-        <Card className="flex-row items-center gap-3">
-          <Avatar name={user?.fullName ?? '?'} size={44} />
+      <ScrollView contentContainerClassName="gap-2.5 px-4 pt-1" contentContainerStyle={{ paddingBottom: 40 + GLASS_TAB_BAR_HEIGHT , width: '100%', maxWidth: 960, alignSelf: 'center' }}>
+        <Card className="flex-row items-center gap-2.5 p-3">
+          <Avatar name={user?.fullName ?? '?'} size={40} />
           <View className="flex-1 gap-0.5">
-            <Text className="text-[16px] font-inter-semibold text-foreground" numberOfLines={1}>
+            <Text className="text-[15px] font-inter-semibold text-foreground" numberOfLines={1}>
               {user?.fullName ?? '—'}
             </Text>
             <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={1}>
@@ -64,7 +64,7 @@ export default function MoreScreen() {
 
         <SettingsGroup title="Çalışma alanı">
           <SettingsRow first icon="git-branch-outline" tone="stage" title={divisionName}
-            subtitle={departmentName ? `Departman: ${departmentName}` : 'Bölüm ve departman seçimini değiştirin.'}
+            subtitle={departmentName ?? 'Bölüm / departman'}
             onPress={() => router.push('/more/scope')} />
         </SettingsGroup>
 
@@ -74,14 +74,14 @@ export default function MoreScreen() {
             icon="person-outline"
             tone="info"
             title="Profil Bilgileri"
-            subtitle="Kullanıcı bilgilerinizi görüntüleyin."
+            subtitle="Ad, e-posta, roller"
             onPress={() => router.push('/more/profile')}
           />
           <SettingsRow
             icon="settings-outline"
             tone="neutral"
             title="Ayarlar"
-            subtitle="Tercihler, şirket ayarları, destek ve sürüm bilgisi."
+            subtitle="Şirket, destek, sürüm"
             onPress={() => router.push('/more/settings')}
           />
         </SettingsGroup>

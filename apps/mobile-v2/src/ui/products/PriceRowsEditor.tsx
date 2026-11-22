@@ -65,7 +65,6 @@ export function PriceRowsEditor<T extends PricedRow>(props: {
   const visible = filterPricedRows(rows, props.filterOf, filter, props.searchText, search);
   const dirty = dirtyDrafts(rows, drafts);
   const invalid = dirty.some(([, draft]) => parsePrice(draft.salePrice) === undefined);
-  const pricedCount = rows.filter((row) => row.salePrice != null).length;
   // Kayıt sürerken taslaklar kilitlenir; başarıda temizlenen taslaklar tam olarak gönderilenlerdir.
   const saving = props.save.isPending;
 
@@ -103,7 +102,7 @@ export function PriceRowsEditor<T extends PricedRow>(props: {
   if (props.query.isPending) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <ScreenHeader title={props.title} />
+        <ScreenHeader title={props.title} compact/>
         <ListSkeleton />
       </SafeAreaView>
     );
@@ -111,7 +110,7 @@ export function PriceRowsEditor<T extends PricedRow>(props: {
   if (props.query.error) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <ScreenHeader title={props.title} />
+        <ScreenHeader title={props.title} compact/>
         <ErrorState message={props.query.error.message} onRetry={() => void props.query.refetch()} />
       </SafeAreaView>
     );
@@ -119,7 +118,7 @@ export function PriceRowsEditor<T extends PricedRow>(props: {
 
   const header = (
     <View className="gap-3 pb-2">
-      <ScreenHeader title={props.title} subtitle={props.description} />
+      <ScreenHeader title={props.title} compact />
       <View style={{ paddingHorizontal: SCREEN_PAD }}>
         <OptionPicker
           label={props.filterLabel}
@@ -138,13 +137,6 @@ export function PriceRowsEditor<T extends PricedRow>(props: {
           <SmallButton icon="calculator-outline" label={`Görünen ${visible.length} satıra uygula`} onPress={markup} disabled={saving} />
         </Panel>
       ) : null}
-      <Text
-        accessibilityLiveRegion="polite"
-        style={{ paddingHorizontal: SCREEN_PAD }}
-        className="font-inter text-xs text-muted-foreground"
-      >
-        {visible.length} / {rows.length} satır · {pricedCount} satırın satış fiyatı girilmiş
-      </Text>
     </View>
   );
 

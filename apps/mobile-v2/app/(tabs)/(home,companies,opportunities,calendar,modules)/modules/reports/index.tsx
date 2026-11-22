@@ -53,13 +53,13 @@ export default function ReportsScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Raporlar" subtitle="Operasyon, karlılık, hedef ve analitik raporları." />
+      <ScreenHeader title="Raporlar" compact />
       <View className="pb-2 pt-2">
         <Tabs tabs={MODES} value={mode} onChange={setMode} />
       </View>
       <ScrollView
         ref={scrollRef}
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
+        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         contentContainerClassName="gap-4 px-4 pb-10 pt-1"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={colors.mutedForeground} />}
       >

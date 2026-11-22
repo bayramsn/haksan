@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BarChart } from 'react-native-gifted-charts';
@@ -121,7 +121,7 @@ export function Stepper({ label, onPrev, onNext, nextDisabled }: { label: string
 export function SectionTitle({ title, hint }: { title: string; hint?: string }) {
   return (
     <View className="gap-0.5 px-1">
-      <Text accessibilityRole="header" className="font-display text-[18px] text-foreground">{title}</Text>
+      <Text accessibilityRole="header" className="font-inter-semibold text-[18px] text-foreground">{title}</Text>
       {hint ? <Text className="font-inter text-xs text-muted-foreground">{hint}</Text> : null}
     </View>
   );
@@ -272,6 +272,7 @@ export function ActionButton({
 }) {
   const { colors } = useTheme();
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
   const off = disabled || busy;
   return (
     <Pressable
@@ -280,12 +281,15 @@ export function ActionButton({
       accessibilityState={{ disabled: Boolean(off), busy }}
       disabled={off}
       onPress={async () => {
+        if (disabled || inFlight.current) return;
+        inFlight.current = true;
         setBusy(true);
         try {
           await run();
         } catch (error) {
           toast.error(error instanceof Error ? error.message : 'İşlem tamamlanamadı.');
         } finally {
+          inFlight.current = false;
           setBusy(false);
         }
       }}

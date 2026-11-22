@@ -93,9 +93,9 @@ export default function OpportunityStockScreen() {
             renderItem={({ item }) => {
               const checked = Boolean(selected[item.id]);
               const label = [item.brand?.name, item.product?.fullName, item.warehouse?.name].filter(Boolean).join(' · ');
-              return <Pressable accessibilityRole="checkbox" accessibilityState={{ checked }} disabled={action.isPending}
+              return <Pressable accessibilityRole="checkbox" accessibilityState={{ checked, disabled: action.isPending }} disabled={action.isPending}
                 onPress={() => setSelected((current) => { const next = { ...current }; if (next[item.id]) delete next[item.id]; else next[item.id] = { serial: item.serialNumber || item.product?.stockCode || item.id.slice(0, 8), label }; return next; })}
-                className={`mb-2 min-h-[72px] flex-row items-center gap-3 rounded-surface border p-4 ${checked ? 'border-primary bg-secondary' : 'border-border bg-card'}`}>
+                className={`mb-2 min-h-[72px] flex-row items-center gap-3 rounded-surface border p-4 ${checked ? 'border-primary bg-primary-soft' : 'border-border bg-card'} ${action.isPending ? 'opacity-50' : 'active:opacity-70'}`}>
                 <Ionicons name={checked ? 'checkbox' : 'square-outline'} size={24} color={checked ? colors.primary : colors.mutedForeground} />
                 <View className="flex-1 gap-1">
                   <Text className="font-inter-semibold text-sm text-foreground">{item.serialNumber || item.product?.stockCode || item.id.slice(0, 8)}</Text>

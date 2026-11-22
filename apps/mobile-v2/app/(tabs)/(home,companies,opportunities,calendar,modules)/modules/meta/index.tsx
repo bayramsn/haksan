@@ -68,7 +68,7 @@ export default function MetaScreen() {
   if (!perms.canRead) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <ScreenHeader title="Meta Merkezi" />
+        <ScreenHeader title="Meta Merkezi" compact/>
         <EmptyState
           icon="lock-closed-outline"
           title="Meta Merkezi erişimi gerekli"
@@ -81,13 +81,13 @@ export default function MetaScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Meta Merkezi" subtitle="Reklam, müşteri adayı ve mesaj yönetimi." />
+      <ScreenHeader title="Meta Merkezi" compact />
       <View className="pb-2">
         <Tabs tabs={TABS} value={tab} onChange={setTab} />
       </View>
       <ScrollView
         contentContainerClassName="gap-4 px-4 pt-1"
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
+        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refreshAll()} tintColor={colors.mutedForeground} />}
       >

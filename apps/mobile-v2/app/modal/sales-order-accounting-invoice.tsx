@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -28,6 +29,7 @@ const PAYMENT_TYPES: { value: PaymentType; label: string }[] = [
  */
 export default function SalesOrderAccountingInvoiceScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const params = useLocalSearchParams<{ orderId?: string; quoteId?: string }>();
   const orderId = typeof params.orderId === 'string' ? params.orderId : '';
   const canCreate = useCan('accounting_invoices.create');
@@ -103,7 +105,7 @@ export default function SalesOrderAccountingInvoiceScreen() {
       {
         onSuccess: (created) => {
           toast.success(`Muhasebe faturası oluşturuldu · ${created.invoiceNo}`);
-          router.replace(`/modules/invoices/${created.id}`);
+          router.replace(recordDestination(`/modules/invoices/${created.id}`));
         },
         onError: (error) => toast.error(error.message),
       }

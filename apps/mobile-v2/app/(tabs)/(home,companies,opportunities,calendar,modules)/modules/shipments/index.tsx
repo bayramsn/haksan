@@ -1,28 +1,27 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { navigationPreset } from '@/src/modules/navigationContext';
 import { useNavigationContext } from '@/src/modules/useNavigationContext';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, SectionList, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, type Href } from 'expo-router';
+import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { exportService } from '@/src/api/exports';
 import { useShipments } from '@/src/api/operations.hooks';
 import type { Shipment } from '@/src/api/endpoints';
 import { useCan } from '@/src/auth/AuthProvider';
+import { firstParam, matchesOpportunityOrCompany } from '@/src/features/opportunities/case-scope';
 import { formatDate } from '@/src/lib/format';
 import { toneColor, useTheme, type Tone } from '@/src/theme/theme';
-import { Chip, EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
+import { Chip, EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, ScreenHeader, SearchBar, StatStrip } from '@/src/ui';
 import { ProgressBar } from '@/src/ui/data';
 import { toast } from '@/src/ui/toast';
 import { SyncStatus } from '@/src/ui/SyncStatus';
-import { JourneySteps } from '@/src/ui/service/JourneySteps';
 import {
   carrierShare,
   etaState,
   filterShipments,
-  ROUTE_STEPS,
-  routeStep,
   SHIPMENT_STATUS_LABELS,
   SHIPMENT_STATUS_ORDER,
   shipmentKpis,
@@ -51,38 +50,36 @@ function ShipmentRow({ item, now, onPress }: { item: Shipment; now: number; onPr
   const code = statusCodeOf(item);
   const eta = etaState(item.eta, now);
   const party = shipmentPartyName(item);
+  const carrier = item.carrierCompany?.legalTitle ?? item.carrier ?? null;
+  const route = item.origin || item.destination ? `${item.origin || '—'} → ${item.destination || '—'}` : null;
+  const detailLine = [carrier, party, route].filter(Boolean).join(' · ');
+  const etaLine = ['ETA', item.eta ? formatDate(item.eta) : '—', eta.label].join(' · ');
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Sevkiyat ${item.trackingNo ?? item.shipmentNo ?? ''}`}
       onPress={onPress}
-      className="my-1 gap-3 rounded-overlay border border-border bg-card px-3.5 py-3 active:opacity-70"
+      className="my-1 gap-2 rounded-overlay border border-border bg-card px-3.5 py-3 active:opacity-70"
     >
       <View className="flex-row items-start gap-3">
-        <View className="flex-1 gap-0.5">
-          <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={2}>
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
             {item.trackingNo ?? item.shipmentNo ?? 'Sevkiyat'}
           </Text>
-          <Text className="font-inter text-xs text-muted-foreground" numberOfLines={2}>
-            {item.carrierCompany?.legalTitle ?? item.carrier ?? 'Taşıyıcı yok'}
-          </Text>
-          {party ? <Text className="font-inter text-xs text-foreground" numberOfLines={2}>{party}</Text> : null}
-          {item.origin || item.destination ? (
+          {detailLine ? (
             <Text className="font-inter text-xs text-muted-foreground" numberOfLines={2}>
-              {`${item.origin || '—'} → ${item.destination || '—'}`}
+              {detailLine}
             </Text>
           ) : null}
         </View>
-        <View className="items-end gap-1.5">
+        <View className="shrink-0 items-end gap-1">
           <Chip tone={item.direction === 'incoming' ? 'info' : 'warning'} label={item.direction === 'incoming' ? '↓ Gelen' : '↑ Giden'} />
           <Chip tone={STATUS_TONE[code] ?? 'neutral'} label={item.status?.name ?? SHIPMENT_STATUS_LABELS[code] ?? code} />
         </View>
       </View>
-      <JourneySteps steps={ROUTE_STEPS} current={routeStep(code)} compact />
-      <View className="flex-row items-center justify-between gap-2">
-        <Text className="font-inter text-xs text-muted-foreground">{item.eta ? `ETA ${formatDate(item.eta)}` : 'ETA —'}</Text>
-        <Chip tone={eta.tone} label={eta.label} />
-      </View>
+      <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
+        {etaLine}
+      </Text>
     </Pressable>
   );
 }
@@ -90,7 +87,11 @@ function ShipmentRow({ item, now, onPress }: { item: Shipment; now: number; onPr
 /** Web ShipmentsPage ("Sevkiyat Takibi"). */
 export default function ShipmentsScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
+  const params = useLocalSearchParams<{ opportunityId?: string; companyId?: string }>();
+  const scopeOpportunityId = firstParam(params.opportunityId);
+  const scopeCompanyId = firstParam(params.companyId);
   const { colors } = useTheme();
   const canCreate = useCan('shipments.create');
   const [search, setSearch] = useState('');
@@ -99,13 +100,21 @@ export default function ShipmentsScreen() {
   const [navigationFocus, setNavigationFocus] = useState<string | undefined>();
   useNavigationContext('shipments', ({ query, focus }) => { setSearch(query ?? ''); setDirection(null); setStatus(navigationPreset('shipments', focus) as StatusFilter | null); setNavigationFocus(focus); });
   const [exporting, setExporting] = useState(false);
+  const [overviewOpen, setOverviewOpen] = useState(false);
   const [now] = useState(() => Date.now());
   const list = useShipments();
-  const items = useMemo(() => list.data?.items ?? [], [list.data]);
+  const items = useMemo(
+    () =>
+      (list.data?.items ?? []).filter((row) =>
+        matchesOpportunityOrCompany(row, { opportunityId: scopeOpportunityId || null, companyId: scopeCompanyId || null }),
+      ),
+    [list.data, scopeCompanyId, scopeOpportunityId],
+  );
 
+  const loadedCount = list.data?.items?.length ?? 0;
   useEffect(() => {
-    if (list.hasNextPage && !list.isFetchingNextPage && items.length < LOAD_LIMIT) void list.fetchNextPage();
-  }, [items.length, list]);
+    if (list.hasNextPage && !list.isFetchingNextPage && loadedCount < LOAD_LIMIT) void list.fetchNextPage();
+  }, [loadedCount, list]);
 
   const kpis = shipmentKpis(items);
   const carriers = carrierShare(items);
@@ -135,9 +144,9 @@ export default function ShipmentsScreen() {
     }
   };
 
-  const network = (
-    <View className="mt-3 gap-2 rounded-overlay border border-border bg-card p-3.5">
-      <Text accessibilityRole="header" className="font-display-semibold text-[16px] text-foreground">Lojistik Ağı</Text>
+  const networkPanel = (
+    <View className="gap-2 rounded-overlay border border-border bg-card p-3.5">
+      <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">Lojistik Ağı</Text>
       <Text className="font-inter text-xs text-muted-foreground">Taşıyıcı ve aktif rota özeti</Text>
       {carriers.map((carrier) => (
         <View key={carrier.name || 'none'} className="gap-1.5 rounded-control bg-muted p-3">
@@ -169,23 +178,19 @@ export default function ShipmentsScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Sevkiyat"
-        subtitle={list.data ? `${list.data.total} sevkiyat` : 'Tüm sevkiyatlarınızı görüntüleyin ve takip edin.'}
         actions={[
           { icon: 'pricetag-outline', label: 'Etiket Yazdır', onPress: () => router.push('/modal/shipment-label' as Href) },
           { icon: exporting ? 'hourglass-outline' : 'download-outline', label: "Excel'e aktar", onPress: () => void (exporting ? null : runExport()) },
         ]}
-      />
+        compact/>
       <View className="gap-2 pb-2">
+        {scopeOpportunityId || scopeCompanyId ? (
+          <Text className="px-4 font-inter text-[12px] text-muted-foreground">
+            {scopeOpportunityId ? 'Bu fırsata bağlı kayıtlar' : 'Bu firmaya bağlı kayıtlar'}
+          </Text>
+        ) : null}
         {navigationFocus === 'pending' && <Text accessibilityRole="button" onPress={() => setNavigationFocus(undefined)} className="py-2 text-sm text-primary">Teslim bekleyen sevkiyatlar · Odağı temizle</Text>}
         <SearchBar value={search} onChange={setSearch} placeholder="Takip no, firma veya taşıyıcı ara" />
-        <StatStrip
-          items={[
-            { label: 'Toplam Sevkiyat', value: String(list.data?.total ?? kpis.total) },
-            { label: 'Yolda', value: String(kpis.inTransit), tone: 'info' },
-            { label: 'Gümrükte', value: String(kpis.customs), tone: 'warning' },
-            { label: 'Teslim Edilen', value: String(kpis.delivered), tone: 'success' },
-          ]}
-        />
         <FilterChips
           options={[
             { value: 'in_transit' as const, label: 'Yolda' },
@@ -204,6 +209,29 @@ export default function ShipmentsScreen() {
           value={direction}
           onChange={setDirection}
         />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: overviewOpen }}
+          onPress={() => setOverviewOpen((value) => !value)}
+          className="min-h-[44px] flex-row items-center justify-between rounded-control border border-border bg-card px-3 active:opacity-70"
+        >
+          <Text className="font-inter-semibold text-[14px] text-foreground">Özet</Text>
+          <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+        </Pressable>
+        {overviewOpen ? (
+          <>
+            <StatStrip
+              dense
+              items={[
+                { label: 'Toplam Sevkiyat', value: String(list.data?.total ?? kpis.total) },
+                { label: 'Yolda', value: String(kpis.inTransit), tone: 'info' },
+                { label: 'Gümrükte', value: String(kpis.customs), tone: 'warning' },
+                { label: 'Teslim Edilen', value: String(kpis.delivered), tone: 'success' },
+              ]}
+            />
+            {items.length ? networkPanel : null}
+          </>
+        ) : null}
       </View>
 
       {list.isPending ? (
@@ -214,7 +242,7 @@ export default function ShipmentsScreen() {
         <SectionList
           sections={sections}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => (
             <Text accessibilityRole="header" className="pb-1 pt-4 font-inter-semibold text-[13px] text-muted-foreground">
@@ -239,12 +267,7 @@ export default function ShipmentsScreen() {
               onAction={canCreate ? () => router.push('/modal/shipment-new' as Href) : undefined}
             />
           }
-          ListFooterComponent={
-            <>
-              {list.isFetchingNextPage ? <Loading /> : null}
-              {items.length ? network : null}
-            </>
-          }
+          ListFooterComponent={list.isFetchingNextPage ? <Loading /> : null}
         />
       )}
       {canCreate ? <Fab label="Yeni Sevkiyat" extended onPress={() => router.push('/modal/shipment-new' as Href)} /> : null}

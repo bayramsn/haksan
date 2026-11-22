@@ -1,3 +1,4 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { Alert, ScrollView, Text } from 'react-native';
@@ -6,7 +7,7 @@ import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useCompleteMaintenancePlan, useMaintenancePlan } from '@/src/api/operations.hooks';
 import { useDeleteMaintenancePlan } from '@/src/api/service.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
-import { dueLabel, formatDate, formatDateTime } from '@/src/lib/format';
+import { dueLabel, formatDateTime } from '@/src/lib/format';
 import type { Tone } from '@/src/theme/theme';
 import { Button, Card, Chip, DetailHeader, ErrorState, Eyebrow, Loading } from '@/src/ui';
 import { InfoRows, type InfoItem } from '@/src/ui/data';
@@ -15,6 +16,7 @@ import { toast } from '@/src/ui/toast';
 export default function MaintenancePlanDetailScreen() {
   const { goBack } = useHierarchyBack();
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const { id = '' } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const query = useMaintenancePlan(id);
@@ -26,7 +28,7 @@ export default function MaintenancePlanDetailScreen() {
   if (query.isPending || query.error || !query.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Bakım Planı" />
+        <DetailHeader title="Bakım Planı" compact />
         {query.isPending ? <Loading /> : <ErrorState message={query.error?.message ?? 'Bakım planı yüklenemedi.'} onRetry={() => void query.refetch()} />}
       </SafeAreaView>
     );
@@ -71,12 +73,12 @@ export default function MaintenancePlanDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Bakım Planı Detayı" subtitle={data.machine?.serialNumber ?? undefined} />
-      <ScrollView contentContainerClassName="gap-4 px-4 pt-4"
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}>
+      <DetailHeader title="Bakım Planı Detayı" subtitle={data.machine?.serialNumber ?? undefined} compact />
+      <ScrollView contentContainerClassName="gap-3 px-4 pt-3"
+        contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}>
         <Card className="gap-2">
           <ViewChips active={data.isActive} dueText={due?.text} tone={tone} />
-          <Text className="text-[20px] font-inter-semibold text-foreground">{data.title}</Text>
+          <Text className="text-[17px] font-inter-semibold text-foreground">{data.title}</Text>
           <Text className="font-inter text-[13px] text-muted-foreground">{data.company?.shortName ?? data.company?.legalTitle ?? 'Firma'} · {machine}</Text>
           {data.machine?.serialNumber ? <Text className="font-inter-medium text-[12px] text-foreground">SN: {data.machine.serialNumber}</Text> : null}
         </Card>

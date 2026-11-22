@@ -1,3 +1,4 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useState } from 'react';
 import { View } from 'react-native';
@@ -6,13 +7,14 @@ import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import { useSalesOrders } from '@/src/api/inventory.hooks';
 import { useCan } from '@/src/auth/AuthProvider';
-import { EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
+import { EmptyState, ErrorState, Fab, FilterChips, ListSkeleton, Loading, ScreenHeader, SearchBar } from '@/src/ui';
 import { SalesOrderRow } from '@/src/ui/documents/rows';
 import { SyncStatus } from '@/src/ui/SyncStatus';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 
 export default function SalesOrdersScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [statusCode, setStatusCode] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export default function SalesOrdersScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader title="Satış Siparişleri" subtitle="Tüm satış siparişlerinizi görüntüleyin ve yönetin." />
+      <ScreenHeader title="Satış Siparişleri" compact />
 
       <View className="gap-2 pb-2">
         <SearchBar value={search} onChange={setSearch} placeholder="Sipariş no veya firma" />
@@ -65,7 +67,7 @@ export default function SalesOrdersScreen() {
           style={{ flex: 1 }}
           data={items}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
+          contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 96 }}
           renderItem={({ item }) => (
             <SalesOrderRow
               order={item}

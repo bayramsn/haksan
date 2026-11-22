@@ -5,6 +5,9 @@
 > renk ve tipografide web ile hizalanmış hâliyle (kök `DESIGN.md`,
 > `apps/web/src/styles/theme.css`). Token'lar `theme.config.js` içinde yaşar;
 > web ile eşitlikleri `src/theme/web-parity.test.mjs` ile korunur.
+>
+> İleri UI/UX uygulama planı (rebrand değil):
+> [`docs/mobile-v2/ui-ux-design-plan-20261110.md`](../../docs/mobile-v2/ui-ux-design-plan-20261110.md).
 
 ## 1. Visual Theme & Atmosphere
 
@@ -138,3 +141,25 @@ seçilince geçerli kontak/fırsat korunur. Firmaya bağlı kayıt alanları ken
 kapsamını korur; serbest kontak metni kabul eden alanlarda firma seçilmemişse
 CRM kontak rehberi aranabilir. Açılır seçimler native modal üstünde ve klavye
 ile kullanılabilir; yükleme/hata/yeniden deneme durumları boş listeden ayrılır.
+
+## 12. Günlük iş odağı ve geniş ekran düzeni
+
+Ana sayfada önce kişisel gün özeti, yetkili oluşturma kısayolları, ajanda ve
+son teklifler gösterilir. Yoğun operasyon verileri açılır iş özetinde, raporlar
+ayrı görünümde korunur. Firma detayında Ara, Rota, Not ve Fırsat eylemleri öne
+alınır; geniş ekranda firma özeti iki sütuna ayrılır.
+
+Kanban kartlarında firma, tutar ve sonraki işlem ayrı görsel katmanlardır.
+Geciken takip yalnız renkle değil ikon ve metinle belirtilir. Telefonda seçili
+aşama, geniş ekranda birden fazla kolon kullanılır.
+
+Modüllerde yıldızla sabitlenen favoriler ve son beş kullanılan modül kullanıcı
+ve firma hesabı kapsamında cihazda tutulur. Katalogdaki tüm modüller korunur;
+favoriler erişim kontrolünü aşamaz. Geniş ekranda kategori grupları iki sütun,
+büyük yazıda tek sütun kullanır.
+
+Ticari belge formları geniş ekranda en fazla 820 pt içerik genişliğinde
+ortalanır. Teklif müşteri, belge, kalem, iskonto/toplam ve şartlar bölümlerine
+ayrılır. Açılır bölüm girdileri düzenlemeleri kaybetmemek için bağlı kalır;
+doğrulama hataları ilgili bölümü açar. Kaydet ve PDF işlemleri sabit alt
+çubukta korunur. Ürün görseli bulunmadığında tutarlı katalog ikonu gösterilir.

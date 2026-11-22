@@ -68,7 +68,7 @@ export function QuoteTrendCard({ businessLine }: { businessLine?: BusinessLine }
   return (
     <Card className="gap-3">
       <View className="gap-0.5">
-        <Text className="font-display text-[17px] text-foreground">Teklif Trendi</Text>
+        <Text className="font-inter-semibold text-[17px] text-foreground">Teklif Trendi</Text>
         <Text className="font-inter text-[12px] text-muted-foreground">
           Gönderilen vs onaylanan · son 6 ay{first && last ? ` (${first.long} ${first.year} – ${last.long} ${last.year})` : ''}
         </Text>
@@ -126,7 +126,7 @@ export function QuoteDistributionCard({ businessLine }: { businessLine?: Busines
   ];
   return (
     <Card className="gap-3">
-      <Text className="font-display text-[17px] text-foreground">Durum Dağılımı</Text>
+      <Text className="font-inter-semibold text-[17px] text-foreground">Durum Dağılımı</Text>
       {rows.map((row) => (
         <View key={row.label} className="gap-1">
           <ProgressBar done={row.value} total={known} label={`${row.label} · %${sharePercent(row.value, known)}`} tone={row.tone} />

@@ -1,3 +1,4 @@
+import { ScopeSummary } from './ScopeSummary';
 import { ProfileButton } from './ProfileButton';
 import { GlassNavigationControl } from './NavigationGlass';
 import { useNavigationBottomInset } from './LiquidGlassTabBarBackground';
@@ -6,6 +7,7 @@ import { SheetMenu } from './crm/SheetMenu';
 import { forwardRef, useId, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  useWindowDimensions,
   Pressable,
   ScrollView,
   Text,
@@ -17,11 +19,10 @@ import {
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, type Href } from 'expo-router';
+import { useRouter } from 'expo-router';
 import Animated, { useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
 import { chipClass, chipTextClass, SCREEN_PAD, toneColor, useTheme, type Tone } from '@/src/theme/theme';
-import { Enter } from '@/src/ui/motion';
-import { Logo } from '@/src/ui/Logo';
+import { Enter, Skeleton } from '@/src/ui/motion';
 import { useUnreadCount } from '@/src/api/notifications.hooks';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 
@@ -135,7 +136,8 @@ export function Button({
         ? 'bg-destructive'
         : 'border border-border bg-card';
   const text =
-    variant === 'ghost' ? 'text-foreground' : variant === 'primary' ? 'text-primary-foreground' : 'text-white';
+    variant === 'ghost' ? 'text-foreground' : variant === 'primary' ? 'text-primary-foreground' : 'text-destructive-foreground';
+  const foreground = variant === 'ghost' ? colors.foreground : variant === 'primary' ? colors.primaryForeground : colors.destructiveForeground;
   // NativeWind className, Reanimated ile sarılmış Pressable'da özellikle web
   // hedefinde style'a çevrilmeyebiliyor. Birincil eylemin görünürlüğü yalnız
   // utility dönüşümüne bağlı kalmasın; referansın 48pt kırmızı CTA yüzeyini
@@ -180,15 +182,15 @@ export function Button({
       className={`min-h-[48px] flex-row items-center justify-center gap-2 rounded-control px-5 ${surface} ${isOff ? 'opacity-50' : ''} ${className}`}
       {...rest}
     >
-      {loading ? <ActivityIndicator size="small" /> : null}
-      <Text className={`shrink text-center font-inter-semibold text-base ${text}`}>{label}</Text>
+      {loading ? <ActivityIndicator size="small" color={foreground} /> : null}
+      <Text style={{ color: foreground }} className={`shrink text-center font-inter-semibold text-base ${text}`}>{label}</Text>
       {trailingIcon ? (
         // Etiket uzadığında sarılır; ikon metnin üzerine binmez.
         <View>
           <Ionicons
             name={trailingIcon}
             size={18}
-            color={variant === 'ghost' ? colors.foreground : colors.primaryForeground}
+            color={foreground}
           />
         </View>
       ) : null}
@@ -201,12 +203,12 @@ export function Button({
 type FieldProps = TextInputProps & { label: string; error?: string };
 
 export const Field = forwardRef<TextInput, FieldProps>(function Field({ label, error, className, style, multiline, editable, onFocus, onBlur, ...rest }, ref) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const [focused, setFocused] = useState(false);
   const id = useId();
   const errorId = error ? `field-error-${id}` : undefined;
   return (
-    <View className="gap-1.5">
+    <View className="gap-1">
       <Text className="font-inter-medium text-[13px] text-muted-foreground">{label}</Text>
       <TextInput
         ref={ref}
@@ -214,12 +216,14 @@ export const Field = forwardRef<TextInput, FieldProps>(function Field({ label, e
         accessibilityHint={error}
         aria-describedby={errorId}
         placeholderTextColor={colors.mutedForeground}
+        selectionColor={colors.primary}
+        keyboardAppearance={scheme}
         multiline={multiline}
         editable={editable}
         onFocus={(event) => { setFocused(true); onFocus?.(event); }}
         onBlur={(event) => { setFocused(false); onBlur?.(event); }}
-        style={[{ borderColor: error ? colors.destructive : focused ? colors.primary : colors.border, opacity: editable === false ? 0.6 : 1, textAlignVertical: multiline ? 'top' : 'center' }, style]}
-        className={`${multiline ? 'min-h-28 py-3' : 'min-h-14'} rounded-control border bg-input-background px-3 font-inter text-base text-foreground ${className ?? ''}`}
+        style={[{ color: colors.foreground, backgroundColor: colors.card, borderColor: error ? colors.destructive : focused ? colors.primary : colors.border, opacity: editable === false ? 0.6 : 1, textAlignVertical: multiline ? 'top' : 'center' }, style]}
+        className={`${multiline ? 'min-h-20 py-3' : 'min-h-12'} rounded-control border bg-card px-3.5 font-inter text-[16px] text-foreground ${className ?? ''}`}
         {...rest}
       />
       {error ? (
@@ -249,37 +253,45 @@ type IconFieldProps = Omit<TextInputProps, 'secureTextEntry'> & {
  * üstte etiket yok. Parolada sağda göz düğmesi.
  */
 export const IconField = forwardRef<TextInput, IconFieldProps>(function IconField(
-  { icon, label, error, secure, ...rest },
+  { icon, label, error, secure, editable, onFocus, onBlur, style, ...rest },
   ref
 ) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const [reveal, setReveal] = useState(false);
+  const [focused, setFocused] = useState(false);
   const errorId = error ? `field-error-${label.toLocaleLowerCase('tr').replace(/[^a-z0-9]+/g, '-')}` : undefined;
 
   return (
     <View className="gap-1.5">
       <View
-        className={`h-[52px] flex-row items-center gap-3 rounded-[14px] border bg-card px-4 ${error ? 'border-destructive' : 'border-border'}`}
-        style={{ borderCurve: 'continuous' }}
+        className={`min-h-12 flex-row items-center gap-2.5 rounded-control border bg-card px-3 ${error ? 'border-destructive' : 'border-border'}`}
+        style={{ borderCurve: 'continuous', backgroundColor: colors.card, borderColor: error ? colors.destructive : focused ? colors.primary : colors.controlBorder, opacity: editable === false ? 0.6 : 1 }}
       >
-        <Ionicons name={icon} size={20} color={colors.mutedForeground} />
+        <Ionicons name={icon} size={18} color={colors.mutedForeground} />
         <TextInput
           ref={ref}
           accessibilityLabel={label}
           accessibilityHint={error}
           aria-describedby={errorId}
           placeholderTextColor={colors.mutedForeground}
+          selectionColor={colors.primary}
+          keyboardAppearance={scheme}
+          editable={editable}
+          onFocus={(event) => { setFocused(true); onFocus?.(event); }}
+          onBlur={(event) => { setFocused(false); onBlur?.(event); }}
+          style={[{ color: colors.foreground, minHeight: 48 }, style]}
           secureTextEntry={secure && !reveal}
-          className="flex-1 font-inter text-base text-foreground"
+          className="min-w-0 flex-1 font-inter text-[15px] text-foreground"
           {...rest}
         />
         {secure ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={reveal ? 'Parolayı gizle' : 'Parolayı göster'}
-            hitSlop={10}
+            disabled={editable === false}
+            accessibilityState={{ disabled: editable === false }}
             onPress={() => setReveal((v) => !v)}
-            className="active:opacity-60"
+            className="min-h-11 min-w-11 items-center justify-center active:opacity-60"
           >
             <Ionicons name={reveal ? 'eye-off-outline' : 'eye-outline'} size={20} color={colors.mutedForeground} />
           </Pressable>
@@ -350,9 +362,9 @@ export function EmptyState({
 }) {
   const { colors } = useTheme();
   return (
-    <View className="items-center gap-2.5 px-6 py-8">
+    <View className="items-center gap-3 px-6 py-8" style={{ width: '100%', maxWidth: 560, alignSelf: 'center' }}>
       <Enter>
-        <View className="h-10 w-10 items-center justify-center rounded-full border border-border bg-card-subtle">
+        <View className="h-14 w-14 items-center justify-center rounded-surface border border-border bg-card-subtle">
           <Ionicons name={icon} size={20} color={colors.mutedForeground} />
         </View>
       </Enter>
@@ -369,7 +381,8 @@ export function EmptyState({
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <View accessibilityLiveRegion="assertive" className="items-center gap-3 px-8 py-16">
+    <View accessibilityLiveRegion="assertive" className="items-center gap-3 px-6 py-8" style={{ width: '100%', maxWidth: 560, alignSelf: 'center' }}>
+      <View className="rounded-full bg-destructive-soft p-3"><Text accessibilityElementsHidden className="font-inter-semibold text-lg text-destructive">!</Text></View>
       <Text selectable className="text-center font-inter-semibold text-base text-destructive">{message}</Text>
       {onRetry ? <Button label="Tekrar dene" variant="ghost" onPress={onRetry} /> : null}
     </View>
@@ -379,7 +392,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 export function Loading() {
   return (
     <View accessibilityRole="progressbar" accessibilityLabel="Yükleniyor" className="flex-1 items-center justify-center py-16">
-      <ActivityIndicator accessibilityLabel="Yükleniyor" />
+      <View className="w-full max-w-lg gap-3 px-5"><Skeleton height={24} width="55%" /><Skeleton height={72} /><Skeleton height={72} /><Skeleton height={72} /></View>
     </View>
   );
 }
@@ -392,6 +405,7 @@ export type HeaderAction = {
   onPress: () => void;
   /** Sağ üstte kırmızı nokta (okunmamış/aktif filtre). */
   dot?: boolean;
+  disabled?: boolean;
 };
 
 /** Desktop glass kontrol yüzeyleri; eylemler ve bildirim noktası korunur. */
@@ -403,8 +417,9 @@ function ActionButton({ action }: { action: HeaderAction }) {
       accessibilityRole="button"
       accessibilityLabel={action.label}
       onPress={action.onPress}
+      disabled={action.disabled}
       hitSlop={8}
-      className="h-11 w-11 items-center justify-center active:opacity-60"
+      className={`h-11 w-11 items-center justify-center active:opacity-60 ${action.disabled ? 'opacity-40' : ''}`}
     >
       <Ionicons name={action.icon} size={20} color={colors.foreground} />
       {action.dot ? (
@@ -420,11 +435,12 @@ function HeaderActions({ actions, limit = 2 }: { actions: HeaderAction[]; limit?
   const menu = useRef<BottomSheetModal>(null);
   const overflow = actions.length > limit;
   const visible = overflow ? actions.slice(0, limit - 1) : actions;
+  const hidden = overflow ? actions.slice(limit - 1) : [];
   return <>
     {visible.map((action, index) => <ActionButton key={`${action.label}-${index}`} action={action} />)}
     {overflow ? <>
-      <ActionButton action={{ icon: 'ellipsis-horizontal', label: 'Diğer işlemler', onPress: () => menu.current?.present() }} />
-      <SheetMenu ref={menu} title="İşlemler" items={actions.slice(limit - 1).map((action, index) => ({ ...action, key: `${action.label}-${index}` }))} />
+      <ActionButton action={{ icon: 'ellipsis-horizontal', label: hidden.some(action => action.dot) ? 'Diğer işlemler, yeni öğe var' : 'Diğer işlemler', dot: hidden.some(action => action.dot), onPress: () => menu.current?.present() }} />
+      <SheetMenu ref={menu} title="İşlemler" items={hidden.map((action, index) => ({ ...action, key: `${action.label}-${index}` }))} />
     </> : null}
   </>;
 }
@@ -471,43 +487,39 @@ export function ScreenHeader({
   const router = useRouter();
   const unread = useUnreadCount();
   const nav = useHierarchyBack();
+  const inline = nav.isTabRoot;
+  const titleText = (
+    <Text
+      accessibilityRole="header"
+      className={inline ? 'min-w-0 flex-1 font-display' : 'font-display'}
+      numberOfLines={inline ? 1 : undefined}
+      style={
+        inline
+          ? { fontSize: compact ? 24 : 28, lineHeight: compact ? 30 : 34, letterSpacing: 0, color: colors.foreground }
+          : compact
+            ? { fontSize: 22, lineHeight: 26, letterSpacing: 0, color: colors.primary, marginTop: 2 }
+            : { fontSize: 30, lineHeight: 36, letterSpacing: 0, color: colors.foreground, marginTop: 12 }
+      }
+    >
+      {title}
+    </Text>
+  );
   return (
     <View style={{ paddingHorizontal: SCREEN_PAD }} className={compact ? 'pb-0.5 pt-0' : 'pb-1 pt-1'}>
-      <View className="h-11 flex-row items-center justify-between">
-        {nav.isTabRoot ? (
-          <Logo width={118} />
-        ) : (
+      <View className="min-h-11 flex-row items-center justify-between gap-2">
+        {/* Marka yalnız Ana Sayfa'da; sekme kökünde başlık üst satıra çıkar, logo tekrar etmez. */}
+        {nav.isTabRoot ? titleText : (
           <View className="-ml-3">
             <BackButton onPress={nav.goBack} />
           </View>
         )}
+        {/* Zil ve sayfa eylemleri tek "⋯" menüsünde; sağ üstte en çok iki ikon kalır. */}
         <View className="flex-row items-center gap-2">
-          <HeaderActions actions={actions} limit={hideProfile ? 2 : 1} />
-          {/* Mockup'ların tüm modül başlıklarında sağ üstte zil var. */}
-          {hideBell ? null : (
-            <ActionButton
-              action={{
-                icon: 'notifications-outline',
-                label: 'Bildirimler',
-                dot: unread > 0,
-                onPress: () => router.push('/notifications'),
-              }}
-            />
-          )}
+          <HeaderActions actions={hideBell ? actions : [...actions, { icon: 'notifications-outline', label: 'Bildirimler', dot: unread > 0, onPress: () => router.push('/notifications') }]} limit={hideProfile || actions[0]?.icon.startsWith('add') ? 2 : 1} />
           {hideProfile ? null : <ProfileButton />}
         </View>
       </View>
-      <Text
-        accessibilityRole="header"
-        className="font-display"
-        style={
-          compact
-            ? { fontSize: 22, lineHeight: 26, letterSpacing: 0, color: colors.primary, marginTop: 2 }
-            : { fontSize: 30, lineHeight: 36, letterSpacing: 0, color: colors.foreground, marginTop: 12 }
-        }
-      >
-        {title}
-      </Text>
+      {nav.isTabRoot ? null : titleText}
       {subtitle && !compact ? (
         <Text
           className="font-inter"
@@ -517,6 +529,7 @@ export function ScreenHeader({
           {subtitle}
         </Text>
       ) : null}
+      <ScopeSummary />
     </View>
   );
 }
@@ -526,21 +539,25 @@ export function DetailHeader({
   title,
   subtitle,
   actions = [],
+  compact,
 }: {
   title: string;
   subtitle?: string;
   actions?: HeaderAction[];
+  /** Detay ekranlarında üst çubuğu sıkılaştırır (liste `ScreenHeader compact` ile uyumlu). */
+  compact?: boolean;
 }) {
   const nav = useHierarchyBack();
   return (
-    <View className="min-h-16 flex-row items-center gap-3 border-b border-border bg-card px-3 py-3">
+    <View className="bg-card">
+    <View className={`flex-row items-center gap-2 border-b border-border bg-card px-3 ${compact ? 'min-h-11 py-1' : 'min-h-14 py-2'}`}>
       <BackButton onPress={nav.goBack} />
       <View className="min-w-0 flex-1">
-        <Text accessibilityRole="header" className="font-display-semibold text-[22px] text-foreground" numberOfLines={2}>
+        <Text accessibilityRole="header" className={`font-display-semibold text-foreground ${compact ? 'text-[16px]' : 'text-[18px]'}`} numberOfLines={1}>
           {title}
         </Text>
         {subtitle ? (
-          <Text className="mt-1 font-inter text-xs text-muted-foreground" numberOfLines={1}>
+          <Text className={`font-inter text-muted-foreground ${compact ? 'text-[10px]' : 'text-[11px]'}`} numberOfLines={1}>
             {subtitle}
           </Text>
         ) : null}
@@ -548,6 +565,8 @@ export function DetailHeader({
       <View className="min-w-11 flex-row justify-end gap-2">
         <HeaderActions actions={actions} />
       </View>
+    </View>
+    <View className="px-3 pb-1.5"><ScopeSummary /></View>
     </View>
   );
 }
@@ -570,7 +589,8 @@ export function SearchBar({
   compact?: boolean;
 }) {
   const { colors } = useTheme();
-  const box = compact ? 'h-11' : 'h-[52px]';
+  const { fontScale } = useWindowDimensions();
+  const box = compact ? 'min-h-11' : 'min-h-[52px]';
   return (
     <View style={{ paddingHorizontal: SCREEN_PAD }} className="flex-row items-center gap-2">
       <View
@@ -580,6 +600,7 @@ export function SearchBar({
         <Ionicons name="search" size={19} color={colors.mutedForeground} />
         <TextInput
           accessibilityLabel={placeholder}
+          style={{ minHeight: Math.max(44, 24 * fontScale) }}
           value={value}
           onChangeText={onChange}
           placeholder={placeholder}
@@ -604,7 +625,8 @@ export function SearchBar({
         // Mockup'ta filtre, arama alanının yanında ayrı kare beyaz düğme.
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Filtrele"
+          accessibilityLabel={filterActive ? 'Filtreler, etkin filtre var' : 'Filtrele'}
+          accessibilityState={{ selected: Boolean(filterActive) }}
           onPress={onFilterPress}
           className={`${box} ${compact ? 'w-11' : 'w-[52px]'} items-center justify-center rounded-[14px] border border-border bg-card active:opacity-70`}
           style={{ borderCurve: 'continuous' }}
@@ -638,6 +660,7 @@ export function FilterChips<T extends string>({
   allLabel?: string;
   dense?: boolean;
 }) {
+  const { fontScale } = useWindowDimensions();
   const rows: { key: string; label: string; count?: number; active: boolean; press: () => void }[] = [
     { key: '__all', label: allLabel, active: value === null, press: () => onChange(null) },
     ...options.map((o) => ({
@@ -655,7 +678,7 @@ export function FilterChips<T extends string>({
       showsHorizontalScrollIndicator={false}
       // Yatay ScrollView dikey sütun içinde büyüyüp altındaki listeyi aşağı
       // itiyordu; yüksekliği pil boyuna sabitlenmeli.
-      style={{ height: 46, flexGrow: 0, flexShrink: 0 }}
+      style={{ height: Math.max(46, Math.ceil(22 * fontScale + 24)), flexGrow: 0, flexShrink: 0 }}
       contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, gap: dense ? 8 : 10 }}
       keyboardShouldPersistTaps="handled"
     >
@@ -665,7 +688,7 @@ export function FilterChips<T extends string>({
           accessibilityRole="button"
           accessibilityState={{ selected: row.active }}
           onPress={row.press}
-          className={`${dense ? 'h-[44px] px-3.5' : 'h-[46px] px-5'} flex-row items-center gap-1.5 rounded-full border ${
+          className={`${dense ? 'min-h-[44px] px-3.5' : 'min-h-[46px] px-5'} flex-row items-center gap-1.5 rounded-full border ${
             row.active ? 'border-primary bg-primary' : 'border-border bg-card'
           }`}
         >
@@ -735,7 +758,7 @@ export function SectionHeader({
   const { colors } = useTheme();
   return (
     <View className="flex-row items-center justify-between px-4 pb-1 pt-4">
-      <Text className="font-display-semibold text-[18px] text-foreground">{title}</Text>
+      <Text accessibilityRole="header" className="font-inter-semibold text-[17px] text-foreground">{title}</Text>
       {action ? (
         <Pressable
           accessibilityRole="button"
@@ -792,9 +815,9 @@ export function ListRow({
   const { colors } = useTheme();
   const allChips = chips ?? (chip ? [chip] : []);
   const body = (
-    <View className="my-1.5 gap-3 rounded-surface border border-border bg-card p-4"
+    <View className="my-1 gap-2 rounded-surface border border-border bg-card p-3.5"
       style={{ borderCurve: 'continuous', boxShadow: '0 1px 4px rgba(15, 23, 42, 0.05)' }}>
-      <View className="flex-row items-start gap-3">
+      <View className="min-h-[44px] flex-row items-start gap-3">
         {icon ? <View className={`h-10 w-10 items-center justify-center rounded-control border ${chipClass[iconTone]}`}>
           <Ionicons name={icon} size={19} color={toneColor(colors, iconTone)} />
         </View> : null}

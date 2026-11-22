@@ -7,10 +7,7 @@ export default function DepartmentsScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <SyncStatus />
-      <ScreenHeader
-        title="Departmanlar"
-        subtitle="Ekipler, departman bilgileri ve dönemsel hedefler."
-      />
+      <ScreenHeader title="Departmanlar" compact />
       <DepartmentManager mode="module" />
     </SafeAreaView>
   );

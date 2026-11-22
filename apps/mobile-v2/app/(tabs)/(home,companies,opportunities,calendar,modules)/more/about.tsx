@@ -15,13 +15,13 @@ export default function AboutScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Hakkında" />
+      <DetailHeader title="Hakkında" compact />
 
-      <ScrollView contentContainerClassName="gap-4 px-4 pb-10 pt-4">
-        <Card className="items-center gap-1 py-8">
-          <Text className="font-display text-[30px] tracking-display text-foreground">Haksan Makina</Text>
-          <Text className="font-inter-semibold text-[13px] text-primary">ERP</Text>
-          <Text className="pt-2 font-inter text-[13px] text-muted-foreground">
+      <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-10 pt-2">
+        <Card className="items-center gap-1 p-3 py-5">
+          <Text className="font-display text-[26px] tracking-display text-foreground">Haksan Makina</Text>
+          <Text className="font-inter-semibold text-[12px] text-primary">ERP</Text>
+          <Text className="pt-1 font-inter text-[12px] text-muted-foreground">
             v{version} ({build})
           </Text>
         </Card>

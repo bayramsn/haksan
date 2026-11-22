@@ -186,19 +186,28 @@ export function moveKind(from: Qualification, to: Qualification): 'lost' | 'from
 
 /* ------------------------------------------------------------ satır yardımcıları ---- */
 
+export type SalesCompanyLike = {
+  legalTitle: string;
+  shortName: string | null;
+  /** Liste/detay DTO'sunda varsa firma adresi; lead şehir boşken adres satırı buradan gelir. */
+  primaryAddress?: { province?: string | null; district?: string | null; fullAddress?: string | null } | null;
+};
+
 export type SalesRowLike = {
   id: string;
   title: string;
   qualificationStage: string | null;
   estimatedValue: string | null;
   currency: { code: string } | null;
-  company: { legalTitle: string; shortName: string | null } | null;
+  company: SalesCompanyLike | null;
   primaryContact?: { fullName: string } | null;
   leadCompanyTitle: string | null;
   leadContactName: string | null;
   leadCity?: string | null;
   leadDistrict?: string | null;
   requestedMachine?: string | null;
+  wonProductName?: string | null;
+  products?: { machineName?: string | null }[] | null;
   createdAt: string;
   closedAt?: string | null;
   stage?: { code: string } | null;
@@ -213,8 +222,29 @@ export function contactNameOf(row: Pick<SalesRowLike, 'primaryContact' | 'leadCo
   return row.primaryContact?.fullName || row.leadContactName || 'İlgili kişi belirlenmedi';
 }
 
-export function addressOf(row: Pick<SalesRowLike, 'leadDistrict' | 'leadCity'>): string {
-  return [row.leadDistrict, row.leadCity].filter(Boolean).join(', ') || 'Adres bilgisi yok';
+export function addressOf(
+  row: Pick<SalesRowLike, 'leadDistrict' | 'leadCity' | 'company'>
+): string {
+  const lead = [row.leadDistrict, row.leadCity].filter(Boolean).join(', ');
+  if (lead) return lead;
+  const address = row.company?.primaryAddress;
+  const companyLine = [address?.district, address?.province].filter(Boolean).join(', ');
+  if (companyLine) return companyLine;
+  if (address?.fullAddress?.trim()) return address.fullAddress.trim();
+  return 'Adres bilgisi yok';
+}
+
+/** Kanban/liste makine satırı: WIN'de satılan, aksi halde istenen / ürün listesi. */
+export function machineLabelOf(
+  row: Pick<SalesRowLike, 'qualificationStage' | 'wonProductName' | 'requestedMachine' | 'products'>
+): string {
+  if (row.qualificationStage === 'win' && row.wonProductName?.trim()) return row.wonProductName.trim();
+  if (row.requestedMachine?.trim()) return row.requestedMachine.trim();
+  const fromProducts = (row.products ?? [])
+    .map((product) => product.machineName?.trim())
+    .filter((name): name is string => Boolean(name));
+  if (fromProducts.length) return fromProducts.join(', ');
+  return 'Makine belirtilmedi';
 }
 
 export function amountValue(row: Pick<SalesRowLike, 'estimatedValue'>): number {

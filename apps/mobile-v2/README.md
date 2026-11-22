@@ -51,6 +51,11 @@ npm --workspace @haksan/mobile-v2 run test
 npx expo-doctor
 ```
 
+## Tasarım
+
+- Görsel sistem: [`DESIGN.md`](./DESIGN.md)
+- UI/UX yol haritası (araştırma + fazlar): [`docs/mobile-v2/ui-ux-design-plan-20261110.md`](../../docs/mobile-v2/ui-ux-design-plan-20261110.md)
+
 ## Mimari
 
 - `src/api/client.ts` — fetch sarmalayıcı: Bearer, 401'de tek seferlik refresh,

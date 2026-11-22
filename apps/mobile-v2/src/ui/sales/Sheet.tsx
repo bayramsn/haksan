@@ -1,6 +1,8 @@
 import { forwardRef, type ReactNode } from 'react';
 import { Pressable, Text, useWindowDimensions, View } from 'react-native';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { toneColor, useTheme, type Tone } from '@/src/theme/theme';
 
@@ -10,20 +12,25 @@ export const SalesSheet = forwardRef<
   { title: string; subtitle?: string; children: ReactNode; onDismiss?: () => void }
 >(function SalesSheet({ title, subtitle, children, onDismiss }, ref) {
   const { colors } = useTheme();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   return (
     <BottomSheetModal
       ref={ref}
       enableDynamicSizing
-      maxDynamicContentSize={Math.round(height * 0.88)}
+      keyboardBehavior="interactive"
+      keyboardBlurBehavior="restore"
+      android_keyboardInputMode="adjustResize"
+      style={{ maxWidth: 720, width: '100%', alignSelf: 'center' }}
+      maxDynamicContentSize={Math.max(160, height - insets.top - 24)}
       onDismiss={onDismiss}
-      backgroundStyle={{ backgroundColor: colors.card }}
+      backgroundStyle={{ backgroundColor: colors.card, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}
       handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-      backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+      backdropComponent={SheetBackdrop}
     >
-      <BottomSheetScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingHorizontal: 20, paddingBottom: 40, paddingTop: 4 }}>
+      <BottomSheetScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 10, paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) + 20, paddingTop: 4 }}>
         <View className="gap-0.5">
-          <Text accessibilityRole="header" className="font-display-semibold text-[18px] text-foreground" numberOfLines={2}>
+          <Text accessibilityRole="header" className="font-inter-semibold text-[18px] text-foreground" numberOfLines={2}>
             {title}
           </Text>
           {subtitle ? <Text className="font-inter text-[13px] text-muted-foreground">{subtitle}</Text> : null}
@@ -62,7 +69,7 @@ export function SheetOption({
       disabled={disabled}
       onPress={onPress}
       className={`min-h-[50px] flex-row items-center gap-3 rounded-[12px] border px-3.5 py-2.5 active:opacity-70 ${
-        selected ? 'border-primary bg-secondary' : 'border-border bg-card'
+        selected ? 'border-primary bg-primary-soft' : 'border-border bg-card'
       } ${disabled ? 'opacity-50' : ''}`}
     >
       {icon ? <Ionicons name={icon} size={20} color={selected ? colors.primary : color} /> : null}

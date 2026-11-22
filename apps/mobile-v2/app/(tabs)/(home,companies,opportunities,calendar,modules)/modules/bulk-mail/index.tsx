@@ -1,4 +1,3 @@
-import { MAIL_CAMPAIGN_MAX_RECIPIENTS } from '@haksan/shared';
 import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -24,9 +23,8 @@ export default function BulkMailScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Toplu Mail"
-        subtitle="Kontaklara ve listelere kendi hesabınızdan katalog ve duyuru"
         actions={[{ icon: 'ban-outline', label: 'Ret listesi', onPress: () => router.push('/modules/bulk-mail/suppressions' as Href) }]}
-      />
+        compact/>
       {campaigns.isPending ? (
         <ListSkeleton />
       ) : !campaigns.data ? (
@@ -44,9 +42,6 @@ export default function BulkMailScreen() {
                   Liste yenilenemedi: {campaigns.error.message}
                 </Text>
               ) : null}
-              <Text className="font-inter text-[13px] leading-[19px] text-muted-foreground">
-                Her alıcıya ayrı e-posta, kendi webmail hesabınızdan gider (dakikada ~20). Tek gönderimde en fazla {MAIL_CAMPAIGN_MAX_RECIPIENTS} alıcı.
-              </Text>
             </View>
           }
           renderItem={({ item }) => {

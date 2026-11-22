@@ -1,7 +1,7 @@
 import { startCrmCall } from '@/src/call-assistant/call';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useState } from 'react';
-import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -87,7 +87,7 @@ function ContactTabs({ value, onChange, activityCount }: { value: ContactTab; on
             <Ionicons name={item.icon} size={17} color={selected ? colors.primaryForeground : colors.mutedForeground} />
             <Text className={`font-inter-medium text-[13px] ${selected ? 'text-primary-foreground' : 'text-muted-foreground'}`}>{item.label}</Text>
             {item.value === 'aktiviteler' && activityCount > 0 ? (
-              <View className={`min-w-[18px] items-center rounded-full px-1 ${selected ? 'bg-white/20' : 'bg-secondary'}`}>
+              <View className={`min-w-[18px] items-center rounded-full px-1 ${selected ? 'bg-primary-foreground/20' : 'bg-secondary'}`}>
                 <Text className={`font-inter-semibold text-[10px] ${selected ? 'text-primary-foreground' : 'text-primary'}`}>{activityCount}</Text>
               </View>
             ) : null}
@@ -129,7 +129,7 @@ export default function ContactDetailScreen() {
   if (isPending || error || !data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Kontak" />
+        <DetailHeader title="Kontak" compact />
         {isPending ? <Loading /> : <ErrorState message={error?.message ?? 'Kayıt yüklenemedi.'} onRetry={() => void refetch()} />}
       </SafeAreaView>
     );
@@ -174,19 +174,18 @@ export default function ContactDetailScreen() {
           canUpdate
             ? [{ icon: 'create-outline', label: 'Kontağı düzenle', onPress: () => router.push(`/modal/contact?id=${data.id}`) }]
             : []
-        }
-      />
+        } compact />
 
       <CollapsingDetailScroll
         paddingBottom={GLASS_TAB_BAR_HEIGHT + 32}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
         intro={
       <View style={{ paddingHorizontal: SCREEN_PAD }} className="pb-1 pt-3">
-        <Card className="gap-4">
+        <Card className="gap-3">
           <View className="flex-row items-center gap-3.5">
             <Avatar name={data.fullName} size={68} />
             <View className="min-w-0 flex-1 gap-1.5">
-              <Text className="text-[20px] font-inter-bold leading-[25px] text-foreground" numberOfLines={2}>{data.fullName}</Text>
+              <Text className="text-[17px] font-inter-bold leading-[22px] text-foreground" numberOfLines={2}>{data.fullName}</Text>
               {data.title || data.department ? (
                 <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={2}>
                   {[data.title, data.department].filter(Boolean).join(' · ')}
@@ -252,6 +251,7 @@ export default function ContactDetailScreen() {
         {tab === 'iletisim' ? (
           <Card>
             <InfoRows
+              showEmpty
               items={[
                 { label: 'Cep', value: data.mobilePhone },
                 { label: 'İş telefonu', value: data.phoneExtension ? `${data.workPhone} (dahili ${data.phoneExtension})` : data.workPhone },
@@ -412,7 +412,10 @@ export default function ContactDetailScreen() {
                 <ListRow
                   key={activity.id}
                   title={activity.subject}
-                  lines={[activity.type?.name, formatDateTime(activity.activityDate), activity.result]}
+                  lines={[
+                    [activity.type?.name, formatDateTime(activity.activityDate)].filter(Boolean).join(' · ') || null,
+                    activity.result,
+                  ]}
                   icon="pulse-outline"
                   iconTone={activity.origin === 'system' ? 'neutral' : 'info'}
                   onPress={() => router.push(`/modules/activities/${activity.id}` as Href)}

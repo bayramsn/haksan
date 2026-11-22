@@ -1,8 +1,11 @@
+import { Alert } from 'react-native';
+import * as Crypto from 'expo-crypto';
 import { collectPaginated } from './pagination';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { inventoryApi, orders, productsApi, reportsExtra } from './endpoints';
 import type { ProductUpdateInput } from '@haksan/shared';
 import { stockApi, type InventoryItemBody, type StockRow } from './products.api';
+import { useOfflineMutation } from '@/src/offline/useOfflineMutation';
 
 const PAGE_SIZE = 50;
 
@@ -15,7 +18,7 @@ export const inventoryKeys = {
   product: (id: string): QueryKey => ['products', 'detail', id],
   priceLists: ['price-lists'] as const,
   priceListItems: (id: string): QueryKey => ['price-lists', id, 'items'],
-  salesOrders: (query: { search?: string; statusCode?: string; quoteId?: string }): QueryKey => ['sales-orders', query],
+  salesOrders: (query: { search?: string; statusCode?: string; quoteId?: string; companyId?: string }): QueryKey => ['sales-orders', query],
   purchaseOrders: (query: { search?: string; statusCode?: string }): QueryKey => ['purchase-orders', query],
   salesOrder: (id: string): QueryKey => ['sales-orders', 'detail', id],
   purchaseOrder: (id: string): QueryKey => ['purchase-orders', 'detail', id],
@@ -43,18 +46,37 @@ export function useInventoryItem(id: string) {
 function settleInventory(qc: ReturnType<typeof useQueryClient>) {
   return () => {
     void qc.invalidateQueries({ queryKey: ['inventory'] });
+    void qc.invalidateQueries({ queryKey: ['reports', 'stock-summary'] });
   };
 }
 
-/** Stok kartını firmaya rezerve eder (web StockPage ile aynı uç). */
+/** Stok kartını firmaya rezerve eder (web StockPage ile aynı uç). Offline kuyruk destekli. */
 export function useReserveInventoryItem(id: string) {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { companyId: string; opportunityId?: string; quoteId?: string; notes?: string }) =>
-      inventoryApi.reserve(id, body),
-    onSuccess: (updated) => {
-      qc.setQueryData(inventoryKeys.detail(id), updated);
-      settleInventory(qc)();
+  return useOfflineMutation<
+    { companyId: string; opportunityId?: string; quoteId?: string; notes?: string; operationId?: string },
+    Awaited<ReturnType<typeof inventoryApi.reserve>>
+  >({
+    kind: 'inventory.reserve',
+    mutationFn: ({ operationId: _ignored, ...body }) => inventoryApi.reserve(id, body),
+    toPayload: (body) => ({
+      operationId: body.operationId ?? Crypto.randomUUID(),
+      id,
+      companyId: body.companyId,
+      ...(body.opportunityId ? { opportunityId: body.opportunityId } : {}),
+      ...(body.quoteId ? { quoteId: body.quoteId } : {}),
+      ...(body.notes ? { notes: body.notes } : {}),
+    }),
+    invalidate: [['inventory'], ['reports', 'stock-summary']],
+    onDone: (updated, queued) => {
+      if (queued) {
+        Alert.alert('Bağlantı bekleniyor', 'Rezervasyon şifreli kuyruğa alındı; bağlantı gelince gönderilecek.');
+        return;
+      }
+      if (updated) {
+        qc.setQueryData(inventoryKeys.detail(id), updated);
+        settleInventory(qc)();
+      }
     },
   });
 }
@@ -137,7 +159,7 @@ export function usePriceListItems(id: string) {
   });
 }
 
-export function useSalesOrders(query: { search?: string; statusCode?: string; quoteId?: string }, enabled = true) {
+export function useSalesOrders(query: { search?: string; statusCode?: string; quoteId?: string; companyId?: string }, enabled = true) {
   return useInfiniteQuery({
     queryKey: inventoryKeys.salesOrders(query),
     initialPageParam: 1,
@@ -194,9 +216,14 @@ export function useCreateSalesOrderFromQuote() {
       reserveStock?: boolean;
       notes?: string;
     }) => orders.createFromQuote(quoteId, body),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['sales-orders'] });
-      void qc.invalidateQueries({ queryKey: quoteKeysAll });
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['sales-orders'] }),
+        qc.invalidateQueries({ queryKey: quoteKeysAll }),
+        // reserveStock changes serial-numbered stock as part of order creation.
+        qc.invalidateQueries({ queryKey: ['inventory'] }),
+        qc.invalidateQueries({ queryKey: ['reports', 'stock-summary'] }),
+      ]);
     },
   });
 }
@@ -222,12 +249,19 @@ export function useOrderAction(kind: 'sales' | 'purchase', id: string) {
       if (action === 'approve') return orders.purchaseApprove(id);
       return orders.purchaseStatus(id, action);
     },
-    onSuccess: async () => {
+    onSuccess: async (_result, action) => {
       await Promise.all([
         qc.invalidateQueries({
           queryKey: kind === 'sales' ? inventoryKeys.salesOrder(id) : inventoryKeys.purchaseOrder(id),
         }),
         qc.invalidateQueries({ queryKey: [kind === 'sales' ? 'sales-orders' : 'purchase-orders'] }),
+        ...(kind === 'sales' && action === 'reserve' ? [
+          qc.invalidateQueries({ queryKey: ['inventory'] }),
+          qc.invalidateQueries({ queryKey: ['reports', 'stock-summary'] }),
+        ] : []),
+        ...(kind === 'sales' && action === 'fulfilled' ? [
+          qc.invalidateQueries({ queryKey: ['service', 'shipments'] }),
+        ] : []),
       ]);
     },
   });

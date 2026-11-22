@@ -425,8 +425,8 @@ function LaserImportCard({ scope, onClose, onImported }: { scope: LaserProfileSc
   const busy = previewMutation.isPending || commitMutation.isPending;
 
   return (
-    <Card className="gap-3 p-3.5">
-      <Text className="font-display text-[17px] text-foreground">Model değerlerini Excel&apos;den aktar</Text>
+    <Card className="gap-2 p-3">
+      <Text className="font-inter-semibold text-[17px] text-foreground">Model değerlerini Excel&apos;den aktar</Text>
       <Help>
         Standart Yapılandırma ve dosyadaki tüm desteklenen kesim serileri birlikte okunur. Her model, kabin ve güç için teknik değerleri kaydetmeden önce inceleyin.
       </Help>

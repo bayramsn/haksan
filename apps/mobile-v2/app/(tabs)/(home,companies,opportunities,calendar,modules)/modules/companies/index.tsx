@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
+import { DISTRICTS_BY_PROVINCE } from '@haksan/shared';
 import { Alert, Image, Pressable, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -6,7 +7,8 @@ import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
-import { BottomSheetModal, BottomSheetScrollView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetScrollView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import { useDeleteCompany, useUpdateCompanyStatus } from '@/src/api/companies.hooks';
 import { useCompanyListExt, useCompanySummaryExt } from '@/src/api/crm-general.hooks';
 import type { CompanyListRow } from '@/src/api/crm-general.api';
@@ -35,7 +37,6 @@ import { toast } from '@/src/ui/toast';
 import { SheetMenu } from '@/src/ui/crm/SheetMenu';
 import { useAuth, useCan } from '@/src/auth/AuthProvider';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
-import { formatDate } from '@/src/lib/format';
 import {
   COMPANY_SORT_OPTIONS,
   FIRM_TYPE_LABELS,
@@ -85,12 +86,10 @@ function CompanyLogo({ uri }: { uri: string }) {
 function CompanyRow({
   item,
   onOpen,
-  onCreateOpportunity,
   onMenu,
 }: {
   item: CompanyListRow;
   onOpen: () => void;
-  onCreateOpportunity?: () => void;
   onMenu: () => void;
 }) {
   const { colors } = useTheme();
@@ -98,54 +97,31 @@ function CompanyRow({
   const location = [item.primaryAddress?.province, item.primaryAddress?.district].filter(Boolean).join(' / ') || 'Konum yok';
   const supplierLabel = supplierCategoryLabel(item.supplierCategoryCode);
   const isActiveCustomer = item.customerStatus?.code === 'active';
-  const creator = item.createdByUser?.fullName || item.createdByUser?.email || '—';
-  const identity = [item.companyType === 'individual' ? 'Bireysel' : 'Kurumsal', item.taxNumber ? `Vergi no: ${item.taxNumber}` : null].filter(Boolean).join(' · ');
+  const meta = [location, item.primaryPhone || null].filter(Boolean).join(' · ');
 
   return (
-    <View className="my-1.5 overflow-hidden rounded-surface border border-border bg-card">
-      <Pressable onPress={onOpen} onLongPress={onMenu} delayLongPress={350}
-        accessibilityRole="button" accessibilityLabel={`${item.legalTitle}, ${location}. Firma detayını aç`}
-        className="gap-3 p-4 active:opacity-70">
-        <View className="flex-row items-start gap-3">
-          {item.logoUrl ? <CompanyLogo uri={item.logoUrl} /> : <Avatar name={item.legalTitle} size={40} square />}
-          <View className="min-w-0 flex-1 gap-1">
-            <Text className="font-inter-semibold text-[16px] leading-[22px] text-foreground" numberOfLines={2}>{item.legalTitle}</Text>
-            <Text className="font-inter text-[13px] leading-[18px] text-muted-foreground" numberOfLines={2}>{location}</Text>
+    // Kartsız satır: ince ayraç, fırsat oluşturma ⋮ menüsünde.
+    <View className="border-b border-border">
+      <View className="flex-row items-stretch">
+        <Pressable onPress={onOpen} onLongPress={onMenu} delayLongPress={350}
+          accessibilityRole="button" accessibilityLabel={`${item.legalTitle}, ${location}. Firma detayını aç`}
+          className="min-w-0 flex-1 gap-2 py-3 active:opacity-70">
+          <View className="flex-row items-start gap-3">
+            {item.logoUrl ? <CompanyLogo uri={item.logoUrl} /> : <Avatar name={item.legalTitle} size={36} square />}
+            <View className="min-w-0 flex-1 gap-0.5">
+              <Text className="font-inter-semibold text-[15px] leading-[20px] text-foreground" numberOfLines={2}>{item.legalTitle}</Text>
+              <Text className="font-inter text-[12px] leading-[17px] text-muted-foreground" numberOfLines={1}>{meta}</Text>
+            </View>
           </View>
-          <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
-        </View>
-        <View className="flex-row flex-wrap items-center gap-1.5">
-          <Chip tone={FIRM_TONE[firmType]} label={FIRM_TYPE_LABELS[firmType]} />
-          {supplierLabel ? <Chip tone="info" label={supplierLabel} /> : null}
-          <Chip tone={isActiveCustomer ? 'success' : 'neutral'} label={isActiveCustomer ? 'Cari Satış' : 'Potansiyel'} />
-          {(item.divisions ?? []).slice(0, 2).map((division) => <Chip key={division.id} tone="neutral" label={division.name} />)}
-          {(item.divisions ?? []).length > 2 ? <Chip tone="neutral" label={`+${(item.divisions ?? []).length - 2}`} /> : null}
-        </View>
-        {item.primaryPhone || item.primaryEmail ? <View className="gap-2">
-          {item.primaryPhone ? <View className="flex-row items-center gap-2">
-            <Ionicons name="call-outline" size={15} color={colors.mutedForeground} />
-            <Text className="flex-1 font-inter text-[13px] text-foreground">{item.primaryPhone}</Text>
-          </View> : null}
-          {item.primaryEmail ? <View className="flex-row items-center gap-2">
-            <Ionicons name="mail-outline" size={15} color={colors.mutedForeground} />
-            <Text className="flex-1 font-inter text-[13px] text-muted-foreground" numberOfLines={1}>{item.primaryEmail}</Text>
-          </View> : null}
-        </View> : null}
-        <View className="gap-1 border-t border-border pt-3">
-          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={2}>{identity}</Text>
-          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={2}>{`Oluşturan: ${creator} · ${formatDate(item.createdAt)}`}</Text>
-        </View>
-      </Pressable>
-      <View className="flex-row border-t border-border px-2">
-        {onCreateOpportunity ? <Pressable accessibilityRole="button" accessibilityLabel={`${item.legalTitle} için fırsat oluştur`}
-          onPress={onCreateOpportunity} className="min-h-12 flex-1 flex-row items-center justify-center gap-2 px-2 active:opacity-70">
-          <Ionicons name="trending-up-outline" size={17} color={colors.primary} />
-          <Text className="font-inter-medium text-[13px] text-primary">Fırsat oluştur</Text>
-        </Pressable> : null}
+          <View className="flex-row flex-wrap items-center gap-1">
+            <Chip tone={FIRM_TONE[firmType]} label={FIRM_TYPE_LABELS[firmType]} />
+            <Chip tone={isActiveCustomer ? 'success' : 'neutral'} label={isActiveCustomer ? 'Cari' : 'Potansiyel'} />
+            {supplierLabel ? <Chip tone="info" label={supplierLabel} /> : null}
+          </View>
+        </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={`${item.legalTitle} firma işlemleri`} onPress={onMenu}
-          className={`min-h-12 flex-1 flex-row items-center justify-center gap-2 px-2 active:opacity-70 ${onCreateOpportunity ? 'border-l border-border' : ''}`}>
-          <Ionicons name="ellipsis-horizontal" size={18} color={colors.mutedForeground} />
-          <Text className="font-inter-medium text-[13px] text-muted-foreground">İşlemler</Text>
+          className="min-h-11 min-w-[44px] items-center justify-center self-center active:opacity-60">
+          <Ionicons name="ellipsis-vertical" size={18} color={colors.foreground} />
         </Pressable>
       </View>
     </View>
@@ -160,7 +136,8 @@ export default function CompaniesScreen() {
   const canCreate = useCan('companies.create');
   const canUpdate = useCan('companies.update');
   const canDelete = useCan('companies.delete');
-  const canExport = useCan('reports.export');
+  const canReadCompanies = useCan('companies.read');
+  const canExport = useCan('reports.export') && canReadCompanies;
   const canCreateOpportunity = useCan('opportunities.create');
   const showOpportunities = useCanAccessModule('opportunities');
   const isSuperAdmin = user?.roles.includes('super_admin') ?? false;
@@ -172,15 +149,17 @@ export default function CompaniesScreen() {
   const [salesTab, setSalesTab] = useState<SalesStatusTab>('all');
   const [divisionId, setDivisionId] = useState<string>(() => scope.divisionId ?? 'all');
   const [city, setCity] = useState<string | null>(null);
+  const [district, setDistrict] = useState<string | null>(null);
   const [sector, setSector] = useState<string | null>(null);
   const [supplierCategory, setSupplierCategory] = useState<'all' | 'transportation' | 'logistics'>('all');
   const [sortMode, setSortMode] = useState<CompanySortMode>('default');
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null);
+  const exportInFlight = useRef(false);
+  const searchPending = search.trim() !== serverSearch;
   const [menuTarget, setMenuTarget] = useState<CompanyListRow | null>(null);
 
   const filterSheetRef = useRef<BottomSheetModal>(null);
   const sortSheetRef = useRef<BottomSheetModal>(null);
-  const moreSheetRef = useRef<BottomSheetModal>(null);
   const menuSheetRef = useRef<BottomSheetModal>(null);
   const statusSheetRef = useRef<BottomSheetModal>(null);
 
@@ -192,11 +171,12 @@ export default function CompaniesScreen() {
       salesTab,
       divisionId,
       city: city ?? undefined,
+      district: district ?? undefined,
       sector: sector ?? undefined,
       supplierCategory,
       sortMode,
     }),
-    [serverSearch, tab, salesTab, divisionId, city, sector, supplierCategory, sortMode],
+    [serverSearch, tab, salesTab, divisionId, city, district, sector, supplierCategory, sortMode],
   );
   const query = useMemo(() => buildCompanyQuery(filters), [filters]);
   const list = useCompanyListExt(query);
@@ -207,11 +187,11 @@ export default function CompaniesScreen() {
   const byRelation = summary.data?.byRelation ?? {};
   const countBy = (type: FirmType) => byRelation[type] ?? 0;
   const advancedFilterCount =
-    (salesTab !== 'all' ? 1 : 0) + (city ? 1 : 0) + (sector ? 1 : 0) + (supplierCategory !== 'all' ? 1 : 0) + (divisionId !== 'all' ? 1 : 0);
+    (salesTab !== 'all' ? 1 : 0) + (city ? 1 : 0) + (district ? 1 : 0) + (sector ? 1 : 0) + (supplierCategory !== 'all' ? 1 : 0) + (divisionId !== 'all' ? 1 : 0);
   const hasFilters = search.trim().length > 0 || tab !== 'all' || advancedFilterCount > 0;
   const divisionName = user?.divisions?.find((division) => division.id === divisionId)?.name;
   function clearFilters() {
-    setSearch(''); setTab('all'); setSalesTab('all'); setCity(null); setSector(null); setSupplierCategory('all'); setDivisionId('all');
+    setSearch(''); setTab('all'); setSalesTab('all'); setCity(null); setDistrict(null); setSector(null); setSupplierCategory('all'); setDivisionId('all');
   }
 
   const relationOptions = useMemo(
@@ -231,15 +211,17 @@ export default function CompaniesScreen() {
     menuSheetRef.current?.present();
   }, []);
 
-  async function exportExcel() {
-    if (exporting) return;
-    setExporting(true);
+  async function exportCompanies(format: 'xlsx' | 'pdf') {
+    if (!canExport || exportInFlight.current || searchPending) return;
+    exportInFlight.current = true;
+    setExporting(format);
     try {
-      await exportService.companies(query);
+      await (format === 'pdf' ? exportService.companiesPdf(query) : exportService.companies(query));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Excel indirilemedi');
+      toast.error(error instanceof Error ? error.message : 'Dosya indirilemedi');
     } finally {
-      setExporting(false);
+      exportInFlight.current = false;
+      setExporting(null);
     }
   }
 
@@ -282,14 +264,17 @@ export default function CompaniesScreen() {
 
   const intro = (
     <View className="gap-3 pb-2">
-      <ScreenHeader title="Firmalar" subtitle="Müşteri, tedarikçi ve rakip firma kayıtları."
+      <ScreenHeader title="Firmalar" compact
         actions={[
           { icon: 'swap-vertical-outline', label: 'Firmaları sırala', onPress: () => sortSheetRef.current?.present() },
-          ...(canExport || isSuperAdmin ? [{ icon: 'ellipsis-horizontal' as const, label: 'Diğer firma işlemleri', onPress: () => moreSheetRef.current?.present() }] : []),
+          ...(canExport ? [
+            { icon: 'download-outline' as const, label: exporting === 'xlsx' ? 'Excel hazırlanıyor…' : 'Excel indir', disabled: Boolean(exporting) || searchPending, onPress: () => void exportCompanies('xlsx') },
+            { icon: 'document-text-outline' as const, label: exporting === 'pdf' ? 'PDF hazırlanıyor…' : 'PDF indir', disabled: Boolean(exporting) || searchPending, onPress: () => void exportCompanies('pdf') },
+          ] : []),
+          ...(isSuperAdmin ? [{ icon: 'cloud-upload-outline' as const, label: 'Firma ve kontak içe aktar', onPress: () => router.push(`/modal/company-import?divisionId=${divisionId}` as Href) }] : []),
         ]} />
-      <View className="flex-row items-center justify-between px-4">
+      <View className="px-4">
         <Text className="font-inter-medium text-[12px] text-muted-foreground">{divisionName ?? 'Tüm bölümler'}</Text>
-        <Text className="font-inter text-[12px] text-muted-foreground">{summary.data ? `${summary.data.total} firma` : summary.error ? 'Özet alınamadı' : 'Özet yükleniyor…'}</Text>
       </View>
       <FilterChips options={relationOptions} value={tab === 'all' ? null : tab} onChange={(next) => setTab(next ?? 'all')} allLabel="Tümü" />
     </View>
@@ -300,15 +285,17 @@ export default function CompaniesScreen() {
       <SearchBar value={search} onChange={setSearch} placeholder="Firma, şehir veya e-posta ara…"
         onFilterPress={() => filterSheetRef.current?.present()} filterActive={advancedFilterCount > 0} />
       <View className="min-h-11 flex-row items-center justify-between gap-3 px-4">
-        <View className="min-w-0 flex-1 gap-1">
-          <Text accessibilityLiveRegion="polite" className="font-inter-semibold text-[14px] text-foreground">{list.data ? `${items.length} / ${list.data.total} firma` : 'Firma listesi'}</Text>
+        <View className="min-w-0 flex-1 gap-0.5">
+          {list.data ? (
+            <Text accessibilityLiveRegion="polite" className="font-inter text-[11px] text-muted-foreground">{list.data.total} firma</Text>
+          ) : null}
           <Text className="font-inter text-[12px] text-muted-foreground">{COMPANY_SORT_OPTIONS.find((option) => option.value === sortMode)?.label}{advancedFilterCount ? ` · ${advancedFilterCount} filtre` : ''}</Text>
         </View>
         {hasFilters ? <Pressable accessibilityRole="button" accessibilityLabel="Firma aramasını ve filtreleri temizle" onPress={clearFilters}
           className="min-h-11 justify-center px-2 active:opacity-70"><Text className="font-inter-medium text-[13px] text-primary">Temizle</Text></Pressable> : null}
       </View>
-      {city || sector || salesTab !== 'all' || supplierCategory !== 'all' ? <View className="flex-row flex-wrap gap-2 px-4">
-        {[city, sector, salesTab !== 'all' ? salesOptions.find((option) => option.value === salesTab)?.label : null, supplierCategory !== 'all' ? supplierCategoryLabel(supplierCategory) : null]
+      {city || district || sector || salesTab !== 'all' || supplierCategory !== 'all' ? <View className="flex-row flex-wrap gap-2 px-4">
+        {[city, district, sector, salesTab !== 'all' ? salesOptions.find((option) => option.value === salesTab)?.label : null, supplierCategory !== 'all' ? supplierCategoryLabel(supplierCategory) : null]
           .filter((label): label is string => Boolean(label)).map((label, index) => <Chip key={`${label}-${index}`} tone="neutral" label={label} />)}
       </View> : null}
     </View>
@@ -358,14 +345,6 @@ export default function CompaniesScreen() {
                 <CompanyRow
                   item={row.item}
                   onOpen={() => router.push(`/modules/companies/${row.item.id}`)}
-                  onCreateOpportunity={
-                    canCreateOpportunity && showOpportunities
-                      ? () =>
-                          router.push(
-                            `/modal/new-opportunity?companyId=${row.item.id}&companyName=${encodeURIComponent(row.item.shortName ?? row.item.legalTitle)}` as Href,
-                          )
-                      : undefined
-                  }
                   onMenu={() => openMenu(row.item)}
                 />
               </View>
@@ -396,10 +375,6 @@ export default function CompaniesScreen() {
         </View>
       ) : null}
 
-      <SheetMenu ref={moreSheetRef} title="Firma işlemleri" items={[
-        ...(canExport ? [{ key: 'export', icon: 'download-outline' as const, label: exporting ? 'Excel hazırlanıyor…' : 'Excel indir', disabled: exporting, onPress: () => void exportExcel() }] : []),
-        ...(isSuperAdmin ? [{ key: 'import', icon: 'cloud-upload-outline' as const, label: 'Firma ve kontak içe aktar', onPress: () => router.push(`/modal/company-import?divisionId=${divisionId}` as Href) }] : []),
-      ]} />
       <SheetMenu
         ref={sortSheetRef}
         title="Sıralama"
@@ -418,6 +393,10 @@ export default function CompaniesScreen() {
           menuTarget
             ? [
                 { key: 'view', label: 'Görüntüle', icon: 'eye-outline', onPress: () => router.push(`/modules/companies/${menuTarget.id}`) },
+                ...(canCreateOpportunity && showOpportunities
+                  ? [{ key: 'opportunity', label: 'Fırsat oluştur', icon: 'trending-up-outline' as const,
+                      onPress: () => router.push(`/modal/new-opportunity?companyId=${menuTarget.id}&companyName=${encodeURIComponent(menuTarget.shortName ?? menuTarget.legalTitle)}` as Href) }]
+                  : []),
                 ...(canUpdate
                   ? [
                       {
@@ -471,7 +450,7 @@ export default function CompaniesScreen() {
         enableDynamicSizing={false}
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetScrollView contentContainerStyle={{ gap: 12, paddingBottom: 40, paddingTop: 4 }}>
           <Text style={{ paddingHorizontal: SCREEN_PAD }} className="font-inter-semibold text-base text-foreground">Müşteri Statüsü</Text>
@@ -487,7 +466,10 @@ export default function CompaniesScreen() {
               onChange={(value) => setDivisionId(value ?? 'all')} searchable /> : null}
             <OptionPicker label="Şehir" icon="location-outline" value={city}
               options={(summary.data?.cities ?? []).map((value) => ({ value, label: value }))}
-              onChange={setCity} placeholder="Tüm şehirler" searchable clearable />
+              onChange={(value) => { setCity(value); setDistrict(null); }} placeholder="Tüm şehirler" searchable clearable />
+            <OptionPicker label="İlçe" icon="location-outline" value={district}
+              options={(city ? DISTRICTS_BY_PROVINCE[city] ?? [] : []).map((value) => ({ value, label: value }))}
+              onChange={setDistrict} placeholder={city ? 'Tüm ilçeler' : 'Önce şehir seçin'} disabled={!city} searchable clearable />
             <OptionPicker label="Sektör" icon="business-outline" value={sector}
               options={(summary.data?.sectors ?? []).map((value) => ({ value, label: value }))}
               onChange={setSector} placeholder="Tüm sektörler" searchable clearable />
@@ -505,7 +487,7 @@ export default function CompaniesScreen() {
           <View className="gap-2 px-4 pt-2">
             <Button label="Sonuçları göster" onPress={() => filterSheetRef.current?.dismiss()} />
             {advancedFilterCount > 0 ? <Button label="Filtreleri temizle" variant="ghost" onPress={() => {
-              setSalesTab('all'); setCity(null); setSector(null); setSupplierCategory('all'); setDivisionId('all');
+              setSalesTab('all'); setCity(null); setDistrict(null); setSector(null); setSupplierCategory('all'); setDivisionId('all');
             }} /> : null}
           </View>
         </BottomSheetScrollView>

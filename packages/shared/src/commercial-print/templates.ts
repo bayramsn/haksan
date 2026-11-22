@@ -200,7 +200,7 @@ table.pf-addr .b { font-weight: bold; font-size: 9pt; white-space: nowrap; }
 export function proformaDoc(
   d: ProformaPrintData,
   assetBase: string,
-  opts?: { title?: string; headingHtml?: string },
+  opts?: { title?: string; headingHtml?: string; showModel?: boolean },
 ): PrintDocument {
   const printableItems = d.items;
   const brutKalemlerToplami = printableItems.reduce((a, i) => a + i.tutar, 0);
@@ -218,14 +218,14 @@ export function proformaDoc(
   const meta = (i: ProformaItem) => {
     const rows: string[] = [];
     if (i.marka) rows.push(`<tr><td>Markası</td><td>${esc(i.marka)}</td></tr>`);
-    if (i.model) rows.push(`<tr><td>Modeli</td><td>${esc(i.model)}</td></tr>`);
+    if (opts?.showModel && i.model) rows.push(`<tr><td>Modeli</td><td>${esc(i.model)}</td></tr>`);
     if (i.mensei) rows.push(`<tr><td>Menşei</td><td>${esc(i.mensei)}</td></tr>`);
     if (i.gtip) rows.push(`<tr><td>G.T.İ.P.</td><td>${esc(i.gtip)}</td></tr>`);
     return rows.length ? `<table class="meta">${rows.join("")}</table>` : "";
   };
   const yalniz = tutarYaziylaProforma(genelToplam, d.currency);
   const metaRowCount = (item: ProformaItem) =>
-    [item.marka, item.model, item.mensei, item.gtip]
+    [item.marka, opts?.showModel ? item.model : undefined, item.mensei, item.gtip]
       .filter((value) => value !== undefined && value !== null && value !== "").length;
   const itemMinHeightMm = Math.max(7, 34.4 / Math.max(1, printableItems.length));
   const estimatedItemHeightMm = printableItems.reduce((total, item) => {
@@ -349,7 +349,7 @@ export function proformaDoc(
 }
 
 export function commercialInvoiceDoc(d: ProformaPrintData, assetBase: string): PrintDocument {
-  return proformaDoc(d, assetBase, { title: "Ticari Fatura", headingHtml: "TİCARİ<br>FATURA" });
+  return proformaDoc(d, assetBase, { title: "Ticari Fatura", headingHtml: "TİCARİ<br>FATURA", showModel: true });
 }
 
 // ── 2) FİYAT TEKLİFİ ────────────────────────────────────────────────────────

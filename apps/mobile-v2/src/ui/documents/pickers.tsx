@@ -1,8 +1,8 @@
 import { productPriceLabel } from '@/src/ui/products/product-price';
 import { SelectionListFooter } from '@/src/ui/pickers/SelectionListFooter';
 import { useMemo, useState, type ReactNode, type RefObject } from 'react';
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useCompanyList } from '@/src/api/companies.hooks';
@@ -39,15 +39,19 @@ export function ModalForm({
   disabled?: boolean;
 }) {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const formWidth = Math.min(Math.max(0, width - insets.left - insets.right), 820);
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title, headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-5 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerClassName="gap-3 px-4 pb-6 pt-3" contentContainerStyle={{ width: formWidth, alignSelf: 'center' }} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
           {children}
         </ScrollView>
-        {secondaryLabel && onSecondarySubmit ? <View className="border-t border-border bg-card px-4 pt-3"><Button label={secondaryLabel} variant="ghost" onPress={onSecondarySubmit} disabled={disabled || loading} /></View> : null}
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="border-t border-border bg-card"><View style={{ width: formWidth, alignSelf: 'center' }}>
+        {secondaryLabel && onSecondarySubmit ? <View className="bg-card px-4 pt-2"><Button label={secondaryLabel} variant="ghost" onPress={onSecondarySubmit} disabled={disabled || loading} /></View> : null}
+        <View className="flex-row gap-2 bg-card px-4 py-2.5">
           <View className="flex-1">
             <Button label="Vazgeç" variant="ghost" onPress={() => router.back()} disabled={loading} />
           </View>
@@ -55,6 +59,7 @@ export function ModalForm({
             <Button label={submitLabel} loading={loading} disabled={disabled || loading} onPress={onSubmit} />
           </View>
         </View>
+        </View></View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -89,19 +94,19 @@ export function PickerField({
         accessibilityState={{ disabled }}
         disabled={disabled}
         onPress={onPress}
-        className={`min-h-12 flex-row items-center gap-3 rounded-control border bg-card px-3 py-2 active:opacity-70 ${
+        className={`min-h-12 flex-row items-center gap-2.5 rounded-control border bg-card px-3 py-2 active:opacity-70 ${
           error ? 'border-destructive' : value ? 'border-border' : 'border-dashed border-border'
         } ${disabled ? 'opacity-60' : ''}`}
       >
-        <Ionicons name={icon} size={19} color={colors.primary} />
-        <View className="flex-1 gap-0.5">
-          <Text className="font-inter-medium text-xs text-muted-foreground">{label}</Text>
-          <Text className="font-inter text-base text-foreground" numberOfLines={1}>
+        <Ionicons name={icon} size={17} color={colors.primary} />
+        <View className="min-w-0 flex-1 gap-0.5">
+          <Text className="font-inter-medium text-[11px] text-muted-foreground">{label}</Text>
+          <Text className="font-inter text-[15px] text-foreground" numberOfLines={1}>
             {value ?? placeholder}
           </Text>
         </View>
         {value && onClear && !disabled ? (
-          <Pressable accessibilityRole="button" accessibilityLabel={`${label} seçimini kaldır`} onPress={(event) => { event.stopPropagation(); onClear(); }} hitSlop={12}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`${label} seçimini kaldır`} onPress={(event) => { event.stopPropagation(); onClear(); }} className="min-h-11 min-w-11 items-center justify-center" hitSlop={4}>
             <Ionicons name="close-circle" size={20} color={colors.mutedForeground} />
           </Pressable>
         ) : (
@@ -139,7 +144,7 @@ export function ChoiceChips<T extends string>({
               accessibilityLabel={option.label}
               onPress={() => onChange(option.value)}
               className={`min-h-[44px] items-center justify-center rounded-control border px-3.5 ${
-                selected ? 'border-primary bg-secondary' : 'border-border bg-card'
+                selected ? 'border-primary bg-primary-soft' : 'border-border bg-card'
               }`}
             >
               <Text className={`font-inter-semibold text-[13px] ${selected ? 'text-primary' : 'text-foreground'}`}>{option.label}</Text>
@@ -208,7 +213,7 @@ function SheetRow({
           {title}
         </Text>
         {subtitle ? (
-          <Text className="font-inter text-xs text-muted-foreground" numberOfLines={1}>
+          <Text className="font-inter text-xs text-muted-foreground" numberOfLines={2}>
             {subtitle}
           </Text>
         ) : null}
@@ -240,7 +245,7 @@ export function CompanyPickerSheet({
     <HostedSheet open={open} onClose={close} heightRatio={0.8}>
       <View className="min-h-0 flex-1">
         <View className="gap-3 border-b border-border px-4 pb-3">
-          <Text className="font-display text-base text-foreground">Firma seçin</Text>
+          <Text className="font-inter-semibold text-base text-foreground">Firma seçin</Text>
           <SearchBar value={search} onChange={setSearch} placeholder="Firma ara" />
         </View>
         <FlatList
@@ -298,7 +303,7 @@ export function ProductPickerSheet({
     <HostedSheet open={open} onClose={close} heightRatio={0.8}>
       <View className="min-h-0 flex-1">
         <View className="gap-3 border-b border-border px-4 pb-3">
-          <Text className="font-display text-base text-foreground">Ürün seçin</Text>
+          <Text className="font-inter-semibold text-base text-foreground">Ürün seçin</Text>
           <SearchBar value={search} onChange={setSearch} placeholder="Model kodu veya ürün adı" />
         </View>
         <FlatList
@@ -346,12 +351,14 @@ export function QuotePickerSheet({
   selectedId,
   companyId,
   opportunityId,
+  excludeCancelled = false,
   onSelect,
 }: {
   sheetRef: RefObject<SheetHandle | null>;
   selectedId?: string;
   companyId?: string;
   opportunityId?: string;
+  excludeCancelled?: boolean;
   onSelect: (quote: QuoteListItem) => void;
 }) {
   const [search, setSearch] = useState('');
@@ -364,14 +371,14 @@ export function QuotePickerSheet({
     <HostedSheet open={open} onClose={close} heightRatio={0.8}>
       <View className="min-h-0 flex-1">
         <View className="gap-3 border-b border-border px-4 pb-3">
-          <Text className="font-display text-base text-foreground">Teklif seçin</Text>
+          <Text className="font-inter-semibold text-base text-foreground">Teklif seçin</Text>
           <SearchBar value={search} onChange={setSearch} placeholder="Teklif no veya firma" />
         </View>
         <FlatList
           className="flex-1"
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          data={list.data?.items ?? []}
+          data={(list.data?.items ?? []).filter((item) => !excludeCancelled || item.id === selectedId || !['cancelled', 'canceled'].includes(item.status?.code.toLowerCase() ?? ''))}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32, flexGrow: 1 }}
           renderItem={({ item }) => (
@@ -429,7 +436,7 @@ export function OpportunityPickerSheet({
     <HostedSheet open={open} onClose={close} heightRatio={0.8}>
       <View className="min-h-0 flex-1">
         <View className="gap-3 border-b border-border px-4 pb-3">
-          <Text className="font-display text-base text-foreground">Satış kartı seçin</Text>
+          <Text className="font-inter-semibold text-base text-foreground">Satış kartı seçin</Text>
           <SearchBar value={search} onChange={setSearch} placeholder="Firma veya kart ara" />
         </View>
         <FlatList

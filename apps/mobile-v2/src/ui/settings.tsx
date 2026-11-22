@@ -38,17 +38,17 @@ export function SettingsRow(props: RowProps) {
   const danger = (props.kind === undefined || props.kind === 'link') && props.danger === true;
 
   const content = (
-    <View className={`flex-row items-center gap-3 px-3.5 py-3 ${props.first ? '' : 'border-t border-border'}`}>
-      <View className={`h-9 w-9 items-center justify-center rounded-control border ${chipClass[danger ? 'destructive' : tone]}`}>
-        <Ionicons name={props.icon} size={17} color={toneColor(colors, danger ? 'destructive' : tone)} />
+    <View className={`min-h-12 flex-row flex-wrap items-center gap-2.5 px-3.5 py-2 ${props.first ? '' : 'border-t border-border'}`}>
+      <View className={`h-8 w-8 items-center justify-center rounded-control border ${chipClass[danger ? 'destructive' : tone]}`}>
+        <Ionicons name={props.icon} size={16} color={toneColor(colors, danger ? 'destructive' : tone)} />
       </View>
 
-      <View className="flex-1 gap-0.5">
-        <Text className={`text-[15px] font-inter-medium ${danger ? 'text-destructive' : 'text-foreground'}`}>
+      <View className="min-w-[120px] flex-1 gap-0.5">
+        <Text className={`text-[14px] font-inter-medium ${danger ? 'text-destructive' : 'text-foreground'}`}>
           {props.title}
         </Text>
         {props.subtitle ? (
-          <Text className="font-inter text-[12px] text-muted-foreground" numberOfLines={2}>
+          <Text className="font-inter text-[12px] leading-[17px] text-muted-foreground">
             {props.subtitle}
           </Text>
         ) : null}
@@ -69,8 +69,8 @@ export function SettingsRow(props: RowProps) {
           </Text>
         ) : null
       ) : (
-        <View className="flex-row items-center gap-1.5">
-          {props.value ? <Text className="font-inter text-[13px] text-muted-foreground">{props.value}</Text> : null}
+        <View className="max-w-[45%] flex-row items-center gap-1.5">
+          {props.value ? <Text className="shrink font-inter text-[13px] text-muted-foreground">{props.value}</Text> : null}
           <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />
         </View>
       )}

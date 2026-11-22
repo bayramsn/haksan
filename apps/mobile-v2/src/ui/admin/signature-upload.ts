@@ -25,8 +25,6 @@ async function pickImage(options: {
   emptyError: string;
   sizeError: string;
 }): Promise<PickedSignatureImage | null> {
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) throw new Error('Görsel seçmek için galeri izni gerekli.');
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
     quality: 1,

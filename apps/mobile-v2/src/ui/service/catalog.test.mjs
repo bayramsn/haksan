@@ -4,6 +4,8 @@ import {
   addYears,
   complaintLinkTitle,
   machineNotes,
+  machineStatusLabel,
+  machineStatusTone,
   publicComplaintUrl,
   warrantyInfo,
   warrantyShortLabel,
@@ -46,6 +48,17 @@ test('makine formu yardımcıları', () => {
   assert.equal(machineNotes(' MV-850 ', ''), 'MV-850');
   assert.equal(complaintLinkTitle(null), 'Makine Servis Formu');
   assert.equal(publicComplaintUrl('https://crm.example.com/', 'public/x/y'), 'https://crm.example.com/public/x/y');
+});
+
+test('makine Durum etiketi warranty_statuses lookup ile web StatusBadge TR eşlenir', () => {
+  assert.equal(machineStatusLabel('2027-01-01', NOW, { code: 'expired', name: 'Garanti Süresi Doldu' }), 'Garanti Dışı');
+  assert.equal(machineStatusLabel('2027-01-01', NOW, { code: 'void', name: 'Garanti İptal' }), 'Devre Dışı');
+  assert.equal(machineStatusLabel('2027-01-01', NOW, { code: 'active', name: 'Aktif Garanti' }), 'Aktif Garanti');
+  assert.equal(machineStatusLabel('2020-01-01', NOW, null), 'Garanti Dışı');
+  assert.equal(machineStatusLabel('2027-01-01', NOW, null), 'Aktif');
+  assert.equal(machineStatusTone('2027-01-01', NOW, { code: 'expired' }), 'warning');
+  assert.equal(machineStatusTone('2027-01-01', NOW, { code: 'void' }), 'neutral');
+  assert.equal(machineStatusTone('2027-01-01', NOW, { code: 'active' }), 'success');
 });
 
 const product = (overrides) => ({

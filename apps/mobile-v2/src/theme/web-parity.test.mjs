@@ -42,11 +42,19 @@ const MAPPED = {
   chart1: 'chart-1',
 };
 
+// Mobil küçük metin/çip kontrast düzeltmeleri; web paleti değiştirilmez.
+// Bu çiftlerin okunurluğu colors.test.mjs tarafından ayrıca ölçülür.
+const MOBILE_CONTRAST = {
+  light: { warning: '#986000' },
+  dark: { destructive: '#ff7479', destructiveSoft: 'rgba(255, 116, 121, 0.14)' },
+};
+
 for (const mode of ['light', 'dark']) {
   for (const [token, cssVar] of Object.entries(MAPPED)) {
-    test(`${mode}.${token} web --${cssVar} ile aynı`, () => {
+    const adjusted = MOBILE_CONTRAST[mode][token];
+    test(`${mode}.${token} ${adjusted ? 'mobil kontrast düzeltmesini korur' : `web --${cssVar} ile aynı`}`, () => {
       assert.ok(web[mode][cssVar], `web theme.css'te --${cssVar} (${mode}) yok`);
-      assert.equal(themes[mode][token].toLowerCase(), web[mode][cssVar].toLowerCase());
+      assert.equal(themes[mode][token].toLowerCase(), (adjusted ?? web[mode][cssVar]).toLowerCase());
     });
   }
 }

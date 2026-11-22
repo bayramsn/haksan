@@ -98,7 +98,7 @@ export default function NewComplaintScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni İç Şikayet Kaydı', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-3 px-4 pb-6 pt-3" keyboardShouldPersistTaps="handled">
           <FormSection title="Eşleştirme" hint="Telefon, WhatsApp, e-posta veya iç bildirim olarak gelen şikayeti kutuya alın.">
             <CompanyPicker
               label="Firma"
@@ -146,7 +146,7 @@ export default function NewComplaintScreen() {
             />
           </FormSection>
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button className="flex-1" label="Vazgeç" variant="ghost" onPress={() => router.back()} />
           <Button className="flex-[2]" label="Kaydet" loading={create.isPending} disabled={create.isPending} onPress={submit} />
         </View>

@@ -22,9 +22,9 @@ import { dayInput, isServiceStaff } from './logistics';
 /** Form bölüm başlığı + kart gövdesi. */
 export function FormSection({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
-    <View className="gap-3 rounded-surface border border-border bg-card p-4">
+    <View className="gap-3">
       <View className="gap-0.5">
-        <Text accessibilityRole="header" className="font-display-semibold text-[17px] text-foreground">{title}</Text>
+        <Text accessibilityRole="header" className="font-inter-semibold text-[16px] text-foreground">{title}</Text>
         {hint ? <Text className="font-inter text-xs text-muted-foreground">{hint}</Text> : null}
       </View>
       {children}
@@ -39,12 +39,14 @@ export function ChoiceChips<T extends string>({
   options,
   onChange,
   destructiveValue,
+  disabled = false,
 }: {
   label?: string;
   value: T | '' | null;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
   destructiveValue?: T;
+  disabled?: boolean;
 }) {
   return (
     <View className="gap-1.5">
@@ -57,14 +59,15 @@ export function ChoiceChips<T extends string>({
             <Pressable
               key={option.value}
               accessibilityRole="radio"
-              accessibilityState={{ selected }}
+              accessibilityState={{ selected, disabled }}
               accessibilityLabel={label ? `${label}: ${option.label}` : option.label}
+              disabled={disabled}
               onPress={() => onChange(option.value)}
-              className={`min-h-[44px] flex-grow items-center justify-center rounded-control border px-3 ${
+              className={`min-h-11 flex-grow items-center justify-center rounded-full border px-4 ${
                 danger ? 'border-destructive bg-destructive' : selected ? 'border-primary bg-primary' : 'border-border bg-card'
-              }`}
+              } ${disabled ? 'opacity-50' : 'active:opacity-70'}`}
             >
-              <Text className={`font-inter-semibold text-[13px] ${selected ? 'text-primary-foreground' : 'text-foreground'}`}>
+              <Text className={`font-inter-semibold text-[13px] ${danger ? 'text-destructive-foreground' : selected ? 'text-primary-foreground' : 'text-foreground'}`}>
                 {option.label}
               </Text>
             </Pressable>
@@ -82,12 +85,14 @@ export function DayField({
   onChange,
   clearable = true,
   error,
+  disabled,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   clearable?: boolean;
   error?: string;
+  disabled?: boolean;
 }) {
   const date = useMemo(() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -101,6 +106,7 @@ export function DayField({
       value={date}
       clearable={clearable}
       error={error}
+      disabled={disabled}
       onChange={(next) => onChange(next ? dayInput(next) : '')}
     />
   );
@@ -261,6 +267,7 @@ export function ProductPicker({
   onChange,
   placeholder = 'Ürün seçin…',
   error,
+  disabled,
 }: {
   label: string;
   value: { id: string; name: string } | null;
@@ -268,6 +275,7 @@ export function ProductPicker({
   onChange: (product: ProductModel | null) => void;
   placeholder?: string;
   error?: string;
+  disabled?: boolean;
 }) {
   const { colors } = useTheme();
   const [open, setOpen] = useState(false);
@@ -286,6 +294,7 @@ export function ProductPicker({
         placeholder={placeholder}
         icon="pricetag-outline"
         error={error}
+        disabled={disabled}
         onPress={() => setOpen(true)}
         onClear={() => onChange(null)}
       />

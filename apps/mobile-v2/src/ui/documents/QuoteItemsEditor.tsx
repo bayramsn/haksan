@@ -1,3 +1,5 @@
+import { useProduct } from '@/src/api/inventory.hooks';
+import { ProductThumb } from '@/src/ui/products/ProductThumb';
 import { useRef } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import type { BottomSheetModal } from '@gorhom/bottom-sheet';
@@ -24,6 +26,14 @@ type ProductWithLaser = ProductModel & {
   brandId?: string | null;
   technicalConfiguration?: unknown | null;
 };
+
+function QuoteProductIdentity({ id, description }: { id?: string; description: string }) {
+  const product = useProduct(id ?? '');
+  return <View className="flex-row items-center gap-3 rounded-control bg-card p-3">
+    <ProductThumb imageUrl={product.data?.imageUrl} label={description || 'Teklif kalemi'} size={64} />
+    <View className="min-w-0 flex-1 gap-1"><Text className="font-inter-semibold text-[15px] leading-[21px] text-foreground" numberOfLines={3}>{description || 'Yeni kalem'}</Text><Text className="font-inter text-[12px] text-muted-foreground">{id ? product.data?.modelCode || 'Katalog ürünü' : 'Serbest kalem'}</Text></View>
+  </View>;
+}
 
 let rowCounter = 0;
 export function newQuoteItemKey(): string {
@@ -167,6 +177,7 @@ export function QuoteItemsEditor({
                 <Ionicons name="trash-outline" size={19} color={colors.destructive} />
               </Pressable>
             </View>
+            <QuoteProductIdentity id={item.productModelId} description={item.description} />
             <Field
               label="Açıklama *"
               value={item.description}
@@ -235,7 +246,7 @@ export function QuoteItemsEditor({
                 accessibilityLabel="Millileştirilmiş ithal işleme merkezi"
                 onPress={() => patch(item.key, { nationalized: !item.nationalized })}
                 className={`min-h-11 flex-row items-center gap-2 rounded-control border px-3 ${
-                  item.nationalized ? 'border-primary bg-secondary' : 'border-border bg-card'
+                  item.nationalized ? 'border-primary bg-primary-soft' : 'border-border bg-card'
                 }`}
               >
                 <Ionicons
@@ -243,7 +254,7 @@ export function QuoteItemsEditor({
                   size={20}
                   color={item.nationalized ? colors.primary : colors.mutedForeground}
                 />
-                <Text className={`font-inter-medium text-sm ${item.nationalized ? 'text-primary' : 'text-foreground'}`}>
+                <Text className={`min-w-0 flex-1 py-2 font-inter-medium text-sm ${item.nationalized ? 'text-primary' : 'text-foreground'}`}>
                   Millileştirilmiş (gümrük/vergi)
                 </Text>
               </Pressable>
@@ -264,7 +275,8 @@ export function QuoteItemsEditor({
               </Text>
             ) : null}
             {lineTotal !== null && Number.isFinite(lineTotal) ? (
-              <Text className="text-right font-inter-semibold text-[13px] text-foreground">
+              <Text className="rounded-control bg-secondary px-3 py-3 text-right font-inter-semibold text-[17px] text-primary"
+                style={{ fontVariant: ['tabular-nums'] }}>
                 Satır net: {formatAmount(lineTotal, currencyCode)}
               </Text>
             ) : null}

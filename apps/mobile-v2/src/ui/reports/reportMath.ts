@@ -196,6 +196,7 @@ export type TargetSubjectRow = {
   };
   hasTarget: boolean;
   note?: string | null;
+  topSales?: { label: string; amount: number; currency: string }[];
   metrics?: Record<string, { target: number | null; actual: number | null; pct: number | null }>;
   targetItems?: Array<{
     activity?: string;

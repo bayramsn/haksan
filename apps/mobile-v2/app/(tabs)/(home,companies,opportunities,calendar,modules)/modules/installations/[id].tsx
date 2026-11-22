@@ -1,3 +1,4 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { Alert, RefreshControl, ScrollView, Text, View } from 'react-native';
@@ -24,6 +25,7 @@ const STATUS_TONE: Record<string, Tone> = {
 export default function InstallationDetailScreen() {
   const { goBack } = useHierarchyBack();
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const { id = '' } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const query = useInstallation(id);
@@ -35,7 +37,7 @@ export default function InstallationDetailScreen() {
   if (query.isPending || query.error || !query.data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Kurulum" />
+        <DetailHeader title="Kurulum" compact />
         {query.isPending ? <Loading /> : <ErrorState message={query.error?.message ?? 'Kurulum yüklenemedi.'} onRetry={() => void query.refetch()} />}
       </SafeAreaView>
     );
@@ -85,15 +87,15 @@ export default function InstallationDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-      <DetailHeader title="Kurulum Detayı" subtitle={data.customerDevice?.serialNumber ?? undefined} />
+      <DetailHeader title="Kurulum Detayı" subtitle={data.customerDevice?.serialNumber ?? undefined} compact />
       <ScrollView
-        contentContainerClassName="gap-4 px-4 pt-4"
-        contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }}
+        contentContainerClassName="gap-3 px-4 pt-3"
+        contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 , width: '100%', maxWidth: 960, alignSelf: 'center' }}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} />}
       >
         <Card className="gap-2">
           <Chip tone={tone} label={data.status?.name ?? (statusCode === 'in_progress' ? 'Devam ediyor' : statusCode === 'completed' ? 'Tamamlandı' : statusCode === 'cancelled' ? 'İptal' : 'Planlandı')} />
-          <Text className="font-display-semibold text-[19px] text-foreground">{companyName}</Text>
+          <Text className="font-inter-semibold text-[19px] text-foreground">{companyName}</Text>
           <Text className="font-inter text-[13px] text-muted-foreground">{machineName}</Text>
           {data.customerDevice?.serialNumber ? <Text className="font-inter-medium text-[12px] text-foreground">SN: {data.customerDevice.serialNumber}</Text> : null}
         </Card>

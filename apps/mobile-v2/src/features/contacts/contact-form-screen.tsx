@@ -1,3 +1,4 @@
+import { useRecordDestination } from '@/src/navigation/useRecordDestination';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, KeyboardAvoidingView, ScrollView, Switch, Text, View } from 'react-native';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -154,6 +155,7 @@ function changedCandidate(form: FormState, initial: FormState): Record<string, u
 
 export function ContactFormScreen() {
   const router = useRouter();
+  const recordDestination = useRecordDestination();
   const params = useLocalSearchParams<{ id?: string | string[]; companyId?: string | string[]; companyName?: string | string[] }>();
   const id = first(params.id);
   const requestedCompanyId = first(params.companyId);
@@ -286,7 +288,7 @@ export function ContactFormScreen() {
     create.mutate(parsed.data as ContactCreateInput, {
       onSuccess: (created) => {
         Alert.alert('Kontak oluşturuldu');
-        router.replace(`/modules/contacts/${created.id}`);
+        router.replace(recordDestination(`/modules/contacts/${created.id}`));
       },
       onError: (error) => setFormError(error.message),
     });
@@ -316,7 +318,7 @@ export function ContactFormScreen() {
       <Stack.Screen options={{ title: editing ? 'Kontak Düzenle' : 'Yeni Kontak', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={process.env.EXPO_OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
-          contentContainerClassName="gap-5 p-4 pb-10"
+          contentContainerClassName="gap-3 px-4 pb-6 pt-3"
           contentInsetAdjustmentBehavior="automatic"
           keyboardShouldPersistTaps="handled"
         >
@@ -415,7 +417,7 @@ export function ContactFormScreen() {
           {formError ? <Text selectable accessibilityLiveRegion="assertive" className="font-inter text-sm text-destructive">{formError}</Text> : null}
         </ScrollView>
 
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <View className="flex-1"><Button label="Vazgeç" variant="ghost" onPress={() => router.back()} /></View>
           <View className="flex-[2]"><Button label={editing ? 'Değişiklikleri Kaydet' : 'Kontak Oluştur'} loading={saving} onPress={submit} /></View>
         </View>

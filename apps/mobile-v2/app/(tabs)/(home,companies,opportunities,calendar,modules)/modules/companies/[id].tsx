@@ -1,15 +1,17 @@
+import { companyAddressLabel, companyAddressLinks, showCompanyAddressActions } from '@/src/native/company-address';
 import { useHierarchyBack } from '@/src/modules/useHierarchyBack';
 import { openQuoteTotals, formatCurrencyAmounts } from '@/src/ui/crm/company-finance';
 import { collectPaginated } from '@/src/api/pagination';
 import { useAllQuoteList } from '@/src/api/quotes.hooks';
 import { startCrmCall } from '@/src/call-assistant/call';
 import { useMemo, useRef, useState } from 'react';
-import { Image, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Image, Linking, Pressable, RefreshControl, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fileLinksApi } from '@/src/api/commercial-docs.api';
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
 import * as Haptics from 'expo-haptics';
 import * as Crypto from 'expo-crypto';
 import { Ionicons } from '@expo/vector-icons';
@@ -39,24 +41,22 @@ import {
   type CompanyDetail,
   type QualificationStage,
 } from '@/src/api/endpoints';
+import { useSalesOrders } from '@/src/api/inventory.hooks';
 import { formatAmount, formatDate, formatDateTime } from '@/src/lib/format';
 import { customerStatusTone, useTheme, type Tone } from '@/src/theme/theme';
 import { Avatar } from '@/src/ui/Avatar';
 import { useCan } from '@/src/auth/AuthProvider';
-import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, Eyebrow, ListRow, Loading, SCREEN_PAD } from '@/src/ui';
+import { Button, Card, Chip, DetailHeader, EmptyState, ErrorState, Eyebrow, FilterChips, ListRow, Loading, SCREEN_PAD } from '@/src/ui';
 import { CollapsingDetailScroll, PinnedIdentity } from '@/src/ui/collapsing-detail';
 import { InfoRows, StatCard, StatGrid } from '@/src/ui/data';
+import { UPLOAD_TYPES, uploadFileError, type UploadFolder } from '@/src/ui/documents/document-logic';
+import { ServiceTicketRow, useCompanyServiceSummary, useCompanyServiceTickets } from '@/src/ui/service/SalesServiceLinks';
+import { machineStatusLabel, machineStatusTone, WARRANTY_TONE, warrantyInfo, warrantyShortLabel } from '@/src/ui/service/machines';
 
 /** Varsayılan kayıt yoksa ilk kayda düş; sunucu sıralamayı garanti etmiyor. */
 function preferred<T extends { isDefault: boolean }>(rows: T[] | undefined): T | null {
   if (!rows?.length) return null;
   return rows.find((row) => row.isDefault) ?? rows[0]!;
-}
-
-function addressText(company: CompanyDetail): string | null {
-  const address = preferred(company.addresses);
-  if (!address) return null;
-  return [address.fullAddress, address.district, address.province].filter(Boolean).join(', ') || null;
 }
 
 /** İlişki tipi kodu -> ton. company-relation-types lookup'undaki code ile aynı. */
@@ -99,7 +99,7 @@ const CONTACT_TYPE_LABELS: Record<string, string> = {
   other: 'Diğer',
 };
 
-type CompanyTab = 'genel' | 'gecmis' | 'kartlar' | 'aktivite' | 'teklifler' | 'gorevler' | 'cari' | 'belgeler';
+type CompanyTab = 'genel' | 'gecmis' | 'kartlar' | 'aktivite' | 'teklifler' | 'gorevler' | 'servis' | 'cari' | 'belgeler';
 
 const COMPANY_TABS: { value: CompanyTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { value: 'genel', label: 'Genel', icon: 'grid-outline' },
@@ -108,6 +108,7 @@ const COMPANY_TABS: { value: CompanyTab; label: string; icon: keyof typeof Ionic
   { value: 'aktivite', label: 'Aktivite', icon: 'pulse-outline' },
   { value: 'teklifler', label: 'Teklifler', icon: 'document-text-outline' },
   { value: 'gorevler', label: 'Görevler', icon: 'checkbox-outline' },
+  { value: 'servis', label: 'Servis', icon: 'construct-outline' },
   { value: 'cari', label: 'Cari', icon: 'person-outline' },
   { value: 'belgeler', label: 'Belgeler', icon: 'folder-outline' },
 ];
@@ -116,10 +117,12 @@ function CompanyTabs({
   value,
   onChange,
   counts,
+  canReadService,
 }: {
   value: CompanyTab;
   onChange: (value: CompanyTab) => void;
   counts: Partial<Record<CompanyTab, number>>;
+  canReadService: boolean;
 }) {
   const { colors } = useTheme();
   return (
@@ -127,10 +130,10 @@ function CompanyTabs({
       horizontal
       nestedScrollEnabled
       showsHorizontalScrollIndicator={false}
-      style={{ height: 48, flexGrow: 0, flexShrink: 0 }}
+      style={{ minHeight: 48, flexGrow: 0, flexShrink: 0 }}
       contentContainerStyle={{ gap: 8, paddingHorizontal: SCREEN_PAD }}
     >
-      {COMPANY_TABS.map((item) => {
+      {COMPANY_TABS.filter((item) => item.value !== 'servis' || canReadService).map((item) => {
         const selected = item.value === value;
         const count = counts[item.value] ?? 0;
         return (
@@ -138,8 +141,9 @@ function CompanyTabs({
             key={item.value}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
+            accessibilityLabel={`${item.label}${count > 0 ? `, ${count} kayıt` : ''}`}
             onPress={() => onChange(item.value)}
-            className={`h-[48px] flex-row items-center gap-2 rounded-[12px] border px-4 active:opacity-70 ${
+            className={`min-h-[48px] flex-row items-center gap-2 rounded-[12px] border px-4 py-3 active:opacity-70 ${
               selected ? 'border-primary bg-primary' : 'border-border bg-card'
             }`}
             style={{ borderCurve: 'continuous' }}
@@ -149,7 +153,7 @@ function CompanyTabs({
               {item.label}
             </Text>
             {count > 0 ? (
-              <View className={`min-w-[18px] items-center rounded-full px-1 ${selected ? 'bg-white/20' : 'bg-secondary'}`}>
+              <View className={`min-w-[18px] items-center rounded-full px-1 ${selected ? 'bg-primary-foreground/20' : 'bg-secondary'}`}>
                 <Text className={`font-inter-semibold text-[10px] ${selected ? 'text-primary-foreground' : 'text-primary'}`}>{count}</Text>
               </View>
             ) : null}
@@ -164,9 +168,11 @@ function QuickAction({
   icon,
   label,
   onPress,
+  hint,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
+  hint?: string;
   onPress?: () => void;
 }) {
   const { colors } = useTheme();
@@ -175,14 +181,15 @@ function QuickAction({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityHint={hint}
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      className="min-h-[52px] flex-1 items-center justify-center gap-0.5 rounded-[12px] border border-border bg-card px-1 py-1.5 active:opacity-70"
+      className="min-h-[72px] flex-1 items-center justify-center gap-2 rounded-[12px] bg-secondary px-2 py-3 active:opacity-70"
       style={[{ borderCurve: 'continuous' }, disabled ? { opacity: 0.4 } : null]}
     >
-      <Ionicons name={icon} size={17} color={disabled ? colors.mutedForeground : colors.primary} />
-      <Text className={`font-inter-medium text-[12px] ${disabled ? 'text-muted-foreground' : 'text-foreground'}`} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
+      <Ionicons name={icon} size={21} color={disabled ? colors.mutedForeground : colors.primary} />
+      <Text className={`text-center font-inter-medium text-[13px] ${disabled ? 'text-muted-foreground' : 'text-primary'}`}>
         {label}
       </Text>
     </Pressable>
@@ -211,7 +218,7 @@ function DetailFact({
       {children ? (
         <View className="flex-1 flex-row items-center">{children}</View>
       ) : (
-        <Text className="flex-1 font-inter-medium text-[13px] text-foreground" numberOfLines={1}>
+        <Text className="flex-1 font-inter-medium text-[13px] text-foreground" selectable>
           {value}
         </Text>
       )}
@@ -239,25 +246,41 @@ export default function CompanyDetailScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const [tab, setTab] = useState<CompanyTab>('genel');
+  const [overviewOpen, setOverviewOpen] = useState(false);
+  const { width, fontScale } = useWindowDimensions();
+  const wideSummary = width >= 840 && fontScale < 1.5;
+  const generousActions = width >= 400 || fontScale <= 1.15;
   const sheetRef = useRef<BottomSheetModal>(null);
   const crossDebt = useCompanyCrossDivisionDebt(id);
   const removeCompany = useDeleteCompany();
   const canDelete = useCan('companies.delete');
-  const companyTasks = useTaskList({ companyId: id });
+  const canReadTasks = useCan('tasks.read');
+  const canReadContacts = useCan('contacts.read');
+  const canReadQuotes = useCan('quotes.read');
+  const canReadOpportunities = useCan('opportunities.read');
+  const canReadActivities = useCan('activities.read');
+  const canReadDevices = useCan('customer_devices.read');
+  const canReadPayments = useCan('payments.read');
+  const canReadInvoices = useCan('accounting_invoices.read');
+  const companyTasks = useTaskList({ companyId: id }, canReadTasks);
   const [uploading, setUploading] = useState(false);
+  const [uploadFolder, setUploadFolder] = useState<UploadFolder>('external_quote');
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null);
   const canUpdate = useCan('companies.update');
   const canReadFiles = useCan('files.read');
+  const canReadSalesOrders = useCan('sales_orders.read');
+  const serviceSummary = useCompanyServiceSummary(id);
+  const service = useCompanyServiceTickets(id, tab === 'servis');
   const queryClient = useQueryClient();
-  // Firmaya yüklenen dış teklifler ve diğer dosyalar (web CustomerDetail "Dış teklifler").
+  // Firmaya bağlı dosyalar (logo hariç). Yükleme türü seçilebilir; liste tüm tipleri gösterir.
   const companyFiles = useQuery({
     queryKey: ['companies', 'files', id],
     queryFn: () => collectPaginated((page) => fileLinksApi.list({ entityType: 'company', entityId: id, page, pageSize: 100 })),
-    // Web yalnız dış teklifleri listeler; firma logosu ve kasa fişleri de bu kayda bağlı.
-    select: (page) => page.data.filter((row) => row.documentType?.code === 'external_quote'),
+    select: (page) => page.data.filter((row) => row.documentType?.code !== 'company_logo'),
     enabled: canReadFiles && Boolean(id),
   });
+  const salesOrders = useSalesOrders({ companyId: id }, canReadSalesOrders && Boolean(id));
   const canLogActivity = useCan('activities.create');
   const canCreateTask = useCan('tasks.create');
   const canCreateOpportunity = useCan('opportunities.create');
@@ -265,8 +288,12 @@ export default function CompanyDetailScreen() {
   const canCreateDevice = useCan('customer_devices.update');
   const canExportReports = useCan('reports.export');
   const canReadReceivables = useCan('receivables.read');
+  const canCreateQuote = useCan('quotes.create');
+  const canCreateTicket = useCan('service_tickets.create');
+  const canCreateReceivable = useCan('receivables.create');
+  const canCreatePayment = useCan('payments.create');
   const canExportStatement = canExportReports && canReadReceivables;
-  const taskEvents = useTaskRecordEvents({ companyId: id });
+  const taskEvents = useTaskRecordEvents({ companyId: id }, canReadTasks);
 
   const { data, isPending, error, refetch } = useCompany(id);
 
@@ -275,46 +302,49 @@ export default function CompanyDetailScreen() {
   const relationTypes = useLookup('company-relation-types', Boolean(data?.relationTypeId));
   const statuses = useLookup('company-statuses', Boolean(data?.customerStatusId));
 
-  const contactsQuery = useContactList({ companyId: id, sortBy: 'name', sortDir: 'asc' });
-  const quotesQuery = useQuoteList({ companyId: id });
-  const completeQuotes = useAllQuoteList({ companyId: id });
+  const contactsQuery = useContactList({ companyId: id, sortBy: 'name', sortDir: 'asc' }, canReadContacts);
+  const quotesQuery = useQuoteList({ companyId: id }, canReadQuotes);
+  const completeQuotes = useAllQuoteList({ companyId: id }, canReadQuotes);
   // web CustomerDetail.tsx "Satış Kartları": firmaya bağlı fırsatlar (aşama + talep edilen ürün).
-  const opportunitiesQuery = useOpportunityList({ companyId: id, view: 'all' });
+  const opportunitiesQuery = useOpportunityList({ companyId: id, view: 'all' }, canReadOpportunities);
   const invoicesQuery = useQuery({
     queryKey: ['accounting-invoices', 'complete-company', id],
     queryFn: () => collectPaginated(async (page) => {
       const result = await finance.invoices({ companyId: id, page, pageSize: 50 });
       return { data: result.data, meta: { page: result.page, pageSize: result.pageSize, total: result.total, totalPages: Math.ceil(result.total / result.pageSize) } };
     }),
-    enabled: Boolean(id) && tab === 'cari',
+    enabled: Boolean(id) && tab === 'cari' && canReadInvoices,
   });
   const devicesQuery = useQuery({
     queryKey: ['customer-devices', 'complete-company', id],
     queryFn: () => collectPaginated((page) => devices.list({ companyId: id, page, pageSize: 50 })),
-    enabled: Boolean(id),
+    enabled: Boolean(id) && canReadDevices,
   });
   const financeSummary = useQuery({
     queryKey: ['companies', id, 'finance-summary'],
     queryFn: () => finance.companySummary(id),
-    enabled: Boolean(id),
+    enabled: Boolean(id) && canReadReceivables,
   });
-  const activitiesQuery = useActivityList({ companyId: id });
+  const activitiesQuery = useActivityList({ companyId: id }, canReadActivities);
   // Cari sekmesi açılana kadar bu iki liste boşuna çekilmesin.
   const receivablesQuery = useQuery({
     queryKey: ['receivables', 'complete-company', id],
     queryFn: () => collectPaginated((page) => finance.receivables({ companyId: id, page, pageSize: 50 })),
-    enabled: Boolean(id) && tab === 'cari',
+    enabled: Boolean(id) && tab === 'cari' && canReadReceivables,
   });
   const paymentsQuery = useQuery({
     queryKey: ['payments', 'complete-company', id],
     queryFn: () => collectPaginated((page) => finance.payments({ companyId: id, page, pageSize: 50 })),
-    enabled: Boolean(id) && tab === 'cari',
+    enabled: Boolean(id) && tab === 'cari' && canReadPayments,
   });
   // Sunucu firma filtresi hem hızlı belgelerin doğrudan companyId alanını hem
   // teklife bağlı belgelerin quote.companyId alanını kapsar.
-  const proformas = useCommercialDocuments('proforma', { companyId: id });
-  const contracts = useCommercialDocuments('contract', { companyId: id });
-  const invoices = useCommercialDocuments('invoice', { companyId: id });
+  const canReadProformas = useCan('proformas.read');
+  const canReadContracts = useCan('contracts.read');
+  const canReadCommercialInvoices = useCan('commercial_invoices.read');
+  const proformas = useCommercialDocuments('proforma', { companyId: id }, canReadProformas);
+  const contracts = useCommercialDocuments('contract', { companyId: id }, canReadContracts);
+  const invoices = useCommercialDocuments('invoice', { companyId: id }, canReadCommercialInvoices);
 
   const updateStatus = useUpdateCompanyStatus({});
 
@@ -334,17 +364,19 @@ export default function CompanyDetailScreen() {
     try {
       await Promise.all([
         refetch(),
-        activitiesQuery.refetch(),
-        taskEvents.refetch(),
-        quotesQuery.refetch(),
-        completeQuotes.refetch(),
-        opportunitiesQuery.refetch(),
-        contactsQuery.refetch(),
-        companyTasks.refetch(),
-        financeSummary.refetch(),
-        devicesQuery.refetch(),
+        canReadActivities ? activitiesQuery.refetch() : Promise.resolve(),
+        canReadTasks ? taskEvents.refetch() : Promise.resolve(),
+        canReadQuotes ? quotesQuery.refetch() : Promise.resolve(),
+        canReadQuotes ? completeQuotes.refetch() : Promise.resolve(),
+        canReadOpportunities ? opportunitiesQuery.refetch() : Promise.resolve(),
+        canReadContacts ? contactsQuery.refetch() : Promise.resolve(),
+        canReadTasks ? companyTasks.refetch() : Promise.resolve(),
+        canReadReceivables ? financeSummary.refetch() : Promise.resolve(),
+        canReadDevices ? devicesQuery.refetch() : Promise.resolve(),
+        canReadSalesOrders ? salesOrders.refetch() : Promise.resolve(),
+        canReadFiles ? companyFiles.refetch() : Promise.resolve(),
         crossDebt.refetch(),
-        ...(tab === 'cari' ? [invoicesQuery.refetch(), receivablesQuery.refetch(), paymentsQuery.refetch()] : []),
+        ...(tab === 'cari' ? [canReadInvoices ? invoicesQuery.refetch() : Promise.resolve(), canReadReceivables ? receivablesQuery.refetch() : Promise.resolve(), canReadPayments ? paymentsQuery.refetch() : Promise.resolve()] : []),
       ]);
     } finally {
       setRefreshing(false);
@@ -373,7 +405,7 @@ export default function CompanyDetailScreen() {
   if (isPending || error || !data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Firma Detayı" />
+        <DetailHeader title="Firma Detayı" compact />
         {isPending ? <Loading /> : <ErrorState message={error?.message ?? 'Kayıt yüklenemedi.'} onRetry={() => void refetch()} />}
       </SafeAreaView>
     );
@@ -384,12 +416,7 @@ export default function CompanyDetailScreen() {
   const phone = preferred(data.phones)?.phone ?? null;
   const email = preferred(data.emails)?.email ?? null;
   const address = preferred(data.addresses);
-  const mapsUrl =
-    address?.latitude && address?.longitude
-      ? `https://maps.google.com/?q=${address.latitude},${address.longitude}`
-      : addressText(data)
-        ? `https://maps.google.com/?q=${encodeURIComponent(addressText(data)!)}`
-        : null;
+  const hasMapAddress = address && companyAddressLinks(address);
 
   const contacts = contactsQuery.data?.items ?? [];
   const quotes = quotesQuery.data?.items ?? [];
@@ -407,6 +434,11 @@ export default function CompanyDetailScreen() {
   const openCall = canLogActivity ? () => router.push(`/modal/call-new?${companyParams}` as Href) : undefined;
   const openTask = canCreateTask ? () => router.push(`/modal/task?companyId=${encodeURIComponent(id)}` as Href) : undefined;
   const openNewCard = canCreateOpportunity ? () => router.push(`/modal/create-case?${companyParams}` as Href) : undefined;
+  // Canlı hattaki hızlı oluşturma: form firma bilgisiyle dolu açılır.
+  const openQuote = canCreateQuote ? () => router.push(`/modal/quote-form?companyId=${encodeURIComponent(id)}` as Href) : undefined;
+  const openTicket = canCreateTicket ? () => router.push(`/modal/new-ticket?${companyParams}` as Href) : undefined;
+  const openReceivable = canCreateReceivable ? () => router.push(`/modal/new-receivable?${companyParams}` as Href) : undefined;
+  const openPayment = canCreatePayment ? () => router.push(`/modal/payment?direction=in&${companyParams}` as Href) : undefined;
   const documentTotal = (proformas.data?.total ?? 0) + (contracts.data?.total ?? 0) + (invoices.data?.total ?? 0);
   const documentsHaveMore = proformas.hasNextPage || contracts.hasNextPage || invoices.hasNextPage;
   const documentsFetchingMore =
@@ -434,17 +466,23 @@ export default function CompanyDetailScreen() {
     );
   }
 
-  /** Web DocumentUploadDialog "Dış teklif" seçeneğiyle aynı kova/tip. */
+  /** Web DocumentUploadDialog: seçilen türe göre kova + documentTypeCode. */
   async function handleUploadDocument() {
     try {
+      const meta = UPLOAD_TYPES.find((entry) => entry.folder === uploadFolder) ?? UPLOAD_TYPES[0]!;
       const local = await pickDocument();
       if (!local) return;
+      const validation = uploadFileError(meta.folder, { extension: local.extension, sizeBytes: local.sizeBytes });
+      if (validation) {
+        Alert.alert('Dosya uygun değil', validation);
+        return;
+      }
       setUploading(true);
       await uploadEntityAttachment({
-        bucket: 'erp-quote-documents',
+        bucket: meta.bucket,
         entityType: 'company',
         entityId: id,
-        documentTypeCode: 'external_quote',
+        documentTypeCode: meta.documentTypeCode as Parameters<typeof uploadEntityAttachment>[0]['documentTypeCode'],
         local,
       });
       void queryClient.invalidateQueries({ queryKey: ['companies', 'files', id] });
@@ -459,78 +497,56 @@ export default function CompanyDetailScreen() {
   return (
     <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
       <DetailHeader
-        title="Firma Detayı"
+        title={companyName}
         subtitle={data.externalCompanyNo ?? undefined}
         actions={[{ icon: 'ellipsis-horizontal', label: 'Firma işlemleri', onPress: () => sheetRef.current?.present() }]}
+        compact
       />
 
-      {/* Mockup s16: kimlik bilgisi ve künye TEK kart içinde, eylem pilleri de
-          aynı kartın altında. Kart kaydırılınca gider; kısa ad ve sekmeler yapışır. */}
       <CollapsingDetailScroll
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.primary} />}
         intro={
-      <View style={{ paddingHorizontal: SCREEN_PAD }} className="pb-1 pt-3">
-        <Card className="gap-3.5">
-          <View className="flex-row items-start gap-3.5">
-            {data.logoUrl ? <CompanyLogo uri={data.logoUrl} /> : <Avatar name={data.legalTitle} size={68} square />}
-            <View className="flex-1 gap-2.5">
-              <View className="flex-row items-start gap-2">
-                <Text className="flex-1 text-[20px] font-inter-bold leading-[25px] text-foreground" numberOfLines={2}>
-                  {data.legalTitle}
-                </Text>
-                <Chip tone={customerStatusTone(status?.code)} label={status?.name ?? 'Durum yok'} />
-              </View>
-              {/* web CustomerDetail.tsx: Tür (companyType) + Tip (relationType) ayrı
-                  alanlar. Mockup'taki "Satış Temsilcisi" sunucuda yok — bkz. rapor. */}
-              <DetailFact
-                icon="business-outline"
-                label="Firma Türü"
-                value={data.companyType === 'company' ? 'Kurumsal Müşteri' : 'Bireysel Müşteri'}
-              />
-              <DetailFact icon="pricetag-outline" label="Tip" value={relationType?.name} />
-              <DetailFact icon="location-outline" label="Şehir" value={address?.province} />
-              {data.createdByUser ? (
-                <DetailFact icon="person-outline" label="Oluşturan">
-                  <View className="flex-row items-center gap-1.5">
-                    <Avatar name={data.createdByUser.fullName} size={18} />
-                    <Text className="flex-1 font-inter-medium text-[13px] text-foreground" numberOfLines={1}>
-                      {data.createdByUser.fullName}
-                    </Text>
+          <View style={{ paddingHorizontal: SCREEN_PAD, width: '100%', maxWidth: 1080, alignSelf: 'center' }} className="pb-2 pt-2">
+            <Card className="gap-2.5 p-3">
+              <View className="flex-row items-start gap-3">
+                {data.logoUrl ? <CompanyLogo uri={data.logoUrl} size={40} /> : <Avatar name={data.legalTitle} size={40} square />}
+                <View className="min-w-0 flex-1 gap-1">
+                  {data.shortName && data.shortName !== data.legalTitle ? <Text className="font-inter text-[12px] leading-4 text-muted-foreground" selectable numberOfLines={1}>{data.legalTitle}</Text> : null}
+                  <View className="flex-row flex-wrap items-center gap-1.5">
+                    <Chip tone={customerStatusTone(status?.code)} label={status?.name ?? 'Durum yok'} />
+                    {relationType ? <Chip tone={RELATION_TONE[relationType.code] ?? 'neutral'} label={relationType.name} /> : null}
+                    {address?.province ? <Text className="font-inter text-[12px] text-muted-foreground">{[address.district, address.province].filter(Boolean).join(' · ')}</Text> : null}
                   </View>
-                </DetailFact>
-              ) : null}
-            </View>
+                </View>
+              </View>
+              <View style={{ flexDirection: wideSummary ? 'row' : 'column', gap: 12 }}>
+                <View style={{ flex: wideSummary ? 1 : undefined }} className="gap-2">
+                  <DetailFact icon="business-outline" label="Firma türü" value={data.companyType === 'company' ? 'Kurumsal müşteri' : 'Bireysel müşteri'} />
+                  {phone ? <DetailFact icon="call-outline" label="Telefon" value={phone} /> : null}
+                  {email ? <DetailFact icon="mail-outline" label="E-posta" value={email} /> : null}
+                </View>
+                <View style={{ flex: wideSummary ? 1.2 : undefined, gap: 6 }}>
+                  <Text className="font-inter-medium text-[11px] text-muted-foreground">Hızlı işlemler</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {[
+                      { icon: 'call-outline' as const, label: 'Ara', hint: phone ? 'Firmanın ana telefonunu arar' : 'Kayıtlı ana telefon yok', onPress: phone ? () => void startCrmCall(phone, { companyId: data.id }) : undefined },
+                      { icon: 'navigate-outline' as const, label: 'Rota', hint: hasMapAddress ? 'Ana adres için harita ve rota seçeneklerini açar' : 'Haritada açılabilecek ana adres yok', onPress: hasMapAddress ? () => showCompanyAddressActions(address!, companyName) : undefined },
+                      ...(canUpdate ? [{ icon: 'create-outline' as const, label: 'Not', hint: 'Firma notunu düzenler', onPress: () => router.push(`/modal/company-note?id=${encodeURIComponent(id)}` as Href) }] : []),
+                      ...(openNewCard ? [{ icon: 'add-circle-outline' as const, label: 'Fırsat', hint: 'Bu firmaya bağlı yeni satış kartı açar', onPress: openNewCard }] : []),
+                    ].map(action => <View key={action.label} style={{ width: generousActions ? undefined : '47%', flex: generousActions ? 1 : undefined }}><QuickAction {...action} /></View>)}
+                  </View>
+                </View>
+              </View>
+              <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-2">
+                {email ? <Pressable accessibilityRole="button" accessibilityLabel="Firmaya e-posta yaz" onPress={() => router.push(mailComposeHref({ to: email, name: companyName, companyId: id }) as Href)} className="min-h-10 flex-row items-center gap-1.5 py-1.5"><Ionicons name="mail-outline" size={16} color={colors.primary} /><Text className="font-inter-medium text-[13px] text-primary">E-posta</Text></Pressable> : null}
+                {openVisit ? <Pressable accessibilityRole="button" onPress={openVisit} className="min-h-10 flex-row items-center gap-1.5 py-1.5"><Ionicons name="walk-outline" size={16} color={colors.primary} /><Text className="font-inter-medium text-[13px] text-primary">Ziyaret</Text></Pressable> : null}
+                <Pressable accessibilityRole="button" accessibilityLabel="Diğer firma işlemleri" onPress={() => { void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); sheetRef.current?.present(); }} className="min-h-10 flex-row items-center gap-1.5 py-1.5"><Ionicons name="ellipsis-horizontal" size={16} color={colors.primary} /><Text className="font-inter-medium text-[13px] text-primary">Diğer</Text></Pressable>
+              </View>
+            </Card>
           </View>
-
-          <View className="flex-row gap-2">
-            <QuickAction icon="call-outline" label="Ara" onPress={phone ? () => void startCrmCall(phone, { companyId: data.id }) : undefined} />
-            <QuickAction
-              icon="mail-outline"
-              label="E-posta"
-              onPress={
-                email
-                  ? () =>
-                      router.push(
-                        mailComposeHref({ to: email, name: companyName, companyId: id }) as Href,
-                      )
-                  : undefined
-              }
-            />
-            <QuickAction icon="walk-outline" label="Ziyaret" onPress={openVisit} />
-            <QuickAction
-              icon="ellipsis-horizontal"
-              label="Diğer"
-              onPress={() => {
-                void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                sheetRef.current?.present();
-              }}
-            />
-          </View>
-        </Card>
-      </View>
         }
         sticky={
-          <View className="pb-2 pt-1">
+          <View style={{ width: '100%', maxWidth: 1080, alignSelf: 'center' }} className="pb-2 pt-1">
             <PinnedIdentity
               title={companyName}
               leading={data.logoUrl ? <CompanyLogo uri={data.logoUrl} size={32} /> : <Avatar name={data.legalTitle} size={32} square />}
@@ -539,18 +555,20 @@ export default function CompanyDetailScreen() {
             <CompanyTabs
               value={tab}
               onChange={setTab}
+              canReadService={serviceSummary.canRead}
               counts={{
                 gecmis: timeline.length,
                 kartlar: opportunitiesQuery.data?.total ?? 0,
                 aktivite: activitiesQuery.data?.total ?? 0,
                 teklifler: quoteTotal,
                 gorevler: companyTasks.data?.meta.total ?? 0,
+                servis: serviceSummary.summary?.total ?? 0,
                 belgeler: documentTotal,
               }}
             />
           </View>
         }
-        contentStyle={{ gap: 16, paddingHorizontal: SCREEN_PAD, paddingTop: 16 }}
+        contentStyle={{ gap: 12, paddingHorizontal: SCREEN_PAD, paddingTop: 12, width: '100%', maxWidth: 1080, alignSelf: 'center' }}
       >
         {tab === 'genel' ? (
           <>
@@ -569,41 +587,44 @@ export default function CompanyDetailScreen() {
               </Card>
             ) : null}
 
-            <Card>
-              <InfoRows
-                items={[
-                  { label: 'Kısa ad', value: data.shortName },
-                  { label: 'Sektör', value: data.sector },
-                  { label: 'Vergi dairesi', value: data.taxOffice },
-                  { label: 'Vergi no', value: data.taxNumber },
-                  { label: 'Telefon', value: phone },
-                  { label: 'E-posta', value: email },
-                  { label: 'Web', value: data.website },
-                  { label: 'Birim', value: data.divisions?.map((d) => d.name).join(', ') || null },
-                  { label: 'Firma grubu', value: data.companyGroups?.map((g) => g.name).join(', ') || null },
-                ]}
-              />
-            </Card>
+            <View style={{ flexDirection: wideSummary ? 'row' : 'column', gap: 16, alignItems: 'stretch' }}>
+              <Card style={{ flex: wideSummary ? 1 : undefined }} className="gap-3">
+                <Eyebrow>Firma künyesi</Eyebrow>
+                <InfoRows
+                  items={[
+                    { label: 'Kısa ad', value: data.shortName },
+                    { label: 'Sektör', value: data.sector },
+                    { label: 'Vergi dairesi', value: data.taxOffice },
+                    { label: 'Vergi no', value: data.taxNumber },
+                    { label: 'Telefon', value: phone },
+                    { label: 'E-posta', value: email },
+                    { label: 'Web', value: data.website },
+                    { label: 'Birim', value: data.divisions?.map((d) => d.name).join(', ') || null },
+                    { label: 'Firma grubu', value: data.companyGroups?.map((g) => g.name).join(', ') || null },
+                  ]}
+                />
+              </Card>
 
-            <Card className="gap-1.5">
-              <View className="flex-row items-center justify-between">
-                <Eyebrow>Firma Notları</Eyebrow>
-                {canUpdate ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Firma notunu düzenle"
-                    hitSlop={12}
-                    onPress={() => router.push(`/modal/company-note?id=${encodeURIComponent(id)}` as Href)}
-                    className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
-                  >
-                    <Ionicons name="create-outline" size={18} color={colors.primary} />
-                  </Pressable>
-                ) : null}
-              </View>
-              <Text className={`font-inter text-sm ${data.notes?.trim() ? 'text-foreground' : 'text-muted-foreground'}`}>
-                {data.notes?.trim() || 'Bu firma için henüz not eklenmemiş.'}
-              </Text>
-            </Card>
+              <Card style={{ flex: wideSummary ? 1 : undefined }} className="gap-2">
+                <View className="flex-row items-center justify-between">
+                  <Eyebrow>Firma Notları</Eyebrow>
+                  {canUpdate ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Firma notunu düzenle"
+                      hitSlop={12}
+                      onPress={() => router.push(`/modal/company-note?id=${encodeURIComponent(id)}` as Href)}
+                      className="h-11 w-11 items-center justify-center rounded-full active:bg-muted"
+                    >
+                      <Ionicons name="create-outline" size={18} color={colors.primary} />
+                    </Pressable>
+                  ) : null}
+                </View>
+                <Text className={`font-inter text-sm ${data.notes?.trim() ? 'text-foreground' : 'text-muted-foreground'}`}>
+                  {data.notes?.trim() || 'Bu firma için henüz not eklenmemiş.'}
+                </Text>
+              </Card>
+            </View>
 
             {data.phones.length + data.emails.length > 1 ? (
               <Card className="gap-1.5">
@@ -631,8 +652,9 @@ export default function CompanyDetailScreen() {
                 {data.addresses.map((a) => (
                   <ListRow
                     key={a.id}
-                    title={[a.fullAddress, a.district, a.province].filter(Boolean).join(', ') || ADDRESS_TYPE_LABELS[a.addressType] || 'Adres'}
-                    lines={[ADDRESS_TYPE_LABELS[a.addressType] ?? a.addressType]}
+                    title={companyAddressLabel(a) || ADDRESS_TYPE_LABELS[a.addressType] || 'Adres'}
+                    lines={[ADDRESS_TYPE_LABELS[a.addressType] ?? a.addressType, companyAddressLinks(a) ? 'Haritada gör veya rota çiz' : null]}
+                    onPress={companyAddressLinks(a) ? () => showCompanyAddressActions(a, data.shortName || data.legalTitle) : undefined}
                     icon="location-outline"
                     iconTone={a.isDefault ? 'success' : 'neutral'}
                     chip={a.isDefault ? { label: 'Ana adres', tone: 'success' } : undefined}
@@ -669,7 +691,7 @@ export default function CompanyDetailScreen() {
                   />
                 ) : null}
               </View>
-              {contactsQuery.isPending ? (
+              {!canReadContacts ? (<Text className="font-inter text-sm text-muted-foreground">Kontakları görüntüleme yetkiniz yok.</Text>) : contactsQuery.isPending ? (
                 <Loading />
               ) : contacts.length === 0 ? (
                 <Card>
@@ -700,7 +722,7 @@ export default function CompanyDetailScreen() {
               <View className="px-1">
                 <Eyebrow>Son Teklifler ({quoteTotal})</Eyebrow>
               </View>
-              {quotesQuery.isPending ? (
+              {!canReadQuotes ? (<Text className="font-inter text-sm text-muted-foreground">Teklifleri görüntüleme yetkiniz yok.</Text>) : quotesQuery.isPending ? (
                 <Loading />
               ) : quotes.length === 0 ? (
                 <Card>
@@ -725,20 +747,57 @@ export default function CompanyDetailScreen() {
 
             <View className="gap-1.5">
               <View className="px-1">
-                <Eyebrow>Finansal Özet</Eyebrow>
+                <Eyebrow>Satış Siparişleri ({salesOrders.data?.total ?? 0})</Eyebrow>
               </View>
-              {financeSummary.isPending ? (
+              {!canReadSalesOrders ? (
+                <Text className="font-inter text-sm text-muted-foreground">Siparişleri görüntüleme yetkiniz yok.</Text>
+              ) : salesOrders.isPending ? (
                 <Loading />
-              ) : financeSummary.error ? (
-                <ErrorState message="Finansal özet yüklenemedi." onRetry={() => void financeSummary.refetch()} />
+              ) : salesOrders.error ? (
+                <ErrorState message={salesOrders.error.message} onRetry={() => void salesOrders.refetch()} />
+              ) : (salesOrders.data?.items.length ?? 0) === 0 ? (
+                <Card>
+                  <Text className="text-center font-inter text-sm text-muted-foreground">Bu firmaya bağlı satış siparişi yok.</Text>
+                </Card>
               ) : (
-                <StatGrid columns={2}>
-                  <StatCard icon="trending-up-outline" tone="info" label="Toplam Ciro" value={formatCurrencyAmounts((financeSummary.data?.byCurrency ?? []).map(row => ({ currencyCode: row.currencyCode, amount: row.salesTotal })), formatAmount)} />
-                  <StatCard icon="wallet-outline" tone="warning" label="Toplam Alacak" value={formatCurrencyAmounts((financeSummary.data?.byCurrency ?? []).map(row => ({ currencyCode: row.currencyCode, amount: row.borc })), formatAmount)} />
-                  <StatCard icon="alert-circle-outline" tone="destructive" label="Vade Geçmiş Alacak" value={formatCurrencyAmounts((financeSummary.data?.aging.byCurrency ?? []).map(row => ({ currencyCode: row.currencyCode, amount: row.overdueTotal })), formatAmount)} />
-                  <StatCard icon="document-text-outline" tone="stage" label="Açık Teklif Tutarı" value={completeQuotes.isPending ? 'Yükleniyor…' : completeQuotes.error ? 'Yüklenemedi' : formatCurrencyAmounts(openQuoteAmounts, formatAmount)} />
-                </StatGrid>
+                (salesOrders.data?.items ?? []).slice(0, 8).map((order) => (
+                  <ListRow
+                    key={order.id}
+                    title={order.orderNo ?? 'Sipariş'}
+                    lines={[order.orderDate ? formatDate(order.orderDate) : null]}
+                    icon="receipt-outline"
+                    chip={order.status ? { label: order.status.name, tone: 'info' } : undefined}
+                    trailing={formatAmount(order.grandTotal, order.currency?.code ?? 'TRY')}
+                    onPress={() => router.push(`/modules/sales-orders/${order.id}` as Href)}
+                  />
+                ))
               )}
+            </View>
+
+            <View className="gap-1.5">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ expanded: overviewOpen }}
+                onPress={() => setOverviewOpen((v) => !v)}
+                className="min-h-10 flex-row items-center justify-between px-1 py-1"
+              >
+                <Text className="font-inter-semibold text-[14px] text-foreground">Finansal özet</Text>
+                <Text className="font-inter-medium text-[13px] text-primary">{overviewOpen ? 'Gizle' : 'Göster'}</Text>
+              </Pressable>
+              {overviewOpen ? (
+                !canReadReceivables ? (<Text className="font-inter text-sm text-muted-foreground">Finansal özeti görüntüleme yetkiniz yok.</Text>) : financeSummary.isPending ? (
+                  <Loading />
+                ) : financeSummary.error ? (
+                  <ErrorState message="Finansal özet yüklenemedi." onRetry={() => void financeSummary.refetch()} />
+                ) : (
+                  <StatGrid columns={2}>
+                    <StatCard icon="trending-up-outline" tone="info" label="Toplam Ciro" value={formatCurrencyAmounts((financeSummary.data?.byCurrency ?? []).map(row => ({ currencyCode: row.currencyCode, amount: row.salesTotal })), formatAmount)} />
+                    <StatCard icon="wallet-outline" tone="warning" label="Toplam Alacak" value={formatCurrencyAmounts((financeSummary.data?.byCurrency ?? []).map(row => ({ currencyCode: row.currencyCode, amount: row.borc })), formatAmount)} />
+                    <StatCard icon="alert-circle-outline" tone="destructive" label="Vade Geçmiş Alacak" value={formatCurrencyAmounts((financeSummary.data?.aging.byCurrency ?? []).map(row => ({ currencyCode: row.currencyCode, amount: row.overdueTotal })), formatAmount)} />
+                    <StatCard icon="document-text-outline" tone="stage" label="Açık Teklif Tutarı" value={!canReadQuotes ? 'Erişime kapalı' : completeQuotes.isPending ? 'Yükleniyor…' : completeQuotes.error ? 'Yüklenemedi' : formatCurrencyAmounts(openQuoteAmounts, formatAmount)} />
+                  </StatGrid>
+                )
+              ) : null}
             </View>
 
             {completeQuotes.error ? <ErrorState message="Açık teklif tutarı yüklenemedi." onRetry={() => void completeQuotes.refetch()} /> : null}
@@ -759,7 +818,7 @@ export default function CompanyDetailScreen() {
                 ) : null}
               </View>
               {/* web CustomerDetail "Makineler": Model / Seri No / Garanti Bitiş. */}
-              {devicesQuery.isPending ? (
+              {!canReadDevices ? (<Text className="font-inter text-sm text-muted-foreground">Makineleri görüntüleme yetkiniz yok.</Text>) : devicesQuery.isPending ? (
                 <Loading />
               ) : devicesQuery.error ? (
                 <ErrorState message={devicesQuery.error.message} onRetry={() => void devicesQuery.refetch()} />
@@ -768,21 +827,33 @@ export default function CompanyDetailScreen() {
                   <Text className="text-center font-inter text-sm text-muted-foreground">Kayıtlı makine yok.</Text>
                 </Card>
               ) : (
-                ownedDevices.map((device) => (
-                  <ListRow
-                    key={device.id}
-                    title={device.productModelName ?? device.model ?? 'Makine'}
-                    lines={[
-                      device.serialNumber ? `S/N ${device.serialNumber}` : null,
-                      device.brandName,
-                      device.installationDate ? `Kurulum: ${formatDate(device.installationDate)}` : null,
-                      device.warrantyEndDate ? `Garanti bitiş: ${formatDate(device.warrantyEndDate)}` : null,
-                    ]}
-                    icon="hardware-chip-outline"
-                    iconTone="neutral"
-                    onPress={() => router.push(`/modules/customer-devices/${device.id}` as Href)}
-                  />
-                ))
+                ownedDevices.map((device) => {
+                  const now = Date.now();
+                  const warranty = warrantyInfo(device.warrantyEndDate, now);
+                  return (
+                    <ListRow
+                      key={device.id}
+                      title={device.productModelName ?? device.model ?? 'Makine'}
+                      lines={[
+                        [device.serialNumber ? `S/N ${device.serialNumber}` : null, device.brandName].filter(Boolean).join(' · ') || null,
+                        [
+                          device.installationDate ? `Kurulum: ${formatDate(device.installationDate)}` : null,
+                          device.warrantyEndDate ? `Garanti: ${formatDate(device.warrantyEndDate)}` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(' · ') || null,
+                      ]}
+                      icon="hardware-chip-outline"
+                      iconTone={machineStatusTone(device.warrantyEndDate, now, device.status)}
+                      chip={{
+                        label: machineStatusLabel(device.warrantyEndDate, now, device.status),
+                        tone: machineStatusTone(device.warrantyEndDate, now, device.status),
+                      }}
+                      trailing={warrantyShortLabel(warranty)}
+                      onPress={() => router.push(`/modules/customer-devices/${device.id}` as Href)}
+                    />
+                  );
+                })
               )}
             </View>
           </>
@@ -791,7 +862,7 @@ export default function CompanyDetailScreen() {
         {tab === 'gecmis' ? (
           <>
             <Eyebrow>Kayıt Geçmişi</Eyebrow>
-            {activitiesQuery.isPending || taskEvents.isPending ? (
+            {(canReadActivities && activitiesQuery.isPending) || (canReadTasks && taskEvents.isPending) ? (
               <Loading />
             ) : timeline.length === 0 ? (
               <EmptyState title="Bu firma için geçmiş kaydı yok." icon="time-outline" />
@@ -812,7 +883,8 @@ export default function CompanyDetailScreen() {
           </>
         ) : null}
 
-        {tab === 'kartlar' ? (
+        {tab === 'kartlar' && !canReadOpportunities ? <EmptyState title="Bu kayıtları görüntüleme yetkiniz yok" /> : null}
+        {tab === 'kartlar' && canReadOpportunities ? (
           <>
             {openNewCard ? <Button label="Yeni Kart" trailingIcon="add" onPress={openNewCard} /> : null}
             {opportunitiesQuery.isPending ? (
@@ -837,7 +909,8 @@ export default function CompanyDetailScreen() {
           </>
         ) : null}
 
-        {tab === 'aktivite' ? (
+        {tab === 'aktivite' && !canReadActivities ? <EmptyState title="Bu kayıtları görüntüleme yetkiniz yok" /> : null}
+        {tab === 'aktivite' && canReadActivities ? (
           <>
             {canLogActivity ? (
               <View className="flex-row gap-2">
@@ -858,7 +931,10 @@ export default function CompanyDetailScreen() {
                 <ListRow
                   key={activity.id}
                   title={activity.subject}
-                  lines={[activity.type?.name, formatDateTime(activity.activityDate), activity.result]}
+                  lines={[
+                    [activity.type?.name, formatDateTime(activity.activityDate)].filter(Boolean).join(' · ') || null,
+                    activity.result,
+                  ]}
                   icon="pulse-outline"
                   iconTone={activity.origin === 'system' ? 'neutral' : 'info'}
                   chip={!activity.opportunityId ? { label: 'Fırsat Dışı', tone: 'warning' } : undefined}
@@ -871,7 +947,8 @@ export default function CompanyDetailScreen() {
           </>
         ) : null}
 
-        {tab === 'teklifler' ? (
+        {tab === 'teklifler' && !canReadQuotes ? <EmptyState title="Bu kayıtları görüntüleme yetkiniz yok" /> : null}
+        {tab === 'teklifler' && canReadQuotes ? (
           quotesQuery.isPending ? (
             <Loading />
           ) : quotes.length === 0 ? (
@@ -942,7 +1019,7 @@ export default function CompanyDetailScreen() {
               <View className="px-1">
                 <Eyebrow>Açık Alacaklar</Eyebrow>
               </View>
-              {receivablesQuery.isPending ? (
+              {!canReadReceivables ? (<Text className="font-inter text-sm text-muted-foreground">Bu kayıtları görüntüleme yetkiniz yok.</Text>) : receivablesQuery.isPending ? (
                 <Loading />
               ) : receivablesQuery.error ? (
                 <ErrorState message={receivablesQuery.error.message} onRetry={() => void receivablesQuery.refetch()} />
@@ -961,7 +1038,7 @@ export default function CompanyDetailScreen() {
               <View className="px-1">
                 <Eyebrow>Son Ödemeler / Tahsilatlar</Eyebrow>
               </View>
-              {paymentsQuery.isPending ? (
+              {!canReadPayments ? (<Text className="font-inter text-sm text-muted-foreground">Bu kayıtları görüntüleme yetkiniz yok.</Text>) : paymentsQuery.isPending ? (
                 <Loading />
               ) : paymentsQuery.error ? (
                 <ErrorState message={paymentsQuery.error.message} onRetry={() => void paymentsQuery.refetch()} />
@@ -987,7 +1064,7 @@ export default function CompanyDetailScreen() {
               <View className="px-1">
                 <Eyebrow>Faturalar</Eyebrow>
               </View>
-              {invoicesQuery.isPending ? (
+              {!canReadInvoices ? (<Text className="font-inter text-sm text-muted-foreground">Bu kayıtları görüntüleme yetkiniz yok.</Text>) : invoicesQuery.isPending ? (
                 <Loading />
               ) : invoicesQuery.error ? (
                 <ErrorState message={invoicesQuery.error.message} onRetry={() => void invoicesQuery.refetch()} />
@@ -1012,7 +1089,8 @@ export default function CompanyDetailScreen() {
 
         {tab === 'gorevler' && openTask ? <Button label="Görev Oluştur" variant="ghost" trailingIcon="add" onPress={openTask} /> : null}
 
-        {tab === 'gorevler' ? (
+        {tab === 'gorevler' && !canReadTasks ? <EmptyState title="Bu kayıtları görüntüleme yetkiniz yok" /> : null}
+        {tab === 'gorevler' && canReadTasks ? (
           companyTasks.isPending ? (
             <Loading />
           ) : (companyTasks.data?.data ?? []).length === 0 ? (
@@ -1033,25 +1111,55 @@ export default function CompanyDetailScreen() {
           )
         ) : null}
 
+        {tab === 'servis' ? (
+          service.list.isPending ? (
+            <Loading />
+          ) : service.list.error ? (
+            <ErrorState message={service.list.error.message} onRetry={() => void service.list.refetch()} />
+          ) : service.tickets.length === 0 ? (
+            <EmptyState title="Servis kaydı yok" hint="Bu firmanın makinelerine açılmış servis kaydı bulunmuyor." icon="construct-outline" />
+          ) : (
+            <View className="gap-2">
+              {service.tickets.map((ticket) => (
+                <ServiceTicketRow key={ticket.id} ticket={ticket} note={ticket.salesOpportunity?.title ? `Satış: ${ticket.salesOpportunity.title}` : undefined} />
+              ))}
+              {service.list.hasNextPage ? (
+                <Button label="Daha fazla yükle" variant="ghost" loading={service.list.isFetchingNextPage} onPress={() => void service.list.fetchNextPage()} />
+              ) : null}
+            </View>
+          )
+        ) : null}
+
         {tab === 'belgeler' && canUpdate ? (
-          <Button
-            label="Belge Yükle"
-            variant="ghost"
-            trailingIcon="cloud-upload-outline"
-            loading={uploading}
-            disabled={uploading}
-            onPress={() => void handleUploadDocument()}
-          />
+          <View className="gap-2">
+            <FilterChips
+              options={UPLOAD_TYPES.map((entry) => ({ value: entry.folder, label: entry.label }))}
+              value={uploadFolder}
+              onChange={(next) => next && setUploadFolder(next)}
+              allLabel=""
+            />
+            <Button
+              label="Belge Yükle"
+              variant="ghost"
+              trailingIcon="cloud-upload-outline"
+              loading={uploading}
+              disabled={uploading}
+              onPress={() => void handleUploadDocument()}
+            />
+          </View>
         ) : null}
 
         {tab === 'belgeler' && (companyFiles.data?.length ?? 0) > 0 ? (
           <View className="gap-2">
-            <Eyebrow>Dış teklifler ({companyFiles.data!.length})</Eyebrow>
+            <Eyebrow>Yüklenen dosyalar ({companyFiles.data!.length})</Eyebrow>
             {companyFiles.data!.map((row) => (
               <ListRow
                 key={row.id}
                 title={row.file.originalFilename}
-                lines={[row.documentType?.name ?? null, formatDateTime(row.createdAt), row.description]}
+                lines={[
+                  row.documentType?.name ?? null,
+                  [formatDateTime(row.createdAt), row.description].filter(Boolean).join(' · ') || null,
+                ]}
                 icon="document-attach-outline"
                 onPress={() =>
                   void downloadAndShareFile(row.fileId).catch((err: unknown) =>
@@ -1102,7 +1210,7 @@ export default function CompanyDetailScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         <BottomSheetView className="gap-2 px-5 pb-10 pt-2">
           <Text className="mb-1 font-inter-semibold text-base text-foreground">Diğer İşlemler</Text>
@@ -1110,10 +1218,14 @@ export default function CompanyDetailScreen() {
             { key: 'call', label: 'Giden Arama Kaydet', onPress: openCall },
             { key: 'task', label: 'Görev Oluştur', onPress: openTask },
             { key: 'card', label: 'Yeni Satış Kartı', onPress: openNewCard },
+            { key: 'quote', label: 'Yeni Teklif', onPress: openQuote },
+            { key: 'ticket', label: 'Servis Talebi', onPress: openTicket },
+            { key: 'receivable', label: 'Alacak Ekle', onPress: openReceivable },
+            { key: 'payment', label: 'Tahsilat Kaydet', onPress: openPayment },
             {
               key: 'map',
-              label: 'Haritada Gör',
-              onPress: mapsUrl ? () => void Linking.openURL(mapsUrl) : undefined,
+              label: 'Adres ve Rota',
+              onPress: hasMapAddress ? () => showCompanyAddressActions(address!, data.shortName || data.legalTitle) : undefined,
             },
           ]
             .filter((action) => action.onPress)

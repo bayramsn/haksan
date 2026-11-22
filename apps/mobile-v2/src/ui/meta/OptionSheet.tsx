@@ -52,7 +52,7 @@ export function OptionSheet({
     <HostedSheet open={open} onClose={close} heightRatio={0.7}>
       <View className="min-h-0 flex-1">
         <View className="gap-3 border-b border-border px-4 pb-3">
-          <Text className="font-display text-base text-foreground">{title}</Text>
+          <Text className="font-inter-semibold text-base text-foreground">{title}</Text>
           {options.length > 6 || createLabel ? (
             <SearchBar value={search} onChange={setSearch} placeholder={searchPlaceholder} />
           ) : null}

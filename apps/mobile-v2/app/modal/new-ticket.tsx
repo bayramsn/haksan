@@ -116,7 +116,7 @@ export default function NewTicketScreen() {
     <SafeAreaView className="flex-1 bg-canvas" edges={['bottom', 'left', 'right']}>
       <Stack.Screen options={{ title: 'Yeni Servis Talebi', headerShown: true }} />
       <KeyboardAvoidingView className="flex-1" behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerClassName="gap-4 p-4 pb-10" keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="gap-7 px-4 pb-8 pt-4" keyboardShouldPersistTaps="handled">
           {assistant.error ? <View className="gap-2"><Text className="text-destructive">{assistant.error}</Text><Button label="Taslağı tekrar yükle" variant="ghost" onPress={() => void assistant.retry()} /></View> : null}
           <FormSection title="Müşteri ve makine">
             <CompanyPicker
@@ -144,22 +144,21 @@ export default function NewTicketScreen() {
               }}
             />
             <ContactPicker label="İlgili Kişi" companyId={company?.id ?? null} value={contact} onChange={setContact} placeholder="Firma genel iletişimi" />
-            <View className="gap-3 rounded-control border border-border p-3">
-              <Text className="font-inter-medium text-sm text-foreground">İletişim bilgileri</Text>
-              <Field label="Telefon" value={contactInfo.phone} editable={false} placeholder={contactDetail.isPending && contact ? 'Yükleniyor…' : 'Telefon bulunamadı'} />
-              <Field label="E-posta" value={contactInfo.email} editable={false} placeholder={contactDetail.isPending && contact ? 'Yükleniyor…' : 'E-posta bulunamadı'} />
-              <Text className="font-inter text-xs text-muted-foreground">Seçili kişinin bilgileri kullanılır; eksik bilgiler firma kartından tamamlanır.</Text>
-            </View>
+            {company ? (
+              <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={2}>
+                {contactDetail.isPending && contact ? 'İletişim bilgisi yükleniyor…' : [contactInfo.phone, contactInfo.email].filter(Boolean).join(' · ') || 'Telefon / e-posta bulunamadı'}
+              </Text>
+            ) : null}
             <UserPicker label="Atanan Servis Personeli" value={assignee} onChange={setAssignee} placeholder="Personel seçin" serviceOnly />
           </FormSection>
 
           <FormSection title="Talep">
             <ChoiceChips label="Kayıt Tipi *" value={ticketType} options={TICKET_TYPES} onChange={setTicketType} />
             <ChoiceChips label="Öncelik" value={severity} options={SEVERITIES} onChange={setSeverity} />
-            <View className="min-h-[56px] flex-row items-center gap-3 rounded-control border border-border p-3">
-              <View className="flex-1 gap-1">
-                <Text className="font-inter-medium text-sm text-foreground">Servis teklifi gerekli</Text>
-                <Text className="font-inter text-xs text-muted-foreground">Yedek parça veya işçilik bedeli için teklif akışı açılır.</Text>
+            <View className="min-h-[52px] flex-row items-center gap-3">
+              <View className="flex-1 gap-0.5">
+                <Text className="font-inter-medium text-[15px] text-foreground">Servis teklifi gerekli</Text>
+                <Text className="font-inter text-xs text-muted-foreground">Parça veya işçilik için teklif akışı açılır.</Text>
               </View>
               <Switch accessibilityLabel="Servis teklifi gerekli" value={quoteRequired} onValueChange={setQuoteRequired} trackColor={{ true: colors.primary }} />
             </View>
@@ -183,12 +182,8 @@ export default function NewTicketScreen() {
               style={{ minHeight: 90, textAlignVertical: 'top', paddingTop: 12 }}
             />
           </FormSection>
-
-          <Text className="font-inter text-xs text-muted-foreground">
-            Talep numarası sunucuda otomatik üretilir; firma ve bölüm erişimi yeniden doğrulanır.
-          </Text>
         </ScrollView>
-        <View className="flex-row gap-3 border-t border-border bg-card px-4 py-3">
+        <View className="flex-row gap-2 border-t border-border bg-card px-4 py-2.5">
           <Button className="flex-1" label="Vazgeç" variant="ghost" onPress={() => router.back()} />
           <Button className="flex-[2]" label="Talebi Oluştur" loading={create.isPending || assistant.saving || assistant.loading} disabled={create.isPending || assistant.saving || assistant.blocked} onPress={submit} />
         </View>

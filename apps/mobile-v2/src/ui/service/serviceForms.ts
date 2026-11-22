@@ -338,6 +338,8 @@ export type QuoteItem = {
   unitPrice: number;
 };
 
+export type ServiceQuoteSignature = { id: string; name: string; title: string; imageUrl: string | null };
+
 export type ServiceQuote = {
   quoteNo: string;
   date: string;
@@ -359,6 +361,7 @@ export type ServiceQuote = {
   notes: string[];
   items: QuoteItem[];
   savedAt?: string;
+  signature?: ServiceQuoteSignature;
 };
 
 export const SERVICE_NOTE_VARIANTS: { key: string; label: string; notlar: string[] }[] = [
@@ -440,6 +443,9 @@ export function readServiceQuote(value: unknown): ServiceQuote | null {
       }))
     : [];
   return {
+    ...(isRecord(value.signature) && str(value.signature.id) && str(value.signature.name) ? { signature: {
+      id: str(value.signature.id), name: str(value.signature.name), title: str(value.signature.title), imageUrl: str(value.signature.imageUrl) || null,
+    } } : {}),
     quoteNo: str(value.quoteNo),
     date: str(value.date),
     validity: str(value.validity),

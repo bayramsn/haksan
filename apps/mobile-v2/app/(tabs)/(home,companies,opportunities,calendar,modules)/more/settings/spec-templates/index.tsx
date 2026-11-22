@@ -68,7 +68,7 @@ export default function SpecTemplateLibraryScreen() {
         keyExtractor={(item) => item.type.id}
         contentContainerStyle={{ paddingHorizontal: SCREEN_PAD, paddingTop: 12, paddingBottom: 32 }}
         ListHeaderComponent={
-          <View className="gap-3 pb-2">
+          <View className="gap-2 pb-2">
             {options.length ? (
               <ChipSelect
                 label="Bölüm"
@@ -94,10 +94,10 @@ export default function SpecTemplateLibraryScreen() {
             }
             accessibilityRole="button"
             accessibilityLabel={`${item.type.name} çalışma sayfasını aç`}
-            className="my-1.5 active:opacity-70"
+            className="my-1 active:opacity-70"
           >
-            <Card className="flex-row items-center gap-3 p-3.5">
-              <View className="min-h-[44px] flex-1 justify-center gap-1">
+            <Card className="flex-row items-center gap-2.5 p-3">
+              <View className="min-h-11 flex-1 justify-center gap-0.5">
                 <Text className="font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
                   {item.type.name}
                 </Text>

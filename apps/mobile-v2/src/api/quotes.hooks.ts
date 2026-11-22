@@ -1,3 +1,4 @@
+import { Alert } from 'react-native';
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { opportunityKeys, quoteKeys } from './crm.hooks';
 import { quotes, type QuoteListQuery } from './endpoints';
@@ -19,6 +20,7 @@ import {
   type BusinessLine,
   type ParsedQuoteItem,
 } from '@/src/ui/documents/quote-logic';
+import { useOfflineMutation } from '@/src/offline/useOfflineMutation';
 
 const GROUP_PAGE_SIZE = 50;
 
@@ -142,18 +144,20 @@ export type QuoteSaveInput = {
   quote: QuoteCreateInput;
   items: ParsedQuoteItem[];
   terms: QuoteTermsInput;
+  /** İstemci idempotency / offline kuyruk anahtarı. */
+  operationId: string;
 };
 
 /**
  * Web `store.createQuoteFull`: fırsat seçilmediyse önce satış kartı açılır
  * (başlık = ilk kalem, tahmini tutar = net kalem toplamı, olasılık %50), teklif
  * oluşturulur, kalemler sırayla eklenir, şartlar yazılır, yeni kart "Teklif"
- * aşamasına alınır.
+ * aşamasına alınır. Offline’da şifreli kuyruğa alınır (mobil UX; iş aynı).
  */
 export function useCreateQuoteFull() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ quote, items, terms }: QuoteSaveInput) => {
+  return useOfflineMutation<QuoteSaveInput, Awaited<ReturnType<typeof quotesApi.create>>>({
+    kind: 'quote.create',
+    mutationFn: async ({ quote, items, terms }) => {
       let opportunityId = quote.opportunityId;
       let createdNewCase = false;
       if (!opportunityId) {
@@ -179,7 +183,18 @@ export function useCreateQuoteFull() {
       }
       return created;
     },
-    onSettled: () => invalidateQuoteFlows(qc),
+    toPayload: ({ operationId, quote, items, terms }) => ({
+      operationId,
+      quote,
+      items: items.map(({ itemId: _ignored, ...body }) => body),
+      terms,
+    }),
+    invalidate: [quoteKeys.all, opportunityKeys.all, ['dashboard']],
+    onDone: (_data, queued) => {
+      if (queued) {
+        Alert.alert('Bağlantı bekleniyor', 'Teklif şifreli kuyruğa alındı; bağlantı gelince web ile aynı akışla oluşturulacak.');
+      }
+    },
   });
 }
 

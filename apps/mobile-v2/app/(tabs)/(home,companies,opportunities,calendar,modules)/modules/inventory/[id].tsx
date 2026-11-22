@@ -1,8 +1,11 @@
+import { useOperationsLayout } from '@/src/ui/finance/useOperationsLayout';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { BottomSheetFlatList, BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
+import { SheetBackdrop } from '@/src/ui/SheetBackdrop';
+import * as Crypto from 'expo-crypto';
 import { useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useCompanyList } from '@/src/api/companies.hooks';
@@ -75,6 +78,7 @@ function InventoryRow({
 
 export default function InventoryItemScreen() {
   const GLASS_TAB_BAR_HEIGHT = useNavigationBottomInset();
+  const { listPad } = useOperationsLayout();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useTheme();
@@ -107,7 +111,7 @@ export default function InventoryItemScreen() {
   if (isPending || error || !data) {
     return (
       <SafeAreaView className="flex-1 bg-canvas" edges={['top', 'left', 'right']}>
-        <DetailHeader title="Stok Kartı" />
+        <DetailHeader title="Stok Kartı" compact />
         {isPending ? (
           <DetailSkeleton />
         ) : (
@@ -158,9 +162,14 @@ export default function InventoryItemScreen() {
     }
     sheetRef.current?.dismiss();
     reserve.mutate(
-      { companyId: target },
+      { companyId: target, operationId: Crypto.randomUUID() },
       {
-        onSuccess: () => toast.success(`Rezerve edildi · ${data?.serialNumber ?? ''}`),
+        onSuccess: (updated) =>
+          toast.success(
+            updated
+              ? `Rezerve edildi · ${data?.serialNumber ?? ''}`
+              : 'Rezervasyon kuyruğa alındı; bağlantı gelince tamamlanacak'
+          ),
         onError: (err) => toast.error(`Rezervasyon başarısız: ${err.message}`),
       }
     );
@@ -174,19 +183,18 @@ export default function InventoryItemScreen() {
           canUpdate
             ? [{ icon: 'create-outline', label: 'Düzenle', onPress: () => router.push(`/modal/stock-item?id=${id}` as Href) }]
             : []
-        }
-      />
+        } compact />
 
-      <ScrollView contentContainerStyle={{ paddingBottom: GLASS_TAB_BAR_HEIGHT + 32 }} contentContainerClassName="" showsVerticalScrollIndicator={false}>
-        <View className="px-[18px] pt-4">
-          <Card className="min-h-[178px] flex-row items-center gap-4 p-4">
-            <View className="h-[140px] w-[42%] items-center justify-center rounded-control bg-card-subtle">
-              <Ionicons name="cube-outline" size={64} color={colors.lineStrong} />
+      <ScrollView contentContainerStyle={{ paddingHorizontal: listPad, paddingBottom: canUpdate ? 24 : GLASS_TAB_BAR_HEIGHT + 32, width: '100%', maxWidth: 960, alignSelf: 'center' }} contentContainerClassName="" showsVerticalScrollIndicator={false}>
+        <View className="px-[18px] pt-3">
+          <Card className="min-h-[112px] flex-row items-center gap-3 p-2.5">
+            <View className="h-[96px] w-[38%] items-center justify-center rounded-control bg-card-subtle">
+              <Ionicons name="cube-outline" size={48} color={colors.lineStrong} />
             </View>
-            <View className="min-w-0 flex-1 gap-3">
+            <View className="min-w-0 flex-1 gap-1.5">
               <Text
-                className="font-inter-bold text-[21px] leading-[1.16] text-foreground"
-                numberOfLines={3}
+                className="font-inter-bold text-[16px] leading-[1.2] text-foreground"
+                numberOfLines={2}
                 adjustsFontSizeToFit
                 minimumFontScale={0.78}
                 style={{ letterSpacing: 0 }}
@@ -197,24 +205,19 @@ export default function InventoryItemScreen() {
                 {data.status ? <Chip tone={statusMeta.tone} label={statusName} /> : null}
                 {data.reservedCompany ? <Chip tone="warning" label="Rezerve" /> : null}
               </View>
-              <View className="gap-1">
-                <Text className="font-inter text-[13px] text-muted-foreground" style={{ letterSpacing: 0 }}>
-                  Seri Numarası
-                </Text>
-                <Text
-                  className="font-inter-semibold text-[17px] text-primary"
-                  numberOfLines={2}
-                  adjustsFontSizeToFit
-                  style={{ letterSpacing: 0, fontVariant: ['tabular-nums'] }}
-                >
-                  {data.serialNumber}
-                </Text>
-              </View>
+              <Text
+                className="font-inter-semibold text-[15px] text-primary"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={{ letterSpacing: 0, fontVariant: ['tabular-nums'] }}
+              >
+                {data.serialNumber}
+              </Text>
             </View>
           </Card>
         </View>
 
-        <View className="pt-5">
+        <View className="pt-3">
           <Tabs
             tabs={[
               { value: 'general', label: 'Genel', icon: 'document-text-outline' },
@@ -225,7 +228,7 @@ export default function InventoryItemScreen() {
           />
         </View>
 
-        <View className="gap-4 px-[18px] pt-4">
+        <View className="gap-3 px-[18px] pt-3">
           {tab === 'general' ? (
             <>
               <Card className="gap-0 px-4 py-1">
@@ -358,7 +361,10 @@ export default function InventoryItemScreen() {
       </ScrollView>
 
       {canUpdate ? (
-        <View className="flex-row flex-wrap gap-3 border-t border-border bg-card px-[18px] py-3">
+        <View
+          className="flex-row flex-wrap gap-3 border-t border-border bg-card px-[18px] pt-3"
+          style={{ paddingBottom: Math.max(GLASS_TAB_BAR_HEIGHT, 12) + 8 }}
+        >
           <View className="min-w-[45%] flex-1">
             <Button
               label="Durum Değiştir"
@@ -413,7 +419,7 @@ export default function InventoryItemScreen() {
         enableDynamicSizing
         backgroundStyle={{ backgroundColor: colors.card }}
         handleIndicatorStyle={{ backgroundColor: colors.mutedForeground }}
-        backdropComponent={(props) => <BottomSheetBackdrop {...props} appearsOnIndex={0} disappearsOnIndex={-1} />}
+        backdropComponent={SheetBackdrop}
       >
         {sheetMode === 'status' ? (
           <BottomSheetView className="gap-2 px-5 pt-2">

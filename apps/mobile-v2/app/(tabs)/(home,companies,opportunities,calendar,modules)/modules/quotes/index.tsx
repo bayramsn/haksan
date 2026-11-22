@@ -54,27 +54,31 @@ const PREVIEW_ROWS = 3;
 
 /** Belge kimliği, firma ve tutar ayrı satırlarda okunur. */
 function QuoteRow({ item, onPress }: { item: QuoteListItem; onPress: () => void }) {
-  const { colors } = useTheme();
   const company = item.company?.shortName ?? item.company?.legalTitle;
   const tone = STATUS_TONE[item.status?.code ?? ''] ?? 'neutral';
+  const followUpOverdue = !!item.followUpAt && Date.parse(item.followUpAt) < Date.now()
+    && !['approved', 'rejected', 'cancelled', 'expired'].includes(item.status?.code ?? '');
   return (
     <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={item.documentNo}
-      className="my-1 gap-3 rounded-[16px] border border-border bg-card p-4 active:opacity-70" style={{ borderCurve: 'continuous' }}>
-      <View className="flex-row items-start gap-2">
-        <View className="min-w-0 flex-1 gap-1">
-          <Text className="font-inter-semibold text-[16px] text-foreground" numberOfLines={2}>
-            {item.revisionNo > 1 ? `${item.documentNo} · R${item.revisionNo}` : item.documentNo}
-          </Text>
-          {company ? <Text className="font-inter text-[14px] text-foreground" numberOfLines={2}>{company}</Text> : null}
-          {item.productName ? <Text className="font-inter text-[13px] text-muted-foreground" numberOfLines={2}>{item.productName}</Text> : null}
-        </View>
-        <Ionicons name="chevron-forward" size={18} color={colors.mutedForeground} />
-      </View>
-      <View className="flex-row flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-        <Text className="font-inter-bold text-[16px] text-foreground" style={{ fontVariant: ['tabular-nums'] }}>{formatAmount(item.grandTotal, item.currency?.code ?? 'TRY')}</Text>
+      className="my-1 gap-1 rounded-surface border border-border bg-card px-3 py-2.5 active:opacity-70">
+      <View className="flex-row items-center gap-2">
+        <Text className="min-w-0 flex-1 font-inter-semibold text-[15px] text-foreground" numberOfLines={1}>
+          {company || item.documentNo}
+        </Text>
+        <Text className="font-inter-semibold text-[14px] text-primary" style={{ fontVariant: ['tabular-nums'] }}>
+          {formatAmount(item.grandTotal, item.currency?.code ?? 'TRY')}
+        </Text>
         {item.status ? <Chip tone={tone} label={item.status.name} /> : null}
       </View>
-      <Text className="font-inter text-[12px] text-muted-foreground">{item.followUpAt ? `Takip: ${formatDate(item.followUpAt)}` : `Teklif tarihi: ${formatDate(item.quoteDate)}`}</Text>
+      <Text className={`font-inter text-[12px] ${followUpOverdue ? 'text-warning' : 'text-muted-foreground'}`} numberOfLines={1}>
+        {[
+          item.revisionNo > 1 ? `${item.documentNo} · R${item.revisionNo}` : item.documentNo,
+          item.productName,
+          item.followUpAt
+            ? `${followUpOverdue ? 'Gecikti' : 'Takip'} · ${formatDate(item.followUpAt)}`
+            : formatDate(item.quoteDate),
+        ].filter(Boolean).join(' · ')}
+      </Text>
     </Pressable>
   );
 }
@@ -91,7 +95,7 @@ function ExternalQuotesSection({ search }: { search: string }) {
   return (
     <View className="gap-1">
       <SectionHeader
-        title={`Dış Teklifler · ${rows.length} dosya`}
+        title="Dış Teklifler"
         action={{ label: 'Tümü', onPress: () => router.push('/modules/documents?folder=external_quote') }}
       />
       {links.isPending ? (
@@ -134,7 +138,7 @@ function SalesOrdersSection() {
   return (
     <View className="gap-1">
       <SectionHeader
-        title={`Satış Siparişleri · ${orders.data?.total ?? 0} kayıt`}
+        title="Satış Siparişleri"
         action={{ label: 'Tümü', onPress: () => router.push('/modules/sales-orders') }}
       />
       {orders.isPending ? (
@@ -221,7 +225,7 @@ export default function QuotesScreen() {
       <SyncStatus />
       <ScreenHeader
         title="Teklifler"
-        subtitle="Tüm tekliflerinizi görüntüleyin ve yönetin."
+        compact
         actions={[
           {
             icon: exporting ? 'hourglass-outline' : 'download-outline',
@@ -286,7 +290,6 @@ export default function QuotesScreen() {
             ) : null}
 
             </View> : null}
-            <Text accessibilityLiveRegion="polite" className="font-inter text-[13px] text-muted-foreground">{items.length} / {list.data?.total ?? items.length} teklif</Text>
             {list.error ? <ErrorState message={list.error.message} onRetry={() => void list.refetch()} /> : null}
           </View>
         }
