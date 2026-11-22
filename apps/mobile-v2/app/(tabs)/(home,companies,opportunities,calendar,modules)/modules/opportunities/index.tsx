@@ -21,8 +21,7 @@ import { exportService } from '@/src/api/exports';
 import { formatAmount, formatDate } from '@/src/lib/format';
 import { useDebouncedValue } from '@/src/lib/useDebouncedValue';
 import { useTheme, type Tone } from '@/src/theme/theme';
-import { Button, Chip, EmptyState, ErrorState, Fab, Field, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar } from '@/src/ui';
-import { Tabs } from '@/src/ui/data';
+import { Button, Chip, EmptyState, ErrorState, Fab, Field, ListSkeleton, Loading, SCREEN_PAD, ScreenHeader, SearchBar, SegmentedTabs } from '@/src/ui';
 import { toast } from '@/src/ui/toast';
 import { useNavigationBottomInset } from '@/src/ui/LiquidGlassTabBarBackground';
 import { QualificationBoard, STAGE_TONE } from '@/src/ui/sales/QualificationBoard';
@@ -563,14 +562,11 @@ export default function OpportunitiesScreen() {
       <View className="gap-2 py-2">
         <SearchBar value={search} onChange={setSearch} placeholder="Firma / kontak / ürün ara..." onFilterPress={openFilters} filterActive={view !== 'kanban' && activeFilterCount > 0} />
         <View className="px-4">
-          <Tabs<View3>
-            tabs={[
-              { value: 'list', label: 'Liste' },
-              { value: 'kanban', label: 'Kanban' },
-              { value: 'archive', label: 'Geçmiş', badge: closedTotal ?? undefined },
-            ]}
+          <SegmentedTabs<View3>
+            items={['list', 'kanban', 'archive']}
             value={view}
             onChange={setView}
+            labelFor={(item) => (item === 'list' ? 'Liste' : item === 'kanban' ? 'Kanban' : closedTotal ? `Geçmiş · ${closedTotal}` : 'Geçmiş')}
           />
         </View>
         {view !== 'kanban' && (focus || result || reason || pipelineStage || region || city) ? (
