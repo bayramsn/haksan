@@ -1224,7 +1224,6 @@ const CONTRACT_CSS = `
 .ct { font-family: Cambria, "Times New Roman", Georgia, serif; font-size: 11pt; line-height: 1.11; }
 .ct-body { padding: 0 0 0 4mm; }
 .ct-title { text-align: center; font-weight: bold; font-size: 12pt; margin: .7mm 0 3.5mm; }
-.ct-continuation-title { text-align: center; font-weight: bold; font-size: 11pt; margin: 2.5mm 0 3mm; }
 .ct p { margin-bottom: .7mm; text-align: justify; }
 .ct .ind { text-indent: 11mm; }
 .ct .ctr { text-align: center; }
@@ -1232,16 +1231,11 @@ const CONTRACT_CSS = `
 .ct-section-title { display: grid; grid-template-columns: 7mm 1fr; font-weight: bold; margin-top: 3.5mm; }
 .ct-machine { display: grid; grid-template-columns: 8mm minmax(0, 1fr) 42mm; column-gap: 1mm; margin: .3mm 0 0 5mm; font-weight: bold; }
 .ct-machine .qty { text-align: left; white-space: nowrap; }
-.ct-tech-group { margin: 4mm 0 0 15mm; }
-.ct-tech-group + .ct-tech-group { margin-top: 4mm; }
-.ct-tech-heading { display: grid; grid-template-columns: 10mm 1fr; font-weight: bold; }
-table.ct-kv { width: calc(100% - 10mm); margin: .4mm 0 0 10mm; font-size: 11pt; line-height: 1.1; }
-table.ct-kv td { padding: .15mm 0; vertical-align: top; overflow-wrap: anywhere; }
-table.ct-kv td:first-child { width: 65mm; padding-right: 2mm; }
-table.ct-opt td:first-child { width: 95mm; }
-.ct-acc { margin: .4mm 0 0 10mm; line-height: 1.1; }
-.ct-acc div { margin-bottom: .15mm; overflow-wrap: anywhere; }
-.ct-h2 { display: grid; grid-template-columns: 7mm 1fr; font-weight: bold; margin: 3.4mm 0 .5mm; }
+.ct-tech-heading { display: grid; grid-template-columns: 10mm 1fr; font-weight: bold; margin: 1.6mm 0 .3mm 15mm; }
+.ct-kv-row { display: grid; grid-template-columns: 63mm minmax(0, 1fr); column-gap: 2mm; margin-left: 25mm; padding: .15mm 0; line-height: 1.1; overflow-wrap: anywhere; }
+.ct-kv-row.opt { grid-template-columns: 93mm minmax(0, 1fr); }
+.ct-acc-row { margin: 0 0 .15mm 25mm; line-height: 1.1; overflow-wrap: anywhere; }
+.ct-h2 { display: grid; grid-template-columns: 7mm 1fr; font-weight: bold; margin: 1.6mm 0 .3mm; }
 .ct-body > .ct-h2:first-child { margin-top: 0; }
 .ct-clause { display: grid; grid-template-columns: 8mm minmax(0, 1fr); margin: 0 0 .45mm 5mm; text-align: justify; }
 .ct-clause .no { font-weight: bold; }
@@ -1254,7 +1248,7 @@ table.ct-opt td:first-child { width: 95mm; }
      satırlık sarkmayı engeller.
    - Başlıklar sayfanın en altında tek başına kalmasın diye break-after: avoid. */
 .ct-clause .text { overflow-wrap: anywhere; orphans: 2; widows: 2; }
-.ct-h2, .ct-section-title, .ct-tech-heading, .ct-machine, .ct-continuation-title {
+.ct-h2, .ct-section-title, .ct-tech-heading, .ct-machine {
   break-inside: avoid; page-break-inside: avoid;
   break-after: avoid; page-break-after: avoid;
 }
@@ -1284,13 +1278,6 @@ table.ct-parties .kv { display: grid; grid-template-columns: 38mm 1fr; }
 .ct .pageno { font-family: Calibri, Carlito, Arial, sans-serif; font-size: 10.5pt; padding-top: 1mm; }
 `;
 
-type ContractTechnicalEntry = {
-  kind: "spec" | "standard" | "option" | "equivalent";
-  key?: string;
-  value: string;
-  weight: number;
-};
-
 type ContractLegalEntry = { html: string; weight: number; isHeading?: boolean };
 
 const contractLineCount = (value: string, charsPerLine = 96): number => {
@@ -1310,58 +1297,40 @@ const contractMachines = (d: ContractPrintData): ContractMachinePrintData[] => d
       kontrolUnitesiMarka: d.kontrolUnitesiMarka,
     }];
 
-const contractTechnicalChunks = (machine: ContractMachinePrintData): ContractTechnicalEntry[][] => {
-  const entries: ContractTechnicalEntry[] = [
-    ...machine.ozellikler.map((feature) => ({
-      kind: "spec" as const,
-      key: feature.key,
-      value: feature.value,
-      weight: Math.max(contractLineCount(feature.key, 44), contractLineCount(feature.value, 60)),
-    })),
-    ...machine.aksesuarlar.map((value) => ({
-      kind: "standard" as const,
-      value,
-      weight: contractLineCount(value, 90),
-    })),
-    ...(machine.opsiyonlar ?? []).map((option) => ({
-      kind: "option" as const,
-      key: option.ad,
-      value: option.fiyataDahil ? "Fiyata Dahil" : `${option.adet} (${adetYaziBuyuk(option.adet)}) Adet`,
-      weight: contractLineCount(option.ad, 60),
-    })),
-    ...(machine.muadiller ?? []).map((value) => ({
-      kind: "equivalent" as const,
-      value,
-      weight: contractLineCount(value, 90),
-    })),
+/**
+ * Teknik bölüm, referans sözleşmelerdeki gibi tek akış halinde yazılır: tezgahlar
+ * ve 2–4. maddeler ardı ardına gelir, sayfa ancak dolunca biter (Seba: 3 tezgah
+ * 4 sayfa). Her satır ayrı bir blok olduğu için tablo sayfa sınırında bölünebilir.
+ * Ağırlık birimi ≈ 11pt'lik bir satır (≈17 px).
+ */
+const contractTechnicalBlocks = (machine: ContractMachinePrintData, machineIndex: number): ContractLegalEntry[] => {
+  const no = `1.${machineIndex + 1}.`;
+  const group = (suffix: string, title: string, rows: ContractLegalEntry[]): ContractLegalEntry[] => rows.length
+    ? [{ html: `<div class="ct-tech-heading"><span>${no}${suffix}.</span><span>${title}</span></div>`, weight: 1.4, isHeading: true }, ...rows]
+    : [];
+  const kvRow = (key: string, value: string, cls: string, weight: number): ContractLegalEntry => ({
+    html: `<div class="ct-kv-row${cls}"><span>${esc(key)}</span><span>${esc(value)}</span></div>`,
+    weight,
+  });
+  const line = (value: string): ContractLegalEntry => ({
+    html: `<div class="ct-acc-row">${esc(value)}</div>`,
+    weight: contractLineCount(value, 90) * 0.98,
+  });
+  return [
+    // Anahtar sütunu 63 mm ≈ 36 karakter, değer ≈ 52 karakter.
+    ...group("1", "Tezgahın Karakteristik Özellikleri;", machine.ozellikler.map((feature) =>
+      kvRow(feature.key, feature.value, "", Math.max(contractLineCount(feature.key, 36), contractLineCount(feature.value, 52)) * 1.02))),
+    ...group("2", "Tezgahın Standart Aksesuarları;", machine.aksesuarlar.map(line)),
+    ...group("3", "Tezgahın Opsiyonel Aksesuarları;", (machine.opsiyonlar ?? []).map((option) =>
+      kvRow(option.ad, option.fiyataDahil ? "Fiyata Dahil" : `${option.adet} (${adetYaziBuyuk(option.adet)}) Adet`, " opt", contractLineCount(option.ad, 52) * 1.02))),
+    ...group("4", "Muadil Ürünler;", (machine.muadiller ?? []).map(line)),
   ];
-  if (!entries.length) return [[]];
-
-  const chunks: ContractTechnicalEntry[][] = [];
-  let page: ContractTechnicalEntry[] = [];
-  let used = 0;
-  for (const entry of entries) {
-    // Referans SL-8'de 12 özellik + 23 aksesuar tek ilk sayfaya sığıyor.
-    // 35 satırlık eski eşik ikinci, neredeyse boş bir teknik sayfa üretiyordu.
-    const capacity = chunks.length === 0 ? 43 : 47;
-    const headingWeight = page.length === 0 || page[page.length - 1].kind !== entry.kind ? 1 : 0;
-    if (page.length && used + headingWeight + entry.weight > capacity) {
-      chunks.push(page);
-      page = [];
-      used = 0;
-    }
-    const pageHeadingWeight = page.length === 0 || page[page.length - 1].kind !== entry.kind ? 1 : 0;
-    page.push(entry);
-    used += pageHeadingWeight + entry.weight;
-  }
-  if (page.length) chunks.push(page);
-  return chunks;
 };
 
 /**
  * Bir maddenin bütün kalabilmesi için üst sınır (tahmini satır sayısı).
  *
- * `chunkContractLegalEntries` bir sayfaya 53 satır yerleştirir. Bunun büyük bir
+ * `paginateContract` bir sayfaya ~50 satır yerleştirir. Bunun büyük bir
  * bölümünü kaplayan bir maddeyi `break-inside: avoid` ile korumak, madde sayfaya
  * sığmadığında metnin taşmasına/kırpılmasına yol açar — böyle bir maddeyi
  * kırpmaktansa bölmek yeğdir. Bu yüzden koruma yalnızca sayfanın ~%40'ından
@@ -1373,19 +1342,27 @@ const CLAUSE_KEEP_TOGETHER_MAX_LINES = 20;
 const keepTogetherClass = (weight: number): string =>
   weight <= CLAUSE_KEEP_TOGETHER_MAX_LINES ? " avoid-break" : "";
 
-const chunkContractLegalEntries = (entries: ContractLegalEntry[]): ContractLegalEntry[][] => {
+/**
+ * Sayfanın taşıdığı satır (≈17 px); ilk sayfada sözleşme girişi ayrıca düşülür.
+ * Chrome'da ölçüldü: gövde 136 px'te başlar, sayfa numarası 1065 px'te; 54 satır
+ * Seba 3 tezgah verisinde her sayfada ≥36 px pay bırakıyor. Yazdırmada metin ekran
+ * ölçümünden birkaç piksel farklı kırıldığı için pay sıfıra indirilmemeli.
+ */
+const CONTRACT_PAGE_CAPACITY = 54;
+const CONTRACT_INTRO_WEIGHT = 13;
+
+const paginateContract = (entries: ContractLegalEntry[]): ContractLegalEntry[][] => {
   const pages: ContractLegalEntry[][] = [];
   let page: ContractLegalEntry[] = [];
-  let used = 0;
+  let used = CONTRACT_INTRO_WEIGHT;
   for (const entry of entries) {
-    if (page.length && used + entry.weight > 53) {
-      // Sayfa sonunda tek başına kalan başlığı bir sonraki sayfaya taşır.
-      // Sayfalar ayrı `.page` blokları olduğu için CSS'teki `break-after: avoid`
-      // bu sınırı geçemez; taşımanın burada yapılması gerekir.
-      const trailingHeading = page.length > 1 && page[page.length - 1].isHeading ? page.pop() : undefined;
+    if (page.length && used + entry.weight > CONTRACT_PAGE_CAPACITY) {
+      // Sayfa sonunda başlıksız kalan başlıklar (bölüm + tezgah + grup) sonraki sayfaya geçer.
+      const carried: ContractLegalEntry[] = [];
+      while (page.length > 1 && page[page.length - 1].isHeading) carried.unshift(page.pop()!);
       pages.push(page);
-      page = trailingHeading ? [trailingHeading] : [];
-      used = trailingHeading?.weight ?? 0;
+      page = carried;
+      used = carried.reduce((sum, item) => sum + item.weight, 0);
     }
     page.push(entry);
     used += entry.weight;
@@ -1407,47 +1384,11 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   // belirler. SL-8 altın örneğinde KDV dahil girilen 50.000 USD yine 50.000'dir.
   const vatIncluded = d.kdvDahil === true;
   const contractAmount = (amount: number) => amount;
-  const technicalSections = machines.flatMap((machine, machineIndex) =>
-    contractTechnicalChunks(machine).map((chunk, chunkIndex) => ({ machine, machineIndex, chunk, chunkIndex }))
-  );
-  const machineNumber = (machineIndex: number) => `1.${machineIndex + 1}.`;
-  const machineHeading = (machine: ContractMachinePrintData, machineIndex: number) =>
-    `<div class="ct-machine"><span>${machineNumber(machineIndex)}</span><span>${esc(machine.model)}</span><span class="qty">${esc(machine.adet)} (${esc(sayiAdet(machine.adet))}) Set</span></div>`;
-
-  const renderTechnicalChunk = (
-    machineIndex: number,
-    chunkIndex: number,
-    chunk: ContractTechnicalEntry[],
-  ) => {
-    const groups: ContractTechnicalEntry[][] = [];
-    for (const entry of chunk) {
-      const last = groups[groups.length - 1];
-      if (!last || last[0].kind !== entry.kind) groups.push([entry]);
-      else last.push(entry);
-    }
-    return groups.map((group) => {
-      const kind = group[0].kind;
-      const continuation = chunkIndex > 0 ? " — DEVAM" : "";
-      if (kind === "spec") {
-        return `<div class="ct-tech-group">
-          <div class="ct-tech-heading"><span>${machineNumber(machineIndex)}1.</span><span>Tezgahın Karakteristik Özellikleri;${continuation}</span></div>
-          <table class="ct-kv">${group.map((entry) => `<tr><td>${esc(entry.key)}</td><td>${esc(entry.value)}</td></tr>`).join("")}</table>
-        </div>`;
-      }
-      if (kind === "option") {
-        return `<div class="ct-tech-group">
-          <div class="ct-tech-heading"><span>${machineNumber(machineIndex)}3.</span><span>Tezgahın Opsiyonel Aksesuarları;${continuation}</span></div>
-          <table class="ct-kv ct-opt">${group.map((entry) => `<tr><td>${esc(entry.key)}</td><td>${esc(entry.value)}</td></tr>`).join("")}</table>
-        </div>`;
-      }
-      const number = `${machineNumber(machineIndex)}${kind === "standard" ? "2" : "4"}.`;
-      const title = kind === "standard" ? "Tezgahın Standart Aksesuarları;" : "Muadil Ürünler;";
-      return `<div class="ct-tech-group">
-        <div class="ct-tech-heading"><span>${number}</span><span>${title}${continuation}</span></div>
-        <div class="ct-acc">${group.map((entry) => `<div>${esc(entry.value)}</div>`).join("")}</div>
-      </div>`;
-    }).join("");
-  };
+  const machineHeading = (machine: ContractMachinePrintData, machineIndex: number): ContractLegalEntry => ({
+    html: `<div class="ct-machine"><span>1.${machineIndex + 1}.</span><span>${esc(machine.model)}</span><span class="qty">${esc(machine.adet)} (${esc(sayiAdet(machine.adet))}) Set</span></div>`,
+    weight: 1.2,
+    isHeading: true,
+  });
 
   const clause = (number: string, plainText: string, html = contractText(plainText)): ContractLegalEntry => {
     const weight = contractLineCount(plainText);
@@ -1458,7 +1399,8 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
   };
   const heading = (number: string, title: string): ContractLegalEntry => ({
     html: `<div class="ct-h2"><span>${esc(number)}</span><span>${esc(title)}</span></div>`,
-    weight: 1,
+    // 1,9 mm üst/alt boşluk + başlık satırı.
+    weight: 1.4,
     isHeading: true,
   });
 
@@ -1575,7 +1517,7 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
     ? "1. bölümde belirtilen tezgahların ilgili maddelerde belirtilmiş olan karakteristik özellikleri ve donanımları ile birlikte fiyatları aşağıdaki gibidir,"
     : "1.1. no'lu maddede belirtilen tezgahın karakteristik özellikleri ve donanımları ile birlikte fiyatı aşağıdaki gibidir,";
   // Uzun model adı fiyat tablosunda iki satıra kırılır; ağırlık buna göre.
-  const priceWeight = 4 + machines.reduce((sum, machine) => sum + contractLineCount(machine.model, 40), 0);
+  const priceWeight = 5 + machines.reduce((sum, machine) => sum + contractLineCount(machine.model, 40), 0);
   const priceBlock: ContractLegalEntry = {
     html: `<div class="ct-clause${keepTogetherClass(priceWeight)}"><span class="no">3.1.</span><span class="text">${esc(priceIntro)}
       <div class="ct-price">
@@ -1744,22 +1686,18 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
       <b>${esc(d.imza?.ad ?? d.hazirlayan ?? "")}</b>${(d.imza?.unvan ?? d.hazirlayanUnvan) ? ` · ${esc(d.imza?.unvan ?? d.hazirlayanUnvan ?? "")}` : ""}
     </div>` : ""}
   </div>`;
-  const legalChunks = chunkContractLegalEntries([
-    ...sectionTwo,
-    ...sectionThree,
-    { html: partiesBlock, weight: d.imza || d.hazirlayan ? 17 : 14 },
-  ]);
-  const totalPages = technicalSections.length + legalChunks.length;
-  const pn = (page: number) => pageNo(page, totalPages);
-  const firstTechnicalSection = technicalSections[0];
   const subjectTitle = machines.length > 1
     ? "Sözleşmeye Konu Olan Tezgahlar ve Özellikleri"
     : "Sözleşmeye Konu Olan Tezgah ve Özellikleri";
-
-  const firstPage = `<div class="page ct">
-    ${haksanHeader(assetBase)}
-    <div class="ct-body">
-      <div class="ct-title">SATIŞ SÖZLEŞMESİ</div>
+  const pages = paginateContract([
+    { html: `<div class="ct-section-title"><span>1.</span><span>${subjectTitle}</span></div>`, weight: 1.8, isHeading: true },
+    ...machines.flatMap((machine, machineIndex) => [machineHeading(machine, machineIndex), ...contractTechnicalBlocks(machine, machineIndex)]),
+    ...sectionTwo,
+    ...sectionThree,
+    { html: partiesBlock, weight: d.imza || d.hazirlayan ? 16.5 : 13.5 },
+  ]);
+  const totalPages = pages.length;
+  const intro = `<div class="ct-title">SATIŞ SÖZLEŞMESİ</div>
       <p>İş bu satış sözleşmesi satıcı firma sıfatıyla;</p>
       <p class="ctr">${esc(HAKSAN.adresSozlesme)} adresinde sabit,</p>
       <p class="ctr b">${esc(HAKSAN.unvanUzun)}</p>
@@ -1767,44 +1705,20 @@ export function contractDoc(d: ContractPrintData, assetBase: string): PrintDocum
       <p>Alıcı firma sıfatıyla;</p>
       <p class="ctr">${blank(d.alici.adres)} adresinde sabit,</p>
       <p class="ctr b">${esc(d.alici.unvan)}</p>
-      <p class="ind" style="margin-top:3mm">arasında ${esc(tarihUzun)} tarihinde kaleme alınmış toplam ${totalPages} (${esc(sayiAdet(totalPages))}) sayfadan oluşan satış sözleşmesidir.</p>
-      <div class="ct-section-title"><span>1.</span><span>${subjectTitle}</span></div>
-      ${machineHeading(firstTechnicalSection.machine, firstTechnicalSection.machineIndex)}
-      ${renderTechnicalChunk(firstTechnicalSection.machineIndex, firstTechnicalSection.chunkIndex, firstTechnicalSection.chunk)}
+      <p class="ind" style="margin-top:3mm">arasında ${esc(tarihUzun)} tarihinde kaleme alınmış toplam ${totalPages} (${esc(sayiAdet(totalPages))}) sayfadan oluşan satış sözleşmesidir.</p>`;
+  const body = pages.map((chunk, index) => `<div class="page ct">
+    ${haksanHeader(assetBase)}
+    <div class="ct-body">
+      ${index === 0 ? intro : ""}
+      ${chunk.map((entry) => entry.html).join("")}
     </div>
-    ${pn(1)}
-  </div>`;
-
-  const technicalPages = technicalSections.slice(1).map((section, index) => {
-    const page = index + 2;
-    return `<div class="page ct">
-      ${haksanHeader(assetBase)}
-      <div class="ct-body">
-        <div class="ct-continuation-title">SATIŞ SÖZLEŞMESİ — DEVAM</div>
-        <div class="ct-section-title"><span>1.</span><span>${subjectTitle}</span></div>
-        ${machineHeading(section.machine, section.machineIndex)}
-        ${renderTechnicalChunk(section.machineIndex, section.chunkIndex, section.chunk)}
-      </div>
-      ${pn(page)}
-    </div>`;
-  });
-
-  const legalPages = legalChunks.map((chunk, index) => {
-    const page = technicalSections.length + index + 1;
-    return `<div class="page ct">
-      ${haksanHeader(assetBase)}
-      <div class="ct-body">
-        ${index > 0 ? `<div class="ct-continuation-title">SATIŞ SÖZLEŞMESİ — DEVAM</div>` : ""}
-        ${chunk.map((entry) => entry.html).join("")}
-      </div>
-      ${pn(page)}
-    </div>`;
-  });
+    ${pageNo(index + 1, totalPages)}
+  </div>`);
 
   return {
     title: `Satış Sözleşmesi ${d.sozlesmeNo} - ${aliciKisaRaw}`,
     css: CONTRACT_CSS,
-    body: [firstPage, ...technicalPages, ...legalPages].join("\n"),
+    body: body.join("\n"),
   };
 }
 

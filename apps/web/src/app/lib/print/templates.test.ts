@@ -950,7 +950,10 @@ describe("print templates", () => {
       ],
     }, assetBase);
 
-    expect(pages(document.body)).toBeGreaterThanOrEqual(3);
+    // Referanslardaki gibi tek akış: tezgahlar ve hukuki maddeler aynı sayfada devam eder,
+    // her tezgah için yeni sayfa ve "DEVAM" başlığı açılmaz.
+    expect(pages(document.body)).toBe(2);
+    expect(document.body).not.toContain("DEVAM");
     expect(document.body).toContain("Sözleşmeye Konu Olan Tezgahlar ve Özellikleri");
     expect(document.body).toContain("1.1.1.");
     expect(document.body).toContain("1.2.1.");
